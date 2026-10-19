@@ -1,0 +1,9 @@
+/target/
+/.idea/
+node_modules/
+/packages/native/*.node
+/packages/.napi-rs-filesystem-reconciliation*
+/packages/vite-plugin/dist/
+/fixtures/vite-basic/dist/
+/coverage/
+/dist/

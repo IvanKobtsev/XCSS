@@ -1,0 +1,6 @@
+{
+  "name": "@cross-css/native-linux-arm64-musl",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": { "prepublishOnly": "node ../../../npm/refuse-platform-stub-publish.mjs" }
+}

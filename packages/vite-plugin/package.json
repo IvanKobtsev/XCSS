@@ -1,0 +1,51 @@
+{
+  "name": "@cross-css/vite-plugin",
+  "version": "0.1.0",
+  "description": "Compile Cross-CSS before Vite's CSS pipeline",
+  "license": "MIT",
+  "author": "Ivan Kobtsev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IvanKobtsev/XCSS.git",
+    "directory": "packages/vite-plugin"
+  },
+  "homepage": "https://github.com/IvanKobtsev/XCSS#readme",
+  "bugs": {
+    "url": "https://github.com/IvanKobtsev/XCSS/issues"
+  },
+  "keywords": ["css", "scss", "css-modules", "vite", "rolldown", "rust"],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "node ../../npm/verify-release.mjs"
+  },
+  "dependencies": {
+    "@cross-css/native": "workspace:*"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.12",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^4.0.6"
+  }
+}

@@ -1,0 +1,197 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Verify release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: corepack pnpm install --frozen-lockfile
+      - name: Verify tag and package versions
+        shell: bash
+        run: |
+          corepack pnpm verify-release
+          test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: corepack pnpm check
+      - run: corepack pnpm test
+      - run: corepack pnpm pack:release
+      - run: corepack pnpm test:release-packages
+
+  build:
+    name: Build ${{ matrix.package }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: native-darwin-x64
+            package_name: "@cross-css/native-darwin-x64"
+            runs-on: macos-15-intel
+            target: x86_64-apple-darwin
+            os: darwin
+            cpu: x64
+            library: libxcss_node.dylib
+          - package: native-darwin-arm64
+            package_name: "@cross-css/native-darwin-arm64"
+            runs-on: macos-15
+            target: aarch64-apple-darwin
+            os: darwin
+            cpu: arm64
+            library: libxcss_node.dylib
+          - package: native-win32-x64-msvc
+            package_name: "@cross-css/native-win32-x64-msvc"
+            runs-on: windows-2025
+            target: x86_64-pc-windows-msvc
+            os: win32
+            cpu: x64
+            library: xcss_node.dll
+          - package: native-win32-arm64-msvc
+            package_name: "@cross-css/native-win32-arm64-msvc"
+            runs-on: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            os: win32
+            cpu: arm64
+            library: xcss_node.dll
+          - package: native-linux-x64-gnu
+            package_name: "@cross-css/native-linux-x64-gnu"
+            runs-on: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            os: linux
+            cpu: x64
+            libc: gnu
+            library: libxcss_node.so
+          - package: native-linux-arm64-gnu
+            package_name: "@cross-css/native-linux-arm64-gnu"
+            runs-on: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu
+            os: linux
+            cpu: arm64
+            libc: gnu
+            library: libxcss_node.so
+          - package: native-linux-x64-musl
+            package_name: "@cross-css/native-linux-x64-musl"
+            runs-on: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            os: linux
+            cpu: x64
+            libc: musl
+            library: libxcss_node.so
+          - package: native-linux-arm64-musl
+            package_name: "@cross-css/native-linux-arm64-musl"
+            runs-on: ubuntu-24.04
+            target: aarch64-unknown-linux-musl
+            os: linux
+            cpu: arm64
+            libc: musl
+            library: libxcss_node.so
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Verify tag and package versions
+        shell: bash
+        run: |
+          node npm/verify-release.mjs
+          test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+      - name: Build native binding
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          command: build
+          target: ${{ matrix.target }}
+          args: "--locked --release --package xcss-node"
+          strip: true
+      - name: Create npm platform package
+        shell: bash
+        run: |
+          node npm/create-platform-package.mjs \
+            "target/${{ matrix.target }}/release/${{ matrix.library }}" \
+            "dist/${{ matrix.package }}" \
+            "${{ matrix.package_name }}" \
+            "${{ matrix.os }}" \
+            "${{ matrix.cpu }}" \
+            "${{ matrix.libc }}"
+          mkdir -p dist/tarballs
+          npm pack "./dist/${{ matrix.package }}" --pack-destination dist/tarballs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}
+          path: dist/tarballs/*.tgz
+          if-no-files-found: error
+
+  publish:
+    name: Publish npm packages
+    needs: [quality, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # Used only for the first release, before trusted publishing can be
+      # configured for the newly created npm packages.
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: corepack pnpm install --frozen-lockfile
+      - run: corepack pnpm --filter @cross-css/vite-plugin build
+      - run: corepack pnpm pack:release
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist/platform-packages
+      - name: Publish platform packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' package_files < <(find dist/platform-packages -type f -name '*.tgz' -print0)
+          test "${#package_files[@]}" -eq 8
+          for package_file in "${package_files[@]}"; do
+            package_name=$(tar -xOf "$package_file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).name")
+            package_version=$(tar -xOf "$package_file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+            if npm view "$package_name@$package_version" version >/dev/null 2>&1; then
+              echo "Skipping $package_name@$package_version because it is already published"
+              continue
+            fi
+            npm publish "$package_file" --access public --provenance
+          done
+      - name: Publish loader and Vite plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package_file in dist/main-packages/*.tgz; do
+            package_name=$(tar -xOf "$package_file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).name")
+            package_version=$(tar -xOf "$package_file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+            if npm view "$package_name@$package_version" version >/dev/null 2>&1; then
+              echo "Skipping $package_name@$package_version because it is already published"
+              continue
+            fi
+            npm publish "$package_file" --access public --provenance
+          done

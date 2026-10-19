@@ -1,0 +1,16 @@
+{
+  "name": "xcss-vite-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cross-css/vite-plugin": "workspace:*"
+  },
+  "devDependencies": {
+    "sass-embedded": "^1.93.2",
+    "vite": "^8.0.0",
+    "vitest": "^4.0.6"
+  }
+}
