@@ -34,7 +34,7 @@ Complete the first trusted publish within npm's validation window, then delete t
 ## Create a release
 
 1. Update the version in the root `package.json`, both publishable package manifests, and `[workspace.package]` in `Cargo.toml`.
-2. Update the versions in the eight private workspace stubs under `packages/native-platforms`.
+2. Update the exact `@cross-css/native` dependency in the Vite plugin, all eight native optional dependency versions, and the versions in the eight private workspace stubs.
 3. Run `cargo check` so `Cargo.lock` receives the new workspace version.
 4. Run `corepack pnpm install`, `corepack pnpm verify-release`, and the full test suite.
 5. Commit and push the version change.

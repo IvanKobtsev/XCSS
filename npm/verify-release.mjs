@@ -43,7 +43,7 @@ if (Object.keys(optionalDependencies).length !== expectedPlatforms.size) {
   throw new Error(`expected ${expectedPlatforms.size} native platform dependencies`)
 }
 for (const [name, dependencyVersion] of Object.entries(optionalDependencies)) {
-  if (!expectedPlatforms.delete(name) || dependencyVersion !== 'workspace:*') {
+  if (!expectedPlatforms.delete(name) || dependencyVersion !== version) {
     throw new Error(`invalid native platform dependency ${name}@${dependencyVersion}`)
   }
 }
@@ -55,8 +55,8 @@ for (const name of Object.keys(optionalDependencies)) {
     throw new Error(`invalid workspace stub for ${name}`)
   }
 }
-if (vitePackage.dependencies?.['@cross-css/native'] !== 'workspace:*') {
-  throw new Error('@cross-css/vite-plugin must depend on @cross-css/native through workspace:*')
+if (vitePackage.dependencies?.['@cross-css/native'] !== version) {
+  throw new Error('@cross-css/vite-plugin must depend on the matching @cross-css/native version')
 }
 
 console.log(`release metadata is consistent for ${version}`)
