@@ -1,17 +1,21 @@
 use std::{
     fs,
     process::Command,
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static SANDBOX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn sandbox() -> std::path::PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    let sequence = SANDBOX_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/xcss-cli-tests")
-        .join(format!("{}-{nonce}", std::process::id()));
+        .join(format!("{}-{nonce}-{sequence}", std::process::id()));
     fs::create_dir_all(&path).unwrap();
     path
 }
