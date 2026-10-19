@@ -19,33 +19,6 @@ with XCSS can be written as simply:
 }
 ```
 
-Existing `var()` calls remain unchanged, while shorthand references in fallbacks are compiled normally.
-
-Arithmetic expressions using `+`, `-`, `*`, or `/` are also wrapped automatically:
-
-```scss
-.sidebar {
-  width: 100% - --sidebar-width;
-  transform: translateX(--offset + 2px);
-}
-
-$double-gap: 4px * 2;
-```
-
-becomes:
-
-```scss
-.sidebar {
-  width: calc(100% - var(--sidebar-width));
-  transform: translateX(calc(var(--offset) + 2px));
-}
-
-$double-gap: calc(4px * 2);
-```
-
-Expressions inside `calc()`, `min()`, `max()`, and `clamp()` are already math contexts and are not wrapped again. 
-Additive operators must have whitespace on both sides.
-
 Use parentheses when arithmetic is mixed with other whitespace-separated values. XCSS replaces the grouping parentheses with `calc()`:
 
 ```scss
@@ -55,6 +28,8 @@ margin: 10px + 2px 20px;
 /* Explicit: compiles to `calc(10px + 2px) 20px`. */
 margin: (10px + 2px) 20px;
 ```
+
+XCSS is in very early development and haven't been thoroughly tested yet. Expect valid XCSS syntax to fail on compilation.
 
 ## Vite plugin
 

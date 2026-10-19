@@ -116,7 +116,18 @@ jobs:
           node npm/verify-release.mjs
           test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
       - name: Build native binding
+        if: matrix.libc != 'musl'
         uses: houseabsolute/actions-rust-cross@v1
+        with:
+          command: build
+          target: ${{ matrix.target }}
+          args: "--locked --release --package xcss-node"
+          strip: true
+      - name: Build native binding with dynamic musl CRT
+        if: matrix.libc == 'musl'
+        uses: houseabsolute/actions-rust-cross@v1
+        env:
+          RUSTFLAGS: "-C target-feature=-crt-static"
         with:
           command: build
           target: ${{ matrix.target }}
