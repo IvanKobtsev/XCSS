@@ -19,7 +19,7 @@ export function createVirtualId(resolvedId: string): VirtualXcssId | null {
   const match = CROSS_EXTENSION.exec(path)
   if (!match) return null
 
-  const sourcePath = normalizePath(path)
+  const sourcePath = normalizeXcssPath(path)
   const syntax = match[1].toLowerCase() as 'css' | 'scss'
   const virtualPath = sourcePath.replace(CROSS_EXTENSION, `.module.${syntax}`)
   const params = new URLSearchParams(query)
@@ -35,9 +35,13 @@ export function parseVirtualId(id: string): VirtualXcssId | null {
   if (!sourcePath || !match) return null
   return {
     id,
-    sourcePath: normalizePath(sourcePath),
+    sourcePath: normalizeXcssPath(sourcePath),
     syntax: match[1].toLowerCase() as 'css' | 'scss',
   }
+}
+
+function normalizeXcssPath(path: string): string {
+  return normalizePath(path.replaceAll('\\', '/'))
 }
 
 function splitId(id: string): { path: string; query: string } {
