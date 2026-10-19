@@ -87,7 +87,7 @@ enum CalcWrapper {
 struct Edit {
     start: usize,
     end: usize,
-    replacement: &'static str,
+    replacement: String,
     priority: u8,
 }
 
@@ -142,21 +142,45 @@ pub fn transform(
     let mut references = BTreeSet::new();
     let mut calc_wrappers = BTreeSet::new();
     let mut expression_diagnostics = Vec::new();
+    let mut transition_edits = Vec::new();
     for range in &value_ranges {
-        scan_value(
-            source,
-            range.start,
-            range.end,
-            &declaration_name_ranges,
-            &mut references,
-        );
-        analyze_value_for_calc(
-            source,
-            range,
-            options.filename,
-            &mut calc_wrappers,
-            &mut expression_diagnostics,
-        );
+        let is_transition = range
+            .property_name
+            .as_deref()
+            .is_some_and(|name| name == "transition");
+        if is_transition {
+            match transform_transition_value(source, range, options.filename) {
+                Ok(Some(replacement)) => transition_edits.push(Edit {
+                    start: range.start,
+                    end: range.end,
+                    replacement,
+                    priority: 2,
+                }),
+                Ok(None) => {}
+                Err(diagnostic) => expression_diagnostics.push(diagnostic),
+            }
+        } else if !range
+            .property_name
+            .as_deref()
+            .is_some_and(is_transition_property)
+        {
+            scan_value(
+                source,
+                range.start,
+                range.end,
+                &declaration_name_ranges,
+                &mut references,
+            );
+        }
+        if !is_transition {
+            analyze_value_for_calc(
+                source,
+                range,
+                options.filename,
+                &mut calc_wrappers,
+                &mut expression_diagnostics,
+            );
+        }
     }
     let accepted_expression_spans: Vec<SourceSpan> = calc_wrappers
         .iter()
@@ -175,15 +199,27 @@ pub fn transform(
                 .iter()
                 .map(|diagnostic| diagnostic.span),
         )
+        .chain(value_ranges.iter().filter_map(|range| {
+            (range.property_name.as_deref() == Some("transition")).then_some(SourceSpan {
+                start: range.start,
+                end: range.end,
+            })
+        }))
         .collect();
     let mut parse_diagnostics: Vec<_> = parser
         .recoverable_errors()
         .iter()
         .filter(|error| {
-            !matches!(error.kind, raffia::error::ErrorKind::ExpectComponentValue)
-                || !accepted_expression_spans
+            let handled_transition = value_ranges.iter().any(|range| {
+                range.property_name.as_deref() == Some("transition")
+                    && error.span.start >= range.start
+                    && error.span.end <= range.end
+            });
+            !handled_transition
+                && (!matches!(error.kind, raffia::error::ErrorKind::ExpectComponentValue)
+                    || !accepted_expression_spans
                     .iter()
-                    .any(|span| error.span.start >= span.start && error.span.end <= span.end)
+                    .any(|span| error.span.start >= span.start && error.span.end <= span.end))
         })
         .map(|error| diagnostic_from_error(source, options.filename, error))
         .collect();
@@ -192,18 +228,18 @@ pub fn transform(
         return Err(parse_diagnostics);
     }
 
-    let mut edits = Vec::new();
+    let mut edits = transition_edits;
     for (start, end) in references {
         edits.push(Edit {
             start,
             end: start,
-            replacement: "var(",
+            replacement: "var(".into(),
             priority: 0,
         });
         edits.push(Edit {
             start: end,
             end,
-            replacement: ")",
+            replacement: ")".into(),
             priority: 0,
         });
     }
@@ -213,20 +249,20 @@ pub fn transform(
                 edits.push(Edit {
                     start,
                     end: start,
-                    replacement: "calc(",
+                    replacement: "calc(".into(),
                     priority: 1,
                 });
                 edits.push(Edit {
                     start: end,
                     end,
-                    replacement: ")",
+                    replacement: ")".into(),
                     priority: 1,
                 });
             }
             CalcWrapper::ReplaceGrouping { start } => edits.push(Edit {
                 start,
                 end: start + 1,
-                replacement: "calc(",
+                replacement: "calc(".into(),
                 priority: 1,
             }),
         }
@@ -239,7 +275,7 @@ pub fn transform(
     });
     let mut code = source.to_owned();
     for edit in &edits {
-        code.replace_range(edit.start..edit.end, edit.replacement);
+        code.replace_range(edit.start..edit.end, &edit.replacement);
     }
     if options.syntax == Syntax::Css {
         validate_generated_css(&code, source, options.filename, &edits)?;
@@ -787,6 +823,322 @@ fn division_allowed_for_property(name: &str) -> bool {
     )
 }
 
+fn is_transition_property(name: &str) -> bool {
+    matches!(name, "transition" | "transition-property")
+}
+
+fn transform_transition_value(
+    source: &str,
+    range: &ValueRange,
+    filename: Option<&str>,
+) -> Result<Option<String>, Diagnostic> {
+    let value = &source[range.start..range.end];
+    let leading_len = value.len() - value.trim_start_matches(char::is_whitespace).len();
+    let trailing_start = value.trim_end_matches(char::is_whitespace).len();
+    let core = &value[leading_len..trailing_start];
+    if core.is_empty() {
+        return Ok(None);
+    }
+
+    let items = split_top_level(core, ',').map_err(|offset| {
+        transition_diagnostic(
+            source,
+            filename,
+            range.start + leading_len + offset,
+            "malformed transition value",
+        )
+    })?;
+    let mut output_items = Vec::new();
+    let mut changed = false;
+
+    for (item_start, item_end) in items {
+        let raw_item = &core[item_start..item_end];
+        let item_leading = raw_item.len() - raw_item.trim_start().len();
+        let item_trailing_start = raw_item.trim_end().len();
+        let item = &raw_item[item_leading..item_trailing_start];
+        if item.is_empty() {
+            return Err(transition_diagnostic(
+                source,
+                filename,
+                range.start + leading_len + item_start,
+                "transition items must not be empty",
+            ));
+        }
+        if let Some((open, close)) = standalone_group(item).map_err(|offset| {
+            transition_diagnostic(
+                source,
+                filename,
+                range.start + leading_len + item_start + item_leading + offset,
+                "malformed transition property group",
+            )
+        })? {
+            let members = parse_transition_group(&item[open + 1..close]).map_err(|offset| {
+                transition_diagnostic(
+                    source,
+                    filename,
+                    range.start + leading_len + item_start + item_leading + open + 1 + offset,
+                    "transition groups accept only comma-separated literal property names",
+                )
+            })?;
+            let prefix = item[..open].trim_end();
+            let suffix = item[close + 1..].trim_start();
+            let mut expanded_items = Vec::new();
+            for (member, property_name) in members {
+                let mut expanded = String::new();
+                if !prefix.is_empty() {
+                    expanded.push_str(prefix);
+                    expanded.push(' ');
+                }
+                expanded.push_str(member);
+                if !suffix.is_empty() {
+                    expanded.push(' ');
+                    expanded.push_str(suffix);
+                }
+                expanded_items.push(add_discrete_behavior(&expanded, Some(&property_name)));
+            }
+            output_items.push(format!(
+                "{}{}{}",
+                &raw_item[..item_leading],
+                expanded_items.join(", "),
+                &raw_item[item_trailing_start..]
+            ));
+            changed = true;
+        } else {
+            let transformed = add_discrete_behavior(item, find_discrete_property(item));
+            changed |= transformed != item;
+            output_items.push(format!(
+                "{}{}{}",
+                &raw_item[..item_leading],
+                transformed,
+                &raw_item[item_trailing_start..]
+            ));
+        }
+    }
+
+    if !changed {
+        return Ok(None);
+    }
+    let mut replacement = String::new();
+    replacement.push_str(&value[..leading_len]);
+    replacement.push_str(&output_items.join(","));
+    replacement.push_str(&value[trailing_start..]);
+    Ok(Some(replacement))
+}
+
+fn split_top_level(value: &str, delimiter: char) -> Result<Vec<(usize, usize)>, usize> {
+    let bytes = value.as_bytes();
+    let mut result = Vec::new();
+    let mut start = 0;
+    let mut index = 0;
+    let mut depth = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' if index + 1 < bytes.len() && bytes[index + 1] == b'*' => {
+                index = skip_comment(bytes, index + 2, bytes.len());
+            }
+            b'\'' | b'"' => index = skip_string(bytes, index, bytes.len()),
+            b'(' => {
+                depth += 1;
+                index += 1;
+            }
+            b')' => {
+                if depth == 0 {
+                    return Err(index);
+                }
+                depth -= 1;
+                index += 1;
+            }
+            byte if byte == delimiter as u8 && depth == 0 => {
+                result.push((start, index));
+                start = index + 1;
+                index += 1;
+            }
+            _ => index += utf8_char_len(bytes[index]),
+        }
+    }
+    if depth != 0 {
+        return Err(value.len().saturating_sub(1));
+    }
+    result.push((start, value.len()));
+    Ok(result)
+}
+
+fn standalone_group(item: &str) -> Result<Option<(usize, usize)>, usize> {
+    let bytes = item.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' if index + 1 < bytes.len() && bytes[index + 1] == b'*' => {
+                index = skip_comment(bytes, index + 2, bytes.len());
+            }
+            b'\'' | b'"' => index = skip_string(bytes, index, bytes.len()),
+            b'(' => {
+                let previous = item[..index].trim_end().as_bytes().last().copied();
+                if previous.is_some_and(is_name_byte) {
+                    let close = matching_paren(item, index)?;
+                    index = close + 1;
+                } else {
+                    return Ok(Some((index, matching_paren(item, index)?)));
+                }
+            }
+            _ => index += utf8_char_len(bytes[index]),
+        }
+    }
+    Ok(None)
+}
+
+fn matching_paren(value: &str, open: usize) -> Result<usize, usize> {
+    let bytes = value.as_bytes();
+    let mut depth = 1usize;
+    let mut index = open + 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' if index + 1 < bytes.len() && bytes[index + 1] == b'*' => {
+                index = skip_comment(bytes, index + 2, bytes.len());
+            }
+            b'\'' | b'"' => index = skip_string(bytes, index, bytes.len()),
+            b'(' => {
+                depth += 1;
+                index += 1;
+            }
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(index);
+                }
+                index += 1;
+            }
+            _ => index += utf8_char_len(bytes[index]),
+        }
+    }
+    Err(open)
+}
+
+fn parse_transition_group(group: &str) -> Result<Vec<(&str, String)>, usize> {
+    let members = split_top_level(group, ',')?;
+    let mut result = Vec::new();
+    for (start, end) in members {
+        let member = group[start..end].trim();
+        let offset = start + group[start..end].find(member).unwrap_or(0);
+        let property_name = without_comments(member);
+        let property_name = property_name.trim();
+        if property_name.is_empty()
+            || property_name.contains("#{")
+            || !property_name.chars().all(|character| {
+                character.is_alphanumeric()
+                    || character == '-'
+                    || character == '_'
+                    || character == '\\'
+                    || !character.is_ascii()
+            })
+            || property_name
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_digit())
+        {
+            return Err(offset);
+        }
+        result.push((member, property_name.to_owned()));
+    }
+    Ok(result)
+}
+
+fn without_comments(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut output = String::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'/' && index + 1 < bytes.len() && bytes[index + 1] == b'*' {
+            index = skip_comment(bytes, index + 2, bytes.len());
+        } else {
+            let length = utf8_char_len(bytes[index]);
+            output.push_str(&value[index..(index + length).min(value.len())]);
+            index += length;
+        }
+    }
+    output
+}
+
+fn find_discrete_property(item: &str) -> Option<&str> {
+    top_level_words(item).into_iter().find(|word| {
+        matches!(
+            word.to_ascii_lowercase().as_str(),
+            "display" | "content-visibility" | "overlay"
+        )
+    })
+}
+
+fn add_discrete_behavior(item: &str, property: Option<&str>) -> String {
+    let words = top_level_words(item);
+    let has_explicit_behavior = words.iter().any(|word| {
+        matches!(
+            word.to_ascii_lowercase().as_str(),
+            "normal" | "allow-discrete"
+        )
+    });
+    if property.is_some_and(|name| {
+        matches!(
+            name.to_ascii_lowercase().as_str(),
+            "display" | "content-visibility" | "overlay"
+        )
+    }) && !has_explicit_behavior
+    {
+        format!("{} allow-discrete", item.trim_end())
+    } else {
+        item.to_owned()
+    }
+}
+
+fn top_level_words(value: &str) -> Vec<&str> {
+    let bytes = value.as_bytes();
+    let mut words = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index].is_ascii_whitespace() {
+            index += 1;
+        } else if bytes[index] == b'/' && index + 1 < bytes.len() && bytes[index + 1] == b'*' {
+            index = skip_comment(bytes, index + 2, bytes.len());
+        } else if bytes[index] == b'\'' || bytes[index] == b'"' {
+            index = skip_string(bytes, index, bytes.len());
+        } else if bytes[index] == b'(' {
+            index = matching_paren(value, index).map_or(bytes.len(), |close| close + 1);
+        } else if is_name_byte(bytes[index]) && !bytes[index].is_ascii_digit() {
+            let start = index;
+            index += 1;
+            while index < bytes.len() && is_name_byte(bytes[index]) {
+                index += 1;
+            }
+            if bytes.get(index) != Some(&b'(') {
+                words.push(&value[start..index]);
+            }
+        } else {
+            index += utf8_char_len(bytes[index]);
+        }
+    }
+    words
+}
+
+fn transition_diagnostic(
+    source: &str,
+    filename: Option<&str>,
+    start: usize,
+    message: &str,
+) -> Diagnostic {
+    let start = start.min(source.len());
+    let (line, column) = line_column(source, start);
+    Diagnostic {
+        message: message.into(),
+        severity: Severity::Error,
+        span: SourceSpan {
+            start,
+            end: (start + 1).min(source.len()),
+        },
+        line,
+        column,
+        filename: filename.map(str::to_owned),
+    }
+}
+
 #[derive(Clone, Debug)]
 struct FunctionContext {
     name: String,
@@ -1003,6 +1355,74 @@ mod tests {
             run("a { color: var(--primary, --fallback); }", Syntax::Css),
             "a { color: var(--primary, var(--fallback)); }"
         );
+    }
+
+    #[test]
+    fn preserves_custom_property_names_in_transition_declarations() {
+        let input = ".button { transition: --button-color 200ms ease, opacity 100ms; transition-property: --button-color, --button-size; color: --button-color; }";
+        let expected = ".button { transition: --button-color 200ms ease, opacity 100ms; transition-property: --button-color, --button-size; color: var(--button-color); }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn expands_grouped_transition_properties() {
+        let input = "a { transition: (color, --my-prop) .5s ease, width .3s; }";
+        let expected =
+            "a { transition: color .5s ease, --my-prop .5s ease, width .3s; }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn expands_multiple_transition_groups_and_preserves_shared_parts() {
+        let input = "a { transition: (opacity) 100ms, 200ms (color, transform) cubic-bezier(.1, .2, .3, .4) 50ms; }";
+        let expected = "a { transition: opacity 100ms, 200ms color cubic-bezier(.1, .2, .3, .4) 50ms, 200ms transform cubic-bezier(.1, .2, .3, .4) 50ms; }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn preserves_transition_comments_and_multiline_layout() {
+        let input = "a {\n  transition:\n    (color /* theme */, display) 200ms ease,\n    opacity 100ms;\n}";
+        let expected = "a {\n  transition:\n    color /* theme */ 200ms ease, display 200ms ease allow-discrete,\n    opacity 100ms;\n}";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn adds_discrete_behavior_to_entry_and_exit_properties() {
+        let input = "a { transition: (opacity, display, content-visibility, overlay) .2s, .3s display, all .4s, color .5s; }";
+        let expected = "a { transition: opacity .2s, display .2s allow-discrete, content-visibility .2s allow-discrete, overlay .2s allow-discrete, .3s display allow-discrete, all .4s, color .5s; }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn respects_explicit_transition_behavior() {
+        let input = "a { transition: display .2s normal, overlay .3s allow-discrete, content-visibility .4s; }";
+        let expected = "a { transition: display .2s normal, overlay .3s allow-discrete, content-visibility .4s allow-discrete; }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn rejects_invalid_transition_groups_with_location() {
+        for source in [
+            "a { transition: () .2s; }",
+            "a { transition: (color,) .2s; }",
+            "a { transition: (color, #{\"display\"}) .2s; }",
+            "a { transition: ((color), width) .2s; }",
+        ] {
+            let diagnostics = transform(
+                source,
+                TransformOptions {
+                    syntax: Syntax::Scss,
+                    filename: Some("transition.cross.scss"),
+                },
+            )
+            .unwrap_err();
+            assert!(diagnostics.iter().any(|diagnostic| {
+                diagnostic.message.contains("transition group")
+                    && diagnostic.filename.as_deref() == Some("transition.cross.scss")
+                    && diagnostic.line == 1
+                    && diagnostic.column > 1
+            }));
+        }
     }
 
     #[test]

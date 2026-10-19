@@ -29,6 +29,17 @@ margin: 10px + 2px 20px;
 margin: (10px + 2px) 20px;
 ```
 
+Transition properties can share the same timing values by grouping them:
+
+```scss
+/* Compiles to: color .5s ease, --theme .5s ease, width .3s */
+transition: (color, --theme) .5s ease, width .3s;
+```
+
+XCSS automatically adds `allow-discrete` when a `transition` item targets `display`,
+`content-visibility`, or `overlay`. An explicit `normal` opts out of this behavior.
+Custom property names in transition declarations remain bare rather than being wrapped in `var()`.
+
 XCSS is in very early development and haven't been thoroughly tested yet. Expect valid XCSS syntax to fail on compilation.
 
 ## Vite plugin
