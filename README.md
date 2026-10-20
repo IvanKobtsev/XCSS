@@ -29,16 +29,25 @@ margin: 10px + 2px 20px;
 margin: (10px + 2px) 20px;
 ```
 
-Transition properties can share the same timing values by grouping them:
+Transition properties can share the same timing values by grouping them in the
+property-first position:
 
 ```scss
 /* Compiles to: color .5s ease, --theme .5s ease, width .3s */
 transition: (color, --theme) .5s ease, width .3s;
+
+/* Compiles to: --theme var(--duration) var(--easing), width var(--duration) var(--easing) */
+transition: (--theme, width) --duration --easing;
 ```
 
 XCSS automatically adds `allow-discrete` when a `transition` item targets `display`,
 `content-visibility`, or `overlay`. An explicit `normal` opts out of this behavior.
-Custom property names in transition declarations remain bare rather than being wrapped in `var()`.
+Custom property names in a transition property group remain bare, while custom values
+used for duration, easing, or delay are wrapped in `var()`. A single ungrouped custom
+property is also supported when it is unambiguous, such as `--theme .3s ease`.
+Ambiguous items such as `--property --duration ease` fail compilation; write the
+property explicitly as `(--property) --duration ease` instead. Custom property names
+in `transition-property` declarations always remain bare.
 
 XCSS is in very early development and haven't been thoroughly tested yet. Expect valid XCSS syntax to fail on compilation.
 

@@ -218,8 +218,8 @@ pub fn transform(
             !handled_transition
                 && (!matches!(error.kind, raffia::error::ErrorKind::ExpectComponentValue)
                     || !accepted_expression_spans
-                    .iter()
-                    .any(|span| error.span.start >= span.start && error.span.end <= span.end))
+                        .iter()
+                        .any(|span| error.span.start >= span.start && error.span.end <= span.end))
         })
         .map(|error| diagnostic_from_error(source, options.filename, error))
         .collect();
@@ -872,6 +872,14 @@ fn transform_transition_value(
                 "malformed transition property group",
             )
         })? {
+            if !only_trivia(&item[..open]) {
+                return Err(transition_diagnostic(
+                    source,
+                    filename,
+                    range.start + leading_len + item_start + item_leading + open,
+                    "transition property groups must be the first component of an item",
+                ));
+            }
             let members = parse_transition_group(&item[open + 1..close]).map_err(|offset| {
                 transition_diagnostic(
                     source,
@@ -882,6 +890,7 @@ fn transform_transition_value(
             })?;
             let prefix = item[..open].trim_end();
             let suffix = item[close + 1..].trim_start();
+            let wrapped_suffix = wrap_transition_references(suffix, None);
             let mut expanded_items = Vec::new();
             for (member, property_name) in members {
                 let mut expanded = String::new();
@@ -890,9 +899,9 @@ fn transform_transition_value(
                     expanded.push(' ');
                 }
                 expanded.push_str(member);
-                if !suffix.is_empty() {
+                if !wrapped_suffix.is_empty() {
                     expanded.push(' ');
-                    expanded.push_str(suffix);
+                    expanded.push_str(&wrapped_suffix);
                 }
                 expanded_items.push(add_discrete_behavior(&expanded, Some(&property_name)));
             }
@@ -904,7 +913,23 @@ fn transform_transition_value(
             ));
             changed = true;
         } else {
-            let transformed = add_discrete_behavior(item, find_discrete_property(item));
+            let references = transition_reference_ranges(item);
+            let property = first_top_level_word(item);
+            let exempt = property.and_then(|(start, end, word)| {
+                (word.starts_with("--") && references.len() == 1).then_some((start, end))
+            });
+            if property.is_some_and(|(_, _, word)| word.starts_with("--")) && references.len() > 1 {
+                return Err(transition_diagnostic(
+                    source,
+                    filename,
+                    range.start + leading_len + item_start + item_leading + references[0].0,
+                    "ambiguous transition item: wrap custom property names in parentheses",
+                ));
+            }
+            let wrapped = wrap_transition_references(item, exempt);
+            let discrete_property =
+                find_discrete_property(&wrapped).or_else(|| property.map(|(_, _, word)| word));
+            let transformed = add_discrete_behavior(&wrapped, discrete_property);
             changed |= transformed != item;
             output_items.push(format!(
                 "{}{}{}",
@@ -923,6 +948,61 @@ fn transform_transition_value(
     replacement.push_str(&output_items.join(","));
     replacement.push_str(&value[trailing_start..]);
     Ok(Some(replacement))
+}
+
+fn only_trivia(value: &str) -> bool {
+    without_comments(value).trim().is_empty()
+}
+
+fn transition_reference_ranges(value: &str) -> Vec<(usize, usize)> {
+    let mut references = BTreeSet::new();
+    scan_value(value, 0, value.len(), &[], &mut references);
+    references.into_iter().collect()
+}
+
+fn wrap_transition_references(value: &str, exempt: Option<(usize, usize)>) -> String {
+    let references = transition_reference_ranges(value);
+    if references.iter().all(|range| Some(*range) == exempt) {
+        return value.to_owned();
+    }
+
+    let mut output = value.to_owned();
+    for (start, end) in references.into_iter().rev() {
+        if Some((start, end)) != exempt {
+            output.insert(end, ')');
+            output.insert_str(start, "var(");
+        }
+    }
+    output
+}
+
+fn first_top_level_word(value: &str) -> Option<(usize, usize, &str)> {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index].is_ascii_whitespace() {
+            index += 1;
+        } else if bytes[index] == b'/' && index + 1 < bytes.len() && bytes[index + 1] == b'*' {
+            index = skip_comment(bytes, index + 2, bytes.len());
+        } else if is_name_byte(bytes[index]) && !bytes[index].is_ascii_digit() {
+            let start = index;
+            index += 1;
+            while index < bytes.len() && is_name_byte(bytes[index]) {
+                index += 1;
+            }
+            if bytes.get(index) != Some(&b'(') {
+                return Some((start, index, &value[start..index]));
+            }
+            index = matching_paren(value, index).map_or(bytes.len(), |close| close + 1);
+        } else if bytes[index] == b'(' {
+            index = matching_paren(value, index).map_or(bytes.len(), |close| close + 1);
+        } else if bytes[index] == b'\'' || bytes[index] == b'"' {
+            index = skip_string(bytes, index, bytes.len());
+        } else {
+            index += utf8_char_len(bytes[index]);
+        }
+    }
+    None
 }
 
 fn split_top_level(value: &str, delimiter: char) -> Result<Vec<(usize, usize)>, usize> {
@@ -1367,16 +1447,67 @@ mod tests {
     #[test]
     fn expands_grouped_transition_properties() {
         let input = "a { transition: (color, --my-prop) .5s ease, width .3s; }";
-        let expected =
-            "a { transition: color .5s ease, --my-prop .5s ease, width .3s; }";
+        let expected = "a { transition: color .5s ease, --my-prop .5s ease, width .3s; }";
         assert_eq!(run(input, Syntax::Css), expected);
     }
 
     #[test]
     fn expands_multiple_transition_groups_and_preserves_shared_parts() {
-        let input = "a { transition: (opacity) 100ms, 200ms (color, transform) cubic-bezier(.1, .2, .3, .4) 50ms; }";
-        let expected = "a { transition: opacity 100ms, 200ms color cubic-bezier(.1, .2, .3, .4) 50ms, 200ms transform cubic-bezier(.1, .2, .3, .4) 50ms; }";
+        let input = "a { transition: (opacity) 100ms, (color, transform) 200ms cubic-bezier(.1, .2, .3, .4) 50ms; }";
+        let expected = "a { transition: opacity 100ms, color 200ms cubic-bezier(.1, .2, .3, .4) 50ms, transform 200ms cubic-bezier(.1, .2, .3, .4) 50ms; }";
         assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn wraps_transition_variables_outside_explicit_property_groups() {
+        assert_eq!(
+            run("a { transition: (--my-prop) --time --ease; }", Syntax::Css),
+            "a { transition: --my-prop var(--time) var(--ease); }"
+        );
+        assert_eq!(
+            run(
+                "a { transition: (--my-prop, width, color) --time --ease; }",
+                Syntax::Css
+            ),
+            "a { transition: --my-prop var(--time) var(--ease), width var(--time) var(--ease), color var(--time) var(--ease); }"
+        );
+        assert_eq!(
+            run(
+                "a { transition: (--my-prop, width) .3s ease, color .5s; }",
+                Syntax::Css
+            ),
+            "a { transition: --my-prop .3s ease, width .3s ease, color .5s; }"
+        );
+    }
+
+    #[test]
+    fn handles_unambiguous_ungrouped_transition_variables() {
+        assert_eq!(
+            run(
+                "a { transition: --my-prop .3s ease, width --time --ease; }",
+                Syntax::Css
+            ),
+            "a { transition: --my-prop .3s ease, width var(--time) var(--ease); }"
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_ungrouped_transition_variables() {
+        let source = "a {\n  transition: --prop --time ease;\n}";
+        let diagnostics = transform(
+            source,
+            TransformOptions {
+                syntax: Syntax::Css,
+                filename: Some("ambiguous.cross.css"),
+            },
+        )
+        .unwrap_err();
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.message.contains("ambiguous transition item")
+                && diagnostic.filename.as_deref() == Some("ambiguous.cross.css")
+                && diagnostic.line == 2
+                && diagnostic.column > 1
+        }));
     }
 
     #[test]
