@@ -73,6 +73,25 @@ selector lists such as `.button::before, .button` are left unchanged. An existin
 directive when content is supplied by another selector; XCSS removes the directive
 without inserting a replacement.
 
+## Typed custom properties
+
+Declare typed, module-scoped custom properties with a top-level `@vars` block:
+
+```scss
+@vars {
+  --progress = 0%;
+  --panel-height: length = 20vh;
+  --accent: color;
+  local --rotation: angle;
+}
+```
+
+XCSS emits an `@property` registration for each entry. Types are inferred from simple
+atomic initial values when omitted, and `local` sets `inherits: false`. Declared names
+receive a deterministic module suffix, and their declarations and references in the
+same file are rewritten automatically. Undeclared custom properties remain global.
+Direct JavaScript calls such as `style.setProperty()` must use the generated name.
+
 XCSS is in very early development and haven't been thoroughly tested yet. Expect valid XCSS syntax to fail on compilation.
 
 ## Vite plugin

@@ -20,11 +20,13 @@ fn run(args: Vec<std::ffi::OsString>) -> Result<(), String> {
     let source =
         fs::read_to_string(&input).map_err(|error| format!("{}: {error}", input.display()))?;
     let filename = input.to_string_lossy();
+    let module_id = logical_module_id(&input);
     let transformed = transform(
         &source,
         TransformOptions {
             syntax,
             filename: Some(&filename),
+            module_id: Some(&module_id),
         },
     )
     .map_err(|diagnostics| {
@@ -45,6 +47,18 @@ fn run(args: Vec<std::ffi::OsString>) -> Result<(), String> {
 
     write_complete_file(&output, transformed.code.as_bytes())
         .map_err(|error| format!("{}: {error}", output.display()))
+}
+
+fn logical_module_id(path: &Path) -> String {
+    let relative = if path.is_absolute() {
+        env::current_dir()
+            .ok()
+            .and_then(|cwd| path.strip_prefix(cwd).ok().map(Path::to_path_buf))
+            .unwrap_or_else(|| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    };
+    relative.to_string_lossy().replace('\\', "/")
 }
 
 fn parse_args(args: Vec<std::ffi::OsString>) -> Result<(PathBuf, PathBuf), String> {
@@ -133,5 +147,9 @@ mod tests {
         );
         assert!(validate_paths(Path::new("a.css"), Path::new("a.module.css")).is_err());
         assert!(validate_paths(Path::new("a.cross.css"), Path::new("a.module.scss")).is_err());
+        assert_eq!(
+            logical_module_id(Path::new("styles\\a.cross.css")),
+            "styles/a.cross.css"
+        );
     }
 }

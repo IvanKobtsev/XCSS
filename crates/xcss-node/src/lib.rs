@@ -29,6 +29,7 @@ pub fn transform(
     source: String,
     syntax: String,
     filename: Option<String>,
+    module_id: Option<String>,
 ) -> NativeTransformResult {
     let syntax = match syntax.as_str() {
         "css" => Syntax::Css,
@@ -53,6 +54,7 @@ pub fn transform(
         TransformOptions {
             syntax,
             filename: filename.as_deref(),
+            module_id: module_id.as_deref(),
         },
     ) {
         Ok(output) => NativeTransformResult {

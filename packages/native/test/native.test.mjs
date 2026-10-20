@@ -17,3 +17,14 @@ test('returns structured diagnostics', () => {
   assert.equal(result.diagnostics[0].column, 1)
   assert.match(result.diagnostics[0].message, /XCSS import system/)
 })
+
+test('expands module-scoped vars', () => {
+  const result = transform(
+    '@vars { --tone: color = red; } a { color: --tone; }',
+    'css',
+    '/project/src/a.cross.css',
+    'src/a.cross.css',
+  )
+  assert.match(result.code, /@property --tone-xcss-[0-9a-f]{16}/)
+  assert.match(result.code, /color: var\(--tone-xcss-[0-9a-f]{16}\)/)
+})

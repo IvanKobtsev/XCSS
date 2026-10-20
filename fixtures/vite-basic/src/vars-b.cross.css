@@ -1,0 +1,7 @@
+@vars {
+  --shared-tone: color = blue;
+}
+
+.toneB {
+  color: --shared-tone;
+}

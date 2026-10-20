@@ -1,6 +1,6 @@
 //! Parser-backed, lossless source transformation for Cross-CSS.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use raffia::{
     ParserBuilder, ParserOptions, Spanned,
@@ -44,6 +44,8 @@ impl Syntax {
 pub struct TransformOptions<'a> {
     pub syntax: Syntax,
     pub filename: Option<&'a str>,
+    /// Stable, project-relative identity used to scope names declared by `@vars`.
+    pub module_id: Option<&'a str>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -93,10 +95,632 @@ struct Edit {
     priority: u8,
 }
 
+#[derive(Clone, Debug)]
+struct VarsBlock {
+    start: usize,
+    end: usize,
+}
+
+#[derive(Default)]
+struct VarsTransform {
+    blocks: Vec<VarsBlock>,
+    names: BTreeMap<String, String>,
+    edits: Vec<Edit>,
+}
+
+#[derive(Debug)]
+struct VarsEntry {
+    name: String,
+    value_type: String,
+    initial: Option<String>,
+    inherits: bool,
+    comments: Vec<String>,
+}
+
+fn parse_vars(
+    source: &str,
+    filename: Option<&str>,
+    module_id: Option<&str>,
+) -> Result<VarsTransform, Vec<Diagnostic>> {
+    let mut result = VarsTransform::default();
+    let mut diagnostics = Vec::new();
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    let mut depth = 0usize;
+    while index < bytes.len() {
+        if starts_comment(bytes, index) {
+            index = skip_comment(bytes, index + 2, bytes.len());
+            continue;
+        }
+        if matches!(bytes[index], b'\'' | b'"') {
+            index = skip_quoted(bytes, index, bytes.len());
+            continue;
+        }
+        if bytes[index] == b'{' {
+            depth += 1;
+            index += 1;
+            continue;
+        }
+        if bytes[index] == b'}' {
+            depth = depth.saturating_sub(1);
+            index += 1;
+            continue;
+        }
+        if bytes[index] != b'@' || !source[index + 1..].starts_with("vars") {
+            index += 1;
+            continue;
+        }
+        let name_end = index + 5;
+        if bytes.get(name_end).is_some_and(|byte| is_name_byte(*byte)) {
+            index += 1;
+            continue;
+        }
+        let at_start = index;
+        index = skip_ws_comments(bytes, name_end, bytes.len());
+        if depth != 0 {
+            diagnostics.push(vars_diagnostic(
+                source,
+                filename,
+                at_start,
+                name_end,
+                "@vars is only allowed at the top level",
+            ));
+        }
+        if bytes.get(index) != Some(&b'{') {
+            diagnostics.push(vars_diagnostic(
+                source,
+                filename,
+                at_start,
+                index,
+                "@vars requires a block",
+            ));
+            while index < bytes.len() && !matches!(bytes[index], b';' | b'\n') {
+                index += 1;
+            }
+            continue;
+        }
+        let open = index;
+        let Some(close) = matching_brace(source, open) else {
+            diagnostics.push(vars_diagnostic(
+                source,
+                filename,
+                open,
+                source.len(),
+                "unterminated @vars block",
+            ));
+            break;
+        };
+        result.blocks.push(VarsBlock {
+            start: at_start,
+            end: close + 1,
+        });
+        index = close + 1;
+    }
+
+    if !result.blocks.is_empty() && module_id.is_none() {
+        let block = &result.blocks[0];
+        diagnostics.push(vars_diagnostic(
+            source,
+            filename,
+            block.start,
+            block.end,
+            "@vars requires a stable module ID",
+        ));
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
+    let Some(module_id) = module_id else {
+        return Ok(result);
+    };
+    let suffix = format!("{:016x}", fnv1a64(&module_id.replace('\\', "/")));
+    for block in result.blocks.clone() {
+        let open = source[block.start..block.end]
+            .find('{')
+            .map(|offset| block.start + offset)
+            .unwrap();
+        let entries =
+            parse_vars_entries(source, open + 1, block.end - 1, filename, &mut diagnostics);
+        let mut generated = String::new();
+        let newline = if source[block.start..block.end].contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let indent = line_indent_at(source, block.start);
+        for entry in entries {
+            if result.names.contains_key(&entry.name) {
+                diagnostics.push(vars_diagnostic(
+                    source,
+                    filename,
+                    block.start,
+                    block.end,
+                    &format!("duplicate @vars declaration `{}`", entry.name),
+                ));
+                continue;
+            }
+            let mangled = format!("{}-xcss-{suffix}", entry.name);
+            result.names.insert(entry.name.clone(), mangled.clone());
+            for comment in entry.comments {
+                generated.push_str(&indent);
+                generated.push_str(comment.trim());
+                generated.push_str(newline);
+            }
+            generated.push_str(&format!(
+                "{indent}@property {mangled} {{{newline}{indent}  syntax: \"<{}>\";{newline}{indent}  inherits: {};",
+                entry.value_type, entry.inherits
+            ));
+            if let Some(initial) = entry.initial {
+                generated.push_str(&format!(
+                    "{newline}{indent}  initial-value: {};",
+                    initial.trim()
+                ));
+            }
+            generated.push_str(&format!("{newline}{indent}}}{newline}"));
+        }
+        if generated.ends_with(newline) {
+            generated.truncate(generated.len() - newline.len());
+        }
+        result.edits.push(Edit {
+            start: block.start,
+            end: block.end,
+            replacement: generated,
+            priority: 4,
+        });
+    }
+    if diagnostics.is_empty() {
+        Ok(result)
+    } else {
+        Err(diagnostics)
+    }
+}
+
+fn parse_vars_entries(
+    source: &str,
+    start: usize,
+    end: usize,
+    filename: Option<&str>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Vec<VarsEntry> {
+    let mut entries = Vec::new();
+    let mut item_start = start;
+    let mut index = start;
+    let mut nesting = 0usize;
+    while index <= end {
+        if index < end && starts_comment(source.as_bytes(), index) {
+            index = skip_comment(source.as_bytes(), index + 2, end);
+            continue;
+        }
+        if index < end && matches!(source.as_bytes()[index], b'\'' | b'"') {
+            index = skip_quoted(source.as_bytes(), index, end);
+            continue;
+        }
+        if index < end && matches!(source.as_bytes()[index], b'(' | b'[' | b'{') {
+            nesting += 1;
+        } else if index < end && matches!(source.as_bytes()[index], b')' | b']' | b'}') {
+            nesting = nesting.saturating_sub(1);
+        }
+        if index == end || (source.as_bytes()[index] == b';' && nesting == 0) {
+            let raw = &source[item_start..index];
+            if !raw.trim().is_empty() {
+                match parse_vars_entry(raw) {
+                    Ok(entry) => entries.push(entry),
+                    Err(message) => diagnostics.push(vars_diagnostic(
+                        source, filename, item_start, index, &message,
+                    )),
+                }
+            }
+            item_start = index + 1;
+        }
+        index += 1;
+    }
+    entries
+}
+
+fn parse_vars_entry(raw: &str) -> Result<VarsEntry, String> {
+    let (comments, cleaned) = strip_comments(raw);
+    let mut text = cleaned.trim();
+    let inherits = if text.starts_with("local")
+        && text
+            .as_bytes()
+            .get(5)
+            .is_none_or(|byte| byte.is_ascii_whitespace())
+    {
+        text = text[5..].trim_start();
+        false
+    } else {
+        true
+    };
+    if !text.starts_with("--") {
+        return Err("@vars entries must start with a custom property name".into());
+    }
+    let name_end = text
+        .bytes()
+        .position(|byte| !is_name_byte(byte))
+        .unwrap_or(text.len());
+    let name = &text[..name_end];
+    if name.len() <= 2 {
+        return Err("invalid custom property name in @vars".into());
+    }
+    let rest = text[name_end..].trim_start();
+    let (explicit_type, initial) = if let Some(rest) = rest.strip_prefix(':') {
+        let rest = rest.trim_start();
+        let split = find_top_level_byte(rest, b'=');
+        let (kind, value) = split.map_or((rest, None), |at| (&rest[..at], Some(&rest[at + 1..])));
+        let kind = kind.trim();
+        if !is_supported_vars_type(kind) {
+            return Err(format!("unsupported @vars type `{kind}`"));
+        }
+        (Some(kind), value.map(str::trim))
+    } else if let Some(value) = rest.strip_prefix('=') {
+        (None, Some(value.trim()))
+    } else {
+        return Err("@vars entry requires a type or initializer".into());
+    };
+    if !inherits && explicit_type.is_none() {
+        return Err("local @vars entries require an explicit type".into());
+    }
+    if initial.is_some_and(str::is_empty) {
+        return Err("@vars initializer cannot be empty".into());
+    }
+    let inferred = if let (Some(kind), Some(value)) = (explicit_type, initial) {
+        validate_explicit_vars_value(kind, value)?;
+        None
+    } else {
+        initial.map(infer_vars_type).transpose()?
+    };
+    let value_type = match (explicit_type, inferred) {
+        (Some(kind), Some(actual)) if !vars_types_compatible(kind, actual) => {
+            return Err(format!(
+                "@vars initializer of type `{actual}` does not match `{kind}`"
+            ));
+        }
+        (Some(kind), _) => kind.to_owned(),
+        (None, Some(kind)) => kind.to_owned(),
+        (None, None) => return Err("@vars entry requires a type or initializer".into()),
+    };
+    Ok(VarsEntry {
+        name: name.to_owned(),
+        value_type,
+        initial: initial.map(str::to_owned),
+        inherits,
+        comments,
+    })
+}
+
+fn infer_vars_type(value: &str) -> Result<&'static str, String> {
+    let value = value.trim();
+    if value.is_empty() || value.contains("--") {
+        return Err("cannot infer @vars type; add an explicit type".into());
+    }
+    if is_color_value(value) {
+        return Ok("color");
+    }
+    if value.split_whitespace().count() != 1 {
+        return Err("cannot infer @vars type; add an explicit type".into());
+    }
+    if value.ends_with('%') && value[..value.len() - 1].parse::<f64>().is_ok() {
+        return Ok("percentage");
+    }
+    if value.parse::<i64>().is_ok() {
+        return Ok("integer");
+    }
+    if value.parse::<f64>().is_ok() {
+        return Ok("number");
+    }
+    let number_end = value
+        .char_indices()
+        .find(|(_, character)| !matches!(character, '0'..='9' | '+' | '-' | '.' | 'e' | 'E'))
+        .map_or(value.len(), |(index, _)| index);
+    if number_end > 0 && value[..number_end].parse::<f64>().is_ok() {
+        return match value[number_end..].to_ascii_lowercase().as_str() {
+            "px" | "cm" | "mm" | "q" | "in" | "pc" | "pt" | "em" | "rem" | "ex" | "rex" | "cap"
+            | "rcap" | "ch" | "rch" | "ic" | "ric" | "lh" | "rlh" | "vw" | "vh" | "vi" | "vb"
+            | "vmin" | "vmax" | "svw" | "svh" | "lvw" | "lvh" | "dvw" | "dvh" | "cqw" | "cqh"
+            | "cqi" | "cqb" | "cqmin" | "cqmax" => Ok("length"),
+            "deg" | "grad" | "rad" | "turn" => Ok("angle"),
+            "s" | "ms" => Ok("time"),
+            "hz" | "khz" => Ok("frequency"),
+            "dpi" | "dpcm" | "dppx" | "x" => Ok("resolution"),
+            "fr" => Ok("flex"),
+            _ => Err("cannot infer @vars type; add an explicit type".into()),
+        };
+    }
+    Err("cannot infer @vars type; add an explicit type".into())
+}
+
+fn is_supported_vars_type(kind: &str) -> bool {
+    matches!(
+        kind,
+        "length"
+            | "length-percentage"
+            | "number"
+            | "integer"
+            | "percentage"
+            | "angle"
+            | "time"
+            | "frequency"
+            | "resolution"
+            | "flex"
+            | "color"
+            | "image"
+            | "url"
+            | "transform-function"
+            | "transform-list"
+    )
+}
+
+fn vars_types_compatible(expected: &str, actual: &str) -> bool {
+    expected == actual
+        || expected == "number" && actual == "integer"
+        || expected == "length-percentage" && matches!(actual, "length" | "percentage")
+}
+
+fn validate_explicit_vars_value(expected: &str, value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let compatible = match expected {
+        "image" => {
+            let lower = value.to_ascii_lowercase();
+            lower.starts_with("url(") || lower.contains("gradient(") || lower.starts_with("image(")
+        }
+        "url" => value.to_ascii_lowercase().starts_with("url(") && value.ends_with(')'),
+        "transform-function" => {
+            value.contains('(') && value.ends_with(')') && !value.contains("),")
+        }
+        "transform-list" => value.contains('(') && value.ends_with(')'),
+        _ => infer_vars_type(value).is_ok_and(|actual| vars_types_compatible(expected, actual)),
+    };
+    if compatible {
+        Ok(())
+    } else {
+        Err(format!("@vars initializer does not match `{expected}`"))
+    }
+}
+
+fn is_color_value(value: &str) -> bool {
+    if value.starts_with('#')
+        && matches!(value.len(), 4 | 5 | 7 | 9)
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return true;
+    }
+    let lower = value.to_ascii_lowercase();
+    if [
+        "rgb(",
+        "rgba(",
+        "hsl(",
+        "hsla(",
+        "hwb(",
+        "lab(",
+        "lch(",
+        "oklab(",
+        "oklch(",
+        "color(",
+        "color-mix(",
+    ]
+    .iter()
+    .any(|prefix| lower.starts_with(prefix) && lower.ends_with(')'))
+    {
+        return true;
+    }
+    const NAMED_COLORS: &str = "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen transparent currentcolor";
+    NAMED_COLORS
+        .split_ascii_whitespace()
+        .any(|name| name == lower)
+}
+
+fn strip_comments(raw: &str) -> (Vec<String>, String) {
+    let mut comments = Vec::new();
+    let mut cleaned = String::new();
+    let bytes = raw.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if starts_comment(bytes, index) {
+            let end = skip_comment(bytes, index + 2, bytes.len());
+            comments.push(raw[index..end].to_owned());
+            cleaned.push(' ');
+            index = end;
+        } else {
+            let length = utf8_char_len(bytes[index]).min(bytes.len() - index);
+            cleaned.push_str(&raw[index..index + length]);
+            index += length;
+        }
+    }
+    (comments, cleaned)
+}
+
+fn mask_vars(source: &str, blocks: &[VarsBlock]) -> String {
+    let mut masked = source.as_bytes().to_vec();
+    for block in blocks {
+        for byte in &mut masked[block.start..block.end] {
+            if !matches!(*byte, b'\r' | b'\n') {
+                *byte = b' ';
+            }
+        }
+    }
+    String::from_utf8(masked).expect("mask preserves UTF-8 boundaries")
+}
+
+fn rename_var_uses(source: &str, names: &BTreeMap<String, String>) -> String {
+    if names.is_empty() {
+        return source.to_owned();
+    }
+    let mut output = String::with_capacity(source.len());
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if starts_comment(bytes, index) {
+            let end = skip_comment(bytes, index + 2, bytes.len());
+            output.push_str(&source[index..end]);
+            index = end;
+            continue;
+        }
+        if matches!(bytes[index], b'\'' | b'"') {
+            let end = skip_quoted(bytes, index, bytes.len());
+            output.push_str(&source[index..end]);
+            index = end;
+            continue;
+        }
+        if index + 4 <= bytes.len() && source[index..index + 4].eq_ignore_ascii_case("url(") {
+            let end = skip_function(bytes, index + 4, bytes.len());
+            output.push_str(&source[index..end]);
+            index = end;
+            continue;
+        }
+        if index + 2 <= bytes.len() && bytes[index] == b'-' && bytes[index + 1] == b'-' {
+            let start = index;
+            index += 2;
+            while index < bytes.len() && is_name_byte(bytes[index]) {
+                index += 1;
+            }
+            if let Some(replacement) = names.get(&source[start..index]) {
+                output.push_str(replacement);
+            } else {
+                output.push_str(&source[start..index]);
+            }
+        } else {
+            let length = utf8_char_len(bytes[index]).min(bytes.len() - index);
+            output.push_str(&source[index..index + length]);
+            index += length;
+        }
+    }
+    output
+}
+
+fn skip_function(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    let mut depth = 1usize;
+    while index < end {
+        if matches!(bytes[index], b'\'' | b'"') {
+            index = skip_quoted(bytes, index, end);
+            continue;
+        }
+        match bytes[index] {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return index + 1;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    end
+}
+
+fn vars_diagnostic(
+    source: &str,
+    filename: Option<&str>,
+    start: usize,
+    end: usize,
+    message: &str,
+) -> Diagnostic {
+    let (line, column) = line_column(source, start);
+    Diagnostic {
+        message: message.into(),
+        severity: Severity::Error,
+        span: SourceSpan {
+            start,
+            end: end.max(start),
+        },
+        line,
+        column,
+        filename: filename.map(str::to_owned),
+    }
+}
+
+fn fnv1a64(value: &str) -> u64 {
+    value.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
+}
+
+fn starts_comment(bytes: &[u8], index: usize) -> bool {
+    bytes.get(index) == Some(&b'/') && bytes.get(index + 1) == Some(&b'*')
+}
+
+fn skip_quoted(bytes: &[u8], start: usize, end: usize) -> usize {
+    let quote = bytes[start];
+    let mut index = start + 1;
+    while index < end {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(end);
+        } else if bytes[index] == quote {
+            return index + 1;
+        } else {
+            index += 1;
+        }
+    }
+    end
+}
+
+fn skip_ws_comments(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    loop {
+        while index < end && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if starts_comment(bytes, index) {
+            index = skip_comment(bytes, index + 2, end);
+        } else {
+            return index;
+        }
+    }
+}
+
+fn matching_brace(source: &str, open: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = open + 1;
+    let mut depth = 1usize;
+    while index < bytes.len() {
+        if starts_comment(bytes, index) {
+            index = skip_comment(bytes, index + 2, bytes.len());
+            continue;
+        }
+        if matches!(bytes[index], b'\'' | b'"') {
+            index = skip_quoted(bytes, index, bytes.len());
+            continue;
+        }
+        if bytes[index] == b'{' {
+            depth += 1;
+        }
+        if bytes[index] == b'}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+        index += 1;
+    }
+    None
+}
+
+fn find_top_level_byte(value: &str, needle: u8) -> Option<usize> {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    let mut depth = 0usize;
+    while index < bytes.len() {
+        if matches!(bytes[index], b'\'' | b'"') {
+            index = skip_quoted(bytes, index, bytes.len());
+            continue;
+        }
+        match bytes[index] {
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => depth = depth.saturating_sub(1),
+            byte if byte == needle && depth == 0 => return Some(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
 pub fn transform(
     source: &str,
     options: TransformOptions<'_>,
 ) -> Result<TransformOutput, Vec<Diagnostic>> {
+    let vars = parse_vars(source, options.filename, options.module_id)?;
+    let parser_source = mask_vars(source, &vars.blocks);
     let parser_options = ParserOptions {
         try_parsing_value_in_custom_property: true,
         ..ParserOptions::default()
@@ -108,7 +732,7 @@ pub fn transform(
         Syntax::Css => raffia::Syntax::Scss,
         Syntax::Scss => raffia::Syntax::Scss,
     };
-    let mut parser = ParserBuilder::new(source)
+    let mut parser = ParserBuilder::new(&parser_source)
         .syntax(syntax)
         .options(parser_options)
         .build();
@@ -234,6 +858,7 @@ pub fn transform(
 
     let mut edits = transition_edits;
     edits.extend(content_edits);
+    edits.extend(vars.edits);
     for (start, end) in references {
         edits.push(Edit {
             start,
@@ -285,6 +910,7 @@ pub fn transform(
     if options.syntax == Syntax::Css {
         validate_generated_css(&code, source, options.filename, &edits)?;
     }
+    code = rename_var_uses(&code, &vars.names);
     Ok(TransformOutput { code })
 }
 
@@ -1631,10 +2257,105 @@ mod tests {
             TransformOptions {
                 syntax,
                 filename: None,
+                module_id: None,
             },
         )
         .unwrap()
         .code
+    }
+
+    fn run_module(source: &str, syntax: Syntax, module_id: &str) -> String {
+        transform(
+            source,
+            TransformOptions {
+                syntax,
+                filename: Some(module_id),
+                module_id: Some(module_id),
+            },
+        )
+        .unwrap()
+        .code
+    }
+
+    #[test]
+    fn expands_vars_and_rewrites_same_file_uses() {
+        let source = ".card { color: --my-color; width: --my-percentage + 1%; --my-angle: 1deg; transition-property: --my-color; background: url(--my-color); content: '--my-color'; }\n@vars {\n  --my-percentage = 0%;\n  --my-prop-with-type: length = 20vh;\n  --my-color: color;\n  local --my-angle: angle;\n}";
+        let hash = format!("{:016x}", fnv1a64("src/theme.cross.css"));
+        let output = run_module(source, Syntax::Css, "src/theme.cross.css");
+        assert!(output.contains(&format!("@property --my-percentage-xcss-{hash}")));
+        assert!(output.contains("syntax: \"<percentage>\";"));
+        assert!(output.contains("initial-value: 20vh;"));
+        assert!(output.contains(&format!("color: var(--my-color-xcss-{hash})")));
+        assert!(output.contains(&format!(
+            "width: calc(var(--my-percentage-xcss-{hash}) + 1%)"
+        )));
+        assert!(output.contains(&format!("--my-angle-xcss-{hash}: 1deg")));
+        assert!(output.contains(&format!("transition-property: --my-color-xcss-{hash}")));
+        assert!(output.contains("url(--my-color)"));
+        assert!(output.contains("content: '--my-color'"));
+        assert!(output.contains("inherits: false;"));
+    }
+
+    #[test]
+    fn vars_support_inference_comments_and_scss() {
+        let source = "@vars {\r\n  /* tone */\r\n  --tone = rgb(0 0 0 / 50%);\r\n  --delay = 200ms;\r\n  --turn = .5turn;\r\n}";
+        let output = run_module(source, Syntax::Scss, "styles/tokens.cross.scss");
+        assert!(output.contains("/* tone */\r\n@property"));
+        assert!(output.contains("syntax: \"<color>\";"));
+        assert!(output.contains("syntax: \"<time>\";"));
+        assert!(output.contains("syntax: \"<angle>\";"));
+        assert!(output.contains("\r\n"));
+    }
+
+    #[test]
+    fn vars_report_missing_identity_nesting_duplicates_and_mismatches() {
+        let missing = transform(
+            "@vars { --size = 1px; }",
+            TransformOptions {
+                syntax: Syntax::Css,
+                filename: Some("a.cross.css"),
+                module_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(missing[0].message.contains("module ID"));
+
+        for (source, expected) in [
+            ("a { @vars { --size = 1px; } }", "top level"),
+            (
+                "@vars { --size = 1px; } @vars { --size = 2px; }",
+                "duplicate",
+            ),
+            ("@vars { --size: angle = 2px; }", "does not match"),
+            ("@vars { --size = min(1px, 2px); }", "cannot infer"),
+            ("@vars { local --size = 2px; }", "explicit type"),
+        ] {
+            let diagnostics = transform(
+                source,
+                TransformOptions {
+                    syntax: Syntax::Css,
+                    filename: Some("a.cross.css"),
+                    module_id: Some("a.cross.css"),
+                },
+            )
+            .unwrap_err();
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains(expected)),
+                "{source}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn vars_module_ids_produce_distinct_stable_names() {
+        let source = "@vars { --tone: color = red; } a { color: --tone; }";
+        let first = run_module(source, Syntax::Css, "src/a.cross.css");
+        let again = run_module(source, Syntax::Css, "src/a.cross.css");
+        let second = run_module(source, Syntax::Css, "src/b.cross.css");
+        assert_eq!(first, again);
+        assert_ne!(first, second);
     }
 
     #[test]
@@ -1714,6 +2435,7 @@ mod tests {
             TransformOptions {
                 syntax: Syntax::Css,
                 filename: Some("ambiguous.cross.css"),
+                module_id: None,
             },
         )
         .unwrap_err();
@@ -1759,6 +2481,7 @@ mod tests {
                 TransformOptions {
                     syntax: Syntax::Scss,
                     filename: Some("transition.cross.scss"),
+                    module_id: None,
                 },
             )
             .unwrap_err();
@@ -1849,6 +2572,7 @@ mod tests {
             TransformOptions {
                 syntax: Syntax::Css,
                 filename: Some("broken.cross.css"),
+                module_id: None,
             },
         )
         .unwrap_err();
@@ -1899,6 +2623,7 @@ mod tests {
             TransformOptions {
                 syntax: Syntax::Css,
                 filename: Some("ambiguous.cross.css"),
+                module_id: None,
             },
         )
         .unwrap_err();
@@ -1954,6 +2679,7 @@ mod tests {
                 TransformOptions {
                     syntax,
                     filename: Some("imports.cross.scss"),
+                    module_id: None,
                 },
             )
             .unwrap_err();

@@ -29,6 +29,10 @@ describe('Vite integration', () => {
     expect(css).toContain('calc(100% - var(--sidebar))')
     expect(css).toContain('calc(var(--unit) * 2)')
     expect(css).not.toContain('.card{')
+    const scopedVars = [...css.matchAll(/--shared-tone-xcss-[0-9a-f]{16}/g)].map(
+      ([name]) => name,
+    )
+    expect(new Set(scopedVars).size).toBe(2)
     expect(js).toContain('calc(var(--space) * 2)')
   })
 

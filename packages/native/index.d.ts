@@ -22,4 +22,5 @@ export function transform(
   source: string,
   syntax: 'css' | 'scss',
   filename?: string | null,
+  moduleId?: string | null,
 ): NativeTransformResult

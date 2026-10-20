@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { relative } from 'node:path'
 
 import { transform } from '@cross-css/native'
 import type { ModuleNode, Plugin } from 'vite'
@@ -7,10 +8,15 @@ import { createVirtualId, isCrossCssId, parseVirtualId } from './internal.js'
 
 export default function xcss(): Plugin {
   const virtualIdsBySource = new Map<string, Set<string>>()
+  let projectRoot = process.cwd()
 
   return {
     name: 'cross-css',
     enforce: 'pre',
+
+    configResolved(config) {
+      projectRoot = config.root
+    },
 
     async resolveId(source, importer, options) {
       if (!isCrossCssId(source)) return null
@@ -37,7 +43,8 @@ export default function xcss(): Plugin {
 
       this.addWatchFile(virtual.sourcePath)
       const source = await readFile(virtual.sourcePath, 'utf8')
-      const result = transform(source, virtual.syntax, virtual.sourcePath)
+      const moduleId = relative(projectRoot, virtual.sourcePath).replaceAll('\\', '/')
+      const result = transform(source, virtual.syntax, virtual.sourcePath, moduleId)
       if (result.code === null) {
         const [first, ...rest] = result.diagnostics
         const details = rest.map((diagnostic) => diagnostic.message).join('\n')
