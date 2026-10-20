@@ -49,6 +49,30 @@ Ambiguous items such as `--property --duration ease` fail compilation; write the
 property explicitly as `(--property) --duration ease` instead. Custom property names
 in `transition-property` declarations always remain bare.
 
+XCSS also supplies the empty content required by generated pseudo-elements. When every
+branch of a rule ends in `::before`, `::after`, or an exclusive `:is()` containing only
+those pseudo-elements, `content: '';` is inserted as the first declaration:
+
+```scss
+/* Receives content because the selector ends in ::before. */
+.button:hover::before {
+  display: block;
+}
+
+/* Also supported in nested SCSS and for either generated pseudo-element. */
+.button {
+  &:is(::before, ::after) {
+    position: absolute;
+  }
+}
+```
+
+Selectors with anything after the pseudo-element, such as `::before:hover`, and mixed
+selector lists such as `.button::before, .button` are left unchanged. An existing
+`content` declaration disables insertion. Use the XCSS-only `content: preserve;`
+directive when content is supplied by another selector; XCSS removes the directive
+without inserting a replacement.
+
 XCSS is in very early development and haven't been thoroughly tested yet. Expect valid XCSS syntax to fail on compilation.
 
 ## Vite plugin

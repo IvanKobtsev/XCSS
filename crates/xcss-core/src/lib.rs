@@ -5,8 +5,10 @@ use std::collections::BTreeSet;
 use raffia::{
     ParserBuilder, ParserOptions, Spanned,
     ast::{
-        ComponentValue, Declaration, DelimiterKind, FunctionName, InterpolableIdent,
-        SassBinaryOperatorKind, SassVariableDeclaration, SimpleBlock, Statement, Stylesheet,
+        ComplexSelector, ComplexSelectorChild, ComponentValue, CompoundSelector, Declaration,
+        DelimiterKind, FunctionName, InterpolableIdent, PseudoClassSelectorArgKind,
+        SassBinaryOperatorKind, SassVariableDeclaration, SelectorList, SimpleBlock, SimpleSelector,
+        Statement, Stylesheet,
     },
 };
 
@@ -138,6 +140,8 @@ pub fn transform(
         &mut value_ranges,
         &mut declaration_name_ranges,
     );
+    let mut content_edits = Vec::new();
+    collect_pseudo_content_edits(&stylesheet.statements, source, &mut content_edits);
 
     let mut references = BTreeSet::new();
     let mut calc_wrappers = BTreeSet::new();
@@ -229,6 +233,7 @@ pub fn transform(
     }
 
     let mut edits = transition_edits;
+    edits.extend(content_edits);
     for (start, end) in references {
         edits.push(Edit {
             start,
@@ -482,6 +487,216 @@ fn floor_char_boundary(source: &str, mut offset: usize) -> usize {
         offset -= 1;
     }
     offset
+}
+
+fn collect_pseudo_content_edits(statements: &[Statement<'_>], source: &str, edits: &mut Vec<Edit>) {
+    for statement in statements {
+        match statement {
+            Statement::QualifiedRule(rule) => {
+                if selector_list_needs_content(&rule.selector) {
+                    let content_declarations: Vec<_> = rule
+                        .block
+                        .statements
+                        .iter()
+                        .filter_map(|statement| match statement {
+                            Statement::Declaration(declaration)
+                                if declaration_name(declaration) == "content" =>
+                            {
+                                Some(declaration)
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    let preserve_declarations: Vec<_> = content_declarations
+                        .iter()
+                        .copied()
+                        .filter(|declaration| is_content_preserve(declaration))
+                        .collect();
+
+                    if !preserve_declarations.is_empty() {
+                        for declaration in preserve_declarations {
+                            let (start, end) =
+                                declaration_removal_range(declaration, &rule.block, source);
+                            edits.push(Edit {
+                                start,
+                                end,
+                                replacement: String::new(),
+                                priority: 3,
+                            });
+                        }
+                    } else if content_declarations.is_empty() {
+                        edits.push(Edit {
+                            start: rule.block.span.start + 1,
+                            end: rule.block.span.start + 1,
+                            replacement: content_insertion(&rule.block, source),
+                            priority: 3,
+                        });
+                    }
+                }
+                collect_pseudo_content_edits(&rule.block.statements, source, edits);
+            }
+            Statement::AtRule(rule) => {
+                if let Some(block) = &rule.block {
+                    collect_pseudo_content_edits(&block.statements, source, edits);
+                }
+            }
+            Statement::KeyframeBlock(rule) => {
+                collect_pseudo_content_edits(&rule.block.statements, source, edits);
+            }
+            Statement::SassIfAtRule(rule) => {
+                collect_pseudo_content_edits(&rule.if_clause.block.statements, source, edits);
+                for clause in &rule.else_if_clauses {
+                    collect_pseudo_content_edits(&clause.block.statements, source, edits);
+                }
+                if let Some(block) = &rule.else_clause {
+                    collect_pseudo_content_edits(&block.statements, source, edits);
+                }
+            }
+            Statement::UnknownSassAtRule(rule) => {
+                if let Some(block) = &rule.block {
+                    collect_pseudo_content_edits(&block.statements, source, edits);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn selector_list_needs_content(selector: &SelectorList<'_>) -> bool {
+    !selector.selectors.is_empty() && selector.selectors.iter().all(selector_ends_in_pseudo)
+}
+
+fn selector_ends_in_pseudo(selector: &ComplexSelector<'_>) -> bool {
+    let Some(ComplexSelectorChild::CompoundSelector(compound)) = selector.children.last() else {
+        return false;
+    };
+    compound_ends_in_pseudo(compound)
+}
+
+fn compound_ends_in_pseudo(compound: &CompoundSelector<'_>) -> bool {
+    match compound.children.last() {
+        Some(SimpleSelector::PseudoElement(pseudo)) => {
+            interpolable_ident_is_one_of(&pseudo.name, &["before", "after"])
+        }
+        Some(SimpleSelector::PseudoClass(pseudo))
+            if interpolable_ident_is_one_of(&pseudo.name, &["is"]) =>
+        {
+            let Some(argument) = &pseudo.arg else {
+                return false;
+            };
+            match &argument.kind {
+                PseudoClassSelectorArgKind::SelectorList(selector_list) => {
+                    is_exclusive_pseudo_selector_list(selector_list)
+                }
+                PseudoClassSelectorArgKind::CompoundSelectorList(selector_list) => {
+                    !selector_list.selectors.is_empty()
+                        && selector_list.selectors.iter().all(is_bare_before_or_after)
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+fn is_exclusive_pseudo_selector_list(selector_list: &SelectorList<'_>) -> bool {
+    !selector_list.selectors.is_empty()
+        && selector_list.selectors.iter().all(|selector| {
+            matches!(selector.children.as_slice(), [ComplexSelectorChild::CompoundSelector(compound)] if is_bare_before_or_after(compound))
+        })
+}
+
+fn is_bare_before_or_after(compound: &CompoundSelector<'_>) -> bool {
+    matches!(
+        compound.children.as_slice(),
+        [SimpleSelector::PseudoElement(pseudo)]
+            if interpolable_ident_is_one_of(&pseudo.name, &["before", "after"])
+    )
+}
+
+fn interpolable_ident_is_one_of(ident: &InterpolableIdent<'_>, expected: &[&str]) -> bool {
+    matches!(
+        ident,
+        InterpolableIdent::Literal(ident)
+            if expected.iter().any(|expected| ident.name.eq_ignore_ascii_case(expected))
+    )
+}
+
+fn is_content_preserve(declaration: &Declaration<'_>) -> bool {
+    declaration.important.is_none()
+        && matches!(
+            declaration.value.as_slice(),
+            [ComponentValue::InterpolableIdent(ident)]
+                if interpolable_ident_is_one_of(ident, &["preserve"])
+        )
+}
+
+fn declaration_removal_range(
+    declaration: &Declaration<'_>,
+    block: &SimpleBlock<'_>,
+    source: &str,
+) -> (usize, usize) {
+    let mut end = declaration.span.end;
+    let bytes = source.as_bytes();
+    loop {
+        while end < block.span.end && bytes[end].is_ascii_whitespace() && bytes[end] != b'\n' {
+            end += 1;
+        }
+        if end + 1 < block.span.end && bytes[end] == b'/' && bytes[end + 1] == b'*' {
+            end = skip_comment(bytes, end + 2, block.span.end);
+        } else {
+            break;
+        }
+    }
+    if bytes.get(end) == Some(&b';') {
+        end += 1;
+    }
+
+    let line_start = source[..declaration.span.start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line_end = source[end..block.span.end]
+        .find('\n')
+        .map(|offset| end + offset + 1);
+    if source[line_start..declaration.span.start]
+        .chars()
+        .all(char::is_whitespace)
+        && line_end.is_some_and(|line_end| source[end..line_end - 1].trim().is_empty())
+    {
+        (line_start, line_end.unwrap())
+    } else {
+        (declaration.span.start, end)
+    }
+}
+
+fn content_insertion(block: &SimpleBlock<'_>, source: &str) -> String {
+    let content_start = block.span.start + 1;
+    let rest = &source[content_start..block.span.end.saturating_sub(1)];
+    if rest.starts_with('\n') || rest.starts_with("\r\n") {
+        let newline = if rest.starts_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let indent = block
+            .statements
+            .first()
+            .map(Spanned::span)
+            .map(|span| line_indent_at(source, span.start))
+            .filter(|indent| !indent.is_empty())
+            .unwrap_or_else(|| format!("{}  ", line_indent_at(source, block.span.start)));
+        format!("{newline}{indent}content: '';")
+    } else {
+        " content: '';".into()
+    }
+}
+
+fn line_indent_at(source: &str, offset: usize) -> String {
+    let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
+    source[line_start..offset]
+        .chars()
+        .take_while(|character| character.is_whitespace())
+        .collect()
 }
 
 fn collect_statements(
@@ -1554,6 +1769,64 @@ mod tests {
                     && diagnostic.column > 1
             }));
         }
+    }
+
+    #[test]
+    fn inserts_content_for_rules_ending_in_before_or_after() {
+        let input = ".button:hover::before { color: red; }\n.card > .icon:focus::after {}\n.a::before, .a::after {\n  display: block;\n}";
+        let expected = ".button:hover::before { content: ''; color: red; }\n.card > .icon:focus::after { content: '';}\n.a::before, .a::after {\n  content: '';\n  display: block;\n}";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn inserts_content_for_exclusive_is_pseudo_elements() {
+        let input =
+            ".both:is(::before, ::after) { color: red; }\n.before:is(::before) { color: blue; }";
+        let expected = ".both:is(::before, ::after) { content: ''; color: red; }\n.before:is(::before) { content: ''; color: blue; }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn inserts_content_before_comments_and_preserves_crlf() {
+        let input = ".a::before {\r\n  /* explanation */\r\n  color: red;\r\n}";
+        let expected =
+            ".a::before {\r\n  content: '';\r\n  /* explanation */\r\n  color: red;\r\n}";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn skips_ineligible_pseudo_element_selectors() {
+        let input = ".button::before:hover { color: red; }\n.a::before, .b { color: blue; }\n.mixed:is(::before, .other) { color: green; }\n.legacy:before { color: black; }";
+        assert_eq!(run(input, Syntax::Css), input);
+    }
+
+    #[test]
+    fn preserves_existing_content_values() {
+        let input = ".a::before { content: none; }\n.b::after { content: --label; }\n.c::before { content: attr(data-label); }";
+        let expected = ".a::before { content: none; }\n.b::after { content: var(--label); }\n.c::before { content: attr(data-label); }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn removes_content_preserve_only_from_eligible_rules() {
+        let input =
+            ".a::before {\n  content: preserve;\n  color: red;\n}\n.a { content: preserve; }";
+        let expected = ".a::before {\n  color: red;\n}\n.a { content: preserve; }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn removes_preserve_with_trailing_comment_and_keeps_real_content() {
+        let input = ".a::before { content: preserve /* supplied elsewhere */; content: 'real'; }";
+        let expected = ".a::before {  content: 'real'; }";
+        assert_eq!(run(input, Syntax::Css), expected);
+    }
+
+    #[test]
+    fn handles_nested_pseudo_rules_and_other_transforms() {
+        let input = ".button {\n  &::before {\n    transition: (--tone) --duration ease;\n  }\n}";
+        let expected = ".button {\n  &::before {\n    content: '';\n    transition: --tone var(--duration) ease;\n  }\n}";
+        assert_eq!(run(input, Syntax::Scss), expected);
     }
 
     #[test]
