@@ -1,6 +1,6 @@
 {
   "name": "@cross-css/native",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Native Node.js bindings for the XCSS compiler",
   "license": "MIT",
   "author": "Ivan Kobtsev",
@@ -25,14 +25,14 @@
     "prepack": "node ../../npm/verify-release.mjs"
   },
   "optionalDependencies": {
-    "@cross-css/native-darwin-arm64": "0.1.1",
-    "@cross-css/native-darwin-x64": "0.1.1",
-    "@cross-css/native-linux-arm64-gnu": "0.1.1",
-    "@cross-css/native-linux-arm64-musl": "0.1.1",
-    "@cross-css/native-linux-x64-gnu": "0.1.1",
-    "@cross-css/native-linux-x64-musl": "0.1.1",
-    "@cross-css/native-win32-arm64-msvc": "0.1.1",
-    "@cross-css/native-win32-x64-msvc": "0.1.1"
+    "@cross-css/native-darwin-arm64": "0.2.0",
+    "@cross-css/native-darwin-x64": "0.2.0",
+    "@cross-css/native-linux-arm64-gnu": "0.2.0",
+    "@cross-css/native-linux-arm64-musl": "0.2.0",
+    "@cross-css/native-linux-x64-gnu": "0.2.0",
+    "@cross-css/native-linux-x64-musl": "0.2.0",
+    "@cross-css/native-win32-arm64-msvc": "0.2.0",
+    "@cross-css/native-win32-x64-msvc": "0.2.0"
   },
   "publishConfig": {
     "access": "public"

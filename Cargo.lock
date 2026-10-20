@@ -320,21 +320,21 @@ checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 
 [[package]]
 name = "xcss-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "xcss-core",
 ]
 
 [[package]]
 name = "xcss-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "raffia",
 ]
 
 [[package]]
 name = "xcss-node"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "napi",
  "napi-build",
