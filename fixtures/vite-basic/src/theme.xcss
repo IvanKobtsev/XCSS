@@ -1,0 +1,12 @@
+$factor: 2;
+@import mixins from "@/styles.xcss";
+
+.theme {
+  @:mixins.outlined(2px) {
+    color: red;
+  }
+
+  .label {
+    width: --unit * $factor;
+  }
+}

@@ -1,0 +1,9 @@
+@injection outlined($width: length = 1px) {
+  border: $width solid currentColor;
+  @content;
+}
+
+.card {
+  --sidebar: 20px;
+  width: 100% - --sidebar;
+}

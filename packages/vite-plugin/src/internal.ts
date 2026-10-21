@@ -2,41 +2,36 @@ import { normalizePath } from 'vite'
 
 export const XCSS_SOURCE_PARAM = 'xcss-source'
 
-const CROSS_EXTENSION = /\.cross\.(css|scss)$/i
+const XCSS_EXTENSION = /\.xcss$/i
 
 export interface VirtualXcssId {
   id: string
   sourcePath: string
-  syntax: 'css' | 'scss'
 }
 
 export function isCrossCssId(id: string): boolean {
-  return CROSS_EXTENSION.test(splitId(id).path)
+  return XCSS_EXTENSION.test(splitId(id).path)
 }
 
 export function createVirtualId(resolvedId: string): VirtualXcssId | null {
   const { path, query } = splitId(resolvedId)
-  const match = CROSS_EXTENSION.exec(path)
-  if (!match) return null
+  if (!XCSS_EXTENSION.test(path)) return null
 
   const sourcePath = normalizeXcssPath(path)
-  const syntax = match[1].toLowerCase() as 'css' | 'scss'
-  const virtualPath = sourcePath.replace(CROSS_EXTENSION, `.module.${syntax}`)
+  const virtualPath = sourcePath.replace(XCSS_EXTENSION, '.module.scss')
   const params = new URLSearchParams(query)
   params.set(XCSS_SOURCE_PARAM, sourcePath)
-  return { id: `${virtualPath}?${params}`, sourcePath, syntax }
+  return { id: `${virtualPath}?${params}`, sourcePath }
 }
 
 export function parseVirtualId(id: string): VirtualXcssId | null {
   const { path, query } = splitId(id)
   const params = new URLSearchParams(query)
   const sourcePath = params.get(XCSS_SOURCE_PARAM)
-  const match = /\.module\.(css|scss)$/i.exec(path)
-  if (!sourcePath || !match) return null
+  if (!sourcePath || !/\.module\.scss$/i.test(path)) return null
   return {
     id,
     sourcePath: normalizeXcssPath(sourcePath),
-    syntax: match[1].toLowerCase() as 'css' | 'scss',
   }
 }
 

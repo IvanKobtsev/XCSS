@@ -75,8 +75,10 @@ try {
      import { pathToFileURL } from 'node:url';
      const root = process.argv[1];
      const requireFromTest = createRequire(join(root, 'entry.js'));
-     const result = requireFromTest('@cross-css/native').transform('a { width: --size * 2; }', 'css', 'a.cross.css');
-     if (result.code !== 'a { width: calc(var(--size) * 2); }') throw new Error(JSON.stringify(result));
+     const source = 'a { width: --size * 2; }';
+     const result = requireFromTest('@cross-css/native').transform(
+       [{ moduleId: 'a.xcss', filename: '/project/a.xcss', source }], [], 'a.xcss', '/project/node_modules/.xcss/_injections.scss');
+     if (!result.code?.endsWith('a { width: calc(var(--size) * 2); }')) throw new Error(JSON.stringify(result));
      const pluginUrl = pathToFileURL(join(root, 'node_modules', '@cross-css', 'vite-plugin', 'dist', 'index.js'));
      const plugin = (await import(pluginUrl.href)).default();
      if (plugin.name !== 'cross-css' || plugin.enforce !== 'pre') throw new Error('packed Vite plugin did not load correctly');`,

@@ -4,18 +4,18 @@ import xcss from '../src/index.js'
 import { createVirtualId, parseVirtualId } from '../src/internal.js'
 
 describe('virtual XCSS ids', () => {
-  it('maps CSS and preserves Vite queries', () => {
-    const virtual = createVirtualId('C:\\project\\button.cross.css?inline')
-    expect(virtual?.id).toContain('C:/project/button.module.css?')
+  it('maps XCSS to SCSS modules and preserves Vite queries', () => {
+    const virtual = createVirtualId('C:\\project\\button.xcss?inline')
+    expect(virtual?.id).toContain('C:/project/button.module.scss?')
     expect(virtual?.id).toContain('inline=')
     expect(parseVirtualId(virtual!.id)).toMatchObject({
-      sourcePath: 'C:/project/button.cross.css',
-      syntax: 'css',
+      sourcePath: 'C:/project/button.xcss',
     })
   })
 
-  it('maps SCSS to a CSS Module preprocessor id', () => {
-    expect(createVirtualId('/project/theme.cross.scss')?.id).toMatch(
+  it('rejects legacy extensions', () => {
+    expect(createVirtualId('/project/theme.cross.scss')).toBeNull()
+    expect(createVirtualId('/project/theme.xcss')?.id).toMatch(
       /\/project\/theme\.module\.scss\?/,
     )
   })
@@ -33,21 +33,21 @@ describe('plugin shape', () => {
 
   it('delegates alias resolution and invalidates the virtual module on change', async () => {
     const plugin = xcss()
-    const resolvedSource = 'C:/project/src/button.cross.css'
+    const resolvedSource = 'C:/project/src/button.xcss'
     const resolve = vi.fn().mockResolvedValue({ id: resolvedSource })
     const virtualId = await (plugin.resolveId as Function).call(
       { resolve },
-      '@/button.cross.css?inline',
+      '@/button.xcss?inline',
       'C:/project/src/main.ts',
       {},
     )
 
     expect(resolve).toHaveBeenCalledWith(
-      '@/button.cross.css?inline',
+      '@/button.xcss?inline',
       'C:/project/src/main.ts',
       { skipSelf: true },
     )
-    expect(virtualId).toContain('button.module.css?')
+    expect(virtualId).toContain('button.module.scss?')
 
     const virtualModule = { id: virtualId }
     const invalidateModule = vi.fn()

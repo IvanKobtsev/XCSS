@@ -23,8 +23,8 @@ fn sandbox() -> std::path::PathBuf {
 #[test]
 fn compiles_a_file() {
     let directory = sandbox();
-    let input = directory.join("button.cross.css");
-    let output = directory.join("button.module.css");
+    let input = directory.join("button.xcss");
+    let output = directory.join("button.module.scss");
     fs::write(&input, ".a { color: --brand; }").unwrap();
 
     let status = Command::new(env!("CARGO_BIN_EXE_xcss"))
@@ -33,14 +33,17 @@ fn compiles_a_file() {
             input.to_str().unwrap(),
             "--output",
             output.to_str().unwrap(),
+            "--root",
+            directory.to_str().unwrap(),
         ])
         .status()
         .unwrap();
 
     assert!(status.success());
-    assert_eq!(
-        fs::read_to_string(output).unwrap(),
-        ".a { color: var(--brand); }"
+    assert!(
+        fs::read_to_string(output)
+            .unwrap()
+            .ends_with(".a { color: var(--brand); }")
     );
     fs::remove_dir_all(directory).unwrap();
 }
@@ -48,7 +51,7 @@ fn compiles_a_file() {
 #[test]
 fn parse_failure_does_not_replace_existing_output() {
     let directory = sandbox();
-    let input = directory.join("broken.cross.scss");
+    let input = directory.join("broken.xcss");
     let output = directory.join("broken.module.scss");
     fs::write(&input, ".a { color: \"unterminated; }").unwrap();
     fs::write(&output, "previous output").unwrap();
@@ -59,6 +62,8 @@ fn parse_failure_does_not_replace_existing_output() {
             input.to_str().unwrap(),
             "--output",
             output.to_str().unwrap(),
+            "--root",
+            directory.to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -72,8 +77,8 @@ fn parse_failure_does_not_replace_existing_output() {
 #[test]
 fn rejects_mismatched_extensions_and_missing_inputs() {
     let directory = sandbox();
-    let missing = directory.join("missing.cross.css");
-    let wrong_output = directory.join("missing.module.scss");
+    let missing = directory.join("missing.xcss");
+    let wrong_output = directory.join("missing.module.css");
     let rejected = Command::new(env!("CARGO_BIN_EXE_xcss"))
         .args([
             "compile",
@@ -85,7 +90,7 @@ fn rejects_mismatched_extensions_and_missing_inputs() {
         .unwrap();
     assert!(!rejected.success());
 
-    let valid_output = directory.join("missing.module.css");
+    let valid_output = directory.join("missing.module.scss");
     let missing_result = Command::new(env!("CARGO_BIN_EXE_xcss"))
         .args([
             "compile",
@@ -103,8 +108,8 @@ fn rejects_mismatched_extensions_and_missing_inputs() {
 #[test]
 fn compiles_arithmetic_and_preserves_output_on_ambiguity() {
     let directory = sandbox();
-    let input = directory.join("math.cross.css");
-    let output = directory.join("math.module.css");
+    let input = directory.join("math.xcss");
+    let output = directory.join("math.module.scss");
     fs::write(&input, ".a { width: 100% - --sidebar; }").unwrap();
 
     let success = Command::new(env!("CARGO_BIN_EXE_xcss"))
@@ -113,14 +118,14 @@ fn compiles_arithmetic_and_preserves_output_on_ambiguity() {
             input.to_str().unwrap(),
             "--output",
             output.to_str().unwrap(),
+            "--root",
+            directory.to_str().unwrap(),
         ])
         .status()
         .unwrap();
     assert!(success.success());
-    assert_eq!(
-        fs::read_to_string(&output).unwrap(),
-        ".a { width: calc(100% - var(--sidebar)); }"
-    );
+    let successful_output = fs::read_to_string(&output).unwrap();
+    assert!(successful_output.ends_with(".a { width: calc(100% - var(--sidebar)); }"));
 
     fs::write(&input, ".a { margin: 10px + 2px 20px; }").unwrap();
     let failure = Command::new(env!("CARGO_BIN_EXE_xcss"))
@@ -129,6 +134,8 @@ fn compiles_arithmetic_and_preserves_output_on_ambiguity() {
             input.to_str().unwrap(),
             "--output",
             output.to_str().unwrap(),
+            "--root",
+            directory.to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -136,9 +143,45 @@ fn compiles_arithmetic_and_preserves_output_on_ambiguity() {
     assert!(
         String::from_utf8_lossy(&failure.stderr).contains("wrap the expression in parentheses")
     );
-    assert_eq!(
-        fs::read_to_string(&output).unwrap(),
-        ".a { width: calc(100% - var(--sidebar)); }"
-    );
+    assert_eq!(fs::read_to_string(&output).unwrap(), successful_output);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn compiles_project_injections_and_writes_shared_partial() {
+    let directory = sandbox();
+    let library = directory.join("library.xcss");
+    let input = directory.join("button.xcss");
+    let output = directory.join("button.module.scss");
+    fs::write(
+        &library,
+        "@injection outlined($width: length = 1px) { border-width: $width; }",
+    )
+    .unwrap();
+    fs::write(
+        &input,
+        "@import lib from '@/library.xcss'; .a { @:lib.outlined(2px); }",
+    )
+    .unwrap();
+
+    let status = Command::new(env!("CARGO_BIN_EXE_xcss"))
+        .args([
+            "compile",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--root",
+            directory.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+
+    assert!(status.success());
+    let compiled = fs::read_to_string(output).unwrap();
+    assert!(compiled.contains("@include xcss-"));
+    assert!(!compiled.contains("@import lib"));
+    let partial =
+        fs::read_to_string(directory.join("node_modules/.xcss/_injections.scss")).unwrap();
+    assert!(partial.contains("@mixin xcss-"));
     fs::remove_dir_all(directory).unwrap();
 }

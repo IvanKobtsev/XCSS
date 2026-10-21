@@ -1,5 +1,11 @@
 //! Parser-backed, lossless source transformation for Cross-CSS.
 
+mod injections;
+
+pub use injections::{
+    ImportResolution, ProjectFile, ProjectOutput, compile_project, inspect_project_file,
+};
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use raffia::{
@@ -13,18 +19,17 @@ use raffia::{
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Syntax {
+pub(crate) enum Syntax {
     #[default]
     Css,
     Scss,
 }
 
+#[cfg(test)]
 impl Syntax {
     /// Infer the source syntax from an XCSS input filename.
     pub fn from_input_filename(filename: &str) -> Option<Self> {
-        if filename.ends_with(".cross.css") {
-            Some(Self::Css)
-        } else if filename.ends_with(".cross.scss") {
+        if filename.ends_with(".xcss") {
             Some(Self::Scss)
         } else {
             None
@@ -33,24 +38,21 @@ impl Syntax {
 
     /// Required output suffix for this source syntax.
     pub const fn output_suffix(self) -> &'static str {
-        match self {
-            Self::Css => ".module.css",
-            Self::Scss => ".module.scss",
-        }
+        ".module.scss"
     }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct TransformOptions<'a> {
-    pub syntax: Syntax,
-    pub filename: Option<&'a str>,
+pub(crate) struct TransformOptions<'a> {
+    pub(crate) syntax: Syntax,
+    pub(crate) filename: Option<&'a str>,
     /// Stable, project-relative identity used to scope names declared by `@vars`.
-    pub module_id: Option<&'a str>,
+    pub(crate) module_id: Option<&'a str>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TransformOutput {
-    pub code: String,
+pub(crate) struct TransformOutput {
+    pub(crate) code: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -715,7 +717,7 @@ fn find_top_level_byte(value: &str, needle: u8) -> Option<usize> {
     None
 }
 
-pub fn transform(
+pub(crate) fn transform(
     source: &str,
     options: TransformOptions<'_>,
 ) -> Result<TransformOutput, Vec<Diagnostic>> {
@@ -2583,15 +2585,9 @@ mod tests {
 
     #[test]
     fn maps_xcss_filenames_to_output_suffixes() {
-        assert_eq!(
-            Syntax::from_input_filename("a.cross.css"),
-            Some(Syntax::Css)
-        );
-        assert_eq!(
-            Syntax::from_input_filename("a.cross.scss"),
-            Some(Syntax::Scss)
-        );
+        assert_eq!(Syntax::from_input_filename("a.xcss"), Some(Syntax::Scss));
         assert_eq!(Syntax::from_input_filename("a.css"), None);
+        assert_eq!(Syntax::from_input_filename("a.cross.scss"), None);
         assert_eq!(Syntax::Scss.output_suffix(), ".module.scss");
     }
 

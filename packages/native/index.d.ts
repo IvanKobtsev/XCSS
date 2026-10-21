@@ -15,12 +15,31 @@ export interface NativeDiagnostic {
 
 export interface NativeTransformResult {
   code: string | null
+  partial: string | null
   diagnostics: NativeDiagnostic[]
 }
 
+export interface NativeProjectFile {
+  moduleId: string
+  filename: string
+  source: string
+}
+
+export interface NativeImportResolution {
+  importer: string
+  specifier: string
+  target: string
+}
+
+export interface NativeInspection {
+  imports: string[]
+}
+
+export function inspect(source: string): NativeInspection
+
 export function transform(
-  source: string,
-  syntax: 'css' | 'scss',
-  filename?: string | null,
-  moduleId?: string | null,
+  files: NativeProjectFile[],
+  resolutions: NativeImportResolution[],
+  targetModuleId: string,
+  partialPath: string,
 ): NativeTransformResult

@@ -41,3 +41,4 @@ try {
 
 module.exports = binding
 module.exports.transform = binding.transform
+module.exports.inspect = binding.inspect

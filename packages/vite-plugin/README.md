@@ -1,6 +1,6 @@
 # `@cross-css/vite-plugin`
 
-Compile `.cross.css` and `.cross.scss` files with XCSS before Vite's CSS pipeline.
+Compile `.xcss` files as SCSS-backed CSS Modules before Vite's CSS pipeline.
 
 ```console
 pnpm add -D @cross-css/vite-plugin
@@ -15,4 +15,4 @@ export default defineConfig({
 })
 ```
 
-Place XCSS first among plugins using `enforce: 'pre'`. Every Cross file is exposed to Vite as a CSS Module. External stylesheet directives (`@import`, `@use`, and `@forward`) are reserved for XCSS's future import system.
+Place XCSS first among plugins using `enforce: 'pre'`. Every `.xcss` file is exposed as a `.module.scss` module. XCSS injection imports are resolved at compile time and never import the source stylesheet's selectors.
