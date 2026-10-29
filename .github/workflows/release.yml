@@ -217,5 +217,11 @@ jobs:
           verification_directory=$(mktemp -d)
           cd "$verification_directory"
           npm init -y
-          npm install --ignore-scripts @cross-css/native@0.3.0
+          for attempt in $(seq 1 12); do
+            if npm install --ignore-scripts --prefer-online @cross-css/native@0.3.0; then
+              break
+            fi
+            test "$attempt" -lt 12
+            sleep 15
+          done
           node "$GITHUB_WORKSPACE/npm/test-published-language-service.mjs"
