@@ -1,0 +1,10 @@
+[package]
+name = "xcss-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+xcss-source = { path = "../xcss-source" }
+raffia.workspace = true
+

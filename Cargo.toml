@@ -1,15 +1,19 @@
 [workspace]
-members = ["crates/xcss-core", "crates/xcss-cli", "crates/xcss-node"]
+members = ["crates/xcss-core", "crates/xcss-cli", "crates/xcss-node", "crates/xcss-source", "crates/xcss-syntax", "crates/xcss-analysis", "crates/xcss-codegen", "crates/xcss-language-service"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/IvanKobtsev/XCSS"
 
 [workspace.dependencies]
 raffia = "=0.13.0"
+lightningcss = { version = "=1.0.0-alpha.72", default-features = false, features = ["sourcemap"] }
+parcel_sourcemap = { version = "=2.1.1", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
 napi-build = "2"

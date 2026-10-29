@@ -1,187 +1,110 @@
 use std::{
     fs,
+    path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
 };
-
-static SANDBOX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-fn sandbox() -> std::path::PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let sequence = SANDBOX_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/xcss-cli-tests")
-        .join(format!("{}-{nonce}-{sequence}", std::process::id()));
+static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+fn sandbox() -> PathBuf {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/cli-tests/{}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
     fs::create_dir_all(&path).unwrap();
-    path
+    fs::canonicalize(path).unwrap()
 }
-
-#[test]
-fn compiles_a_file() {
-    let directory = sandbox();
-    let input = directory.join("button.xcss");
-    let output = directory.join("button.module.scss");
-    fs::write(&input, ".a { color: --brand; }").unwrap();
-
-    let status = Command::new(env!("CARGO_BIN_EXE_xcss"))
+fn run(root: &Path, input: &str, output: &str) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_xcss"))
         .args([
             "compile",
-            input.to_str().unwrap(),
+            root.join(input).to_str().unwrap(),
             "--output",
-            output.to_str().unwrap(),
+            root.join(output).to_str().unwrap(),
             "--root",
-            directory.to_str().unwrap(),
-        ])
-        .status()
-        .unwrap();
-
-    assert!(status.success());
-    assert!(
-        fs::read_to_string(output)
-            .unwrap()
-            .ends_with(".a { color: var(--brand); }")
-    );
-    fs::remove_dir_all(directory).unwrap();
-}
-
-#[test]
-fn parse_failure_does_not_replace_existing_output() {
-    let directory = sandbox();
-    let input = directory.join("broken.xcss");
-    let output = directory.join("broken.module.scss");
-    fs::write(&input, ".a { color: \"unterminated; }").unwrap();
-    fs::write(&output, "previous output").unwrap();
-
-    let result = Command::new(env!("CARGO_BIN_EXE_xcss"))
-        .args([
-            "compile",
-            input.to_str().unwrap(),
-            "--output",
-            output.to_str().unwrap(),
-            "--root",
-            directory.to_str().unwrap(),
+            root.to_str().unwrap(),
         ])
         .output()
-        .unwrap();
-
-    assert!(!result.status.success());
-    assert_eq!(fs::read_to_string(output).unwrap(), "previous output");
-    assert!(String::from_utf8_lossy(&result.stderr).contains(":1:"));
-    fs::remove_dir_all(directory).unwrap();
+        .unwrap()
 }
-
 #[test]
-fn rejects_mismatched_extensions_and_missing_inputs() {
-    let directory = sandbox();
-    let missing = directory.join("missing.xcss");
-    let wrong_output = directory.join("missing.module.css");
-    let rejected = Command::new(env!("CARGO_BIN_EXE_xcss"))
-        .args([
-            "compile",
-            missing.to_str().unwrap(),
-            "--output",
-            wrong_output.to_str().unwrap(),
-        ])
-        .status()
-        .unwrap();
-    assert!(!rejected.success());
-
-    let valid_output = directory.join("missing.module.scss");
-    let missing_result = Command::new(env!("CARGO_BIN_EXE_xcss"))
-        .args([
-            "compile",
-            missing.to_str().unwrap(),
-            "--output",
-            valid_output.to_str().unwrap(),
-        ])
-        .status()
-        .unwrap();
-    assert!(!missing_result.success());
-    assert!(!valid_output.exists());
-    fs::remove_dir_all(directory).unwrap();
-}
-
-#[test]
-fn compiles_arithmetic_and_preserves_output_on_ambiguity() {
-    let directory = sandbox();
-    let input = directory.join("math.xcss");
-    let output = directory.join("math.module.scss");
-    fs::write(&input, ".a { width: 100% - --sidebar; }").unwrap();
-
-    let success = Command::new(env!("CARGO_BIN_EXE_xcss"))
-        .args([
-            "compile",
-            input.to_str().unwrap(),
-            "--output",
-            output.to_str().unwrap(),
-            "--root",
-            directory.to_str().unwrap(),
-        ])
-        .status()
-        .unwrap();
-    assert!(success.success());
-    let successful_output = fs::read_to_string(&output).unwrap();
-    assert!(successful_output.ends_with(".a { width: calc(100% - var(--sidebar)); }"));
-
-    fs::write(&input, ".a { margin: 10px + 2px 20px; }").unwrap();
-    let failure = Command::new(env!("CARGO_BIN_EXE_xcss"))
-        .args([
-            "compile",
-            input.to_str().unwrap(),
-            "--output",
-            output.to_str().unwrap(),
-            "--root",
-            directory.to_str().unwrap(),
-        ])
-        .output()
-        .unwrap();
-    assert!(!failure.status.success());
+fn writes_scoped_css_exports_and_maps() {
+    let root = sandbox();
+    fs::write(root.join("a.xcss"), ".a { width: --size * 2; }").unwrap();
+    let output = run(&root, "a.xcss", "out.css");
     assert!(
-        String::from_utf8_lossy(&failure.stderr).contains("wrap the expression in parentheses")
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(fs::read_to_string(&output).unwrap(), successful_output);
-    fs::remove_dir_all(directory).unwrap();
+    let css = fs::read_to_string(root.join("out.css")).unwrap();
+    let exports: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.join("out.exports.json")).unwrap()).unwrap();
+    assert!(css.contains(exports["a"].as_str().unwrap()));
+    assert!(css.contains("calc(var(--size) * 2)"));
+    assert!(root.join("out.css.map").exists());
+}
+#[test]
+fn compile_errors_preserve_all_previous_artifacts() {
+    let root = sandbox();
+    fs::write(root.join("a.xcss"), ".a { @:missing; }").unwrap();
+    for name in ["out.css", "out.css.map", "out.exports.json"] {
+        fs::write(root.join(name), "previous").unwrap();
+    }
+    assert!(!run(&root, "a.xcss", "out.css").status.success());
+    for name in ["out.css", "out.css.map", "out.exports.json"] {
+        assert_eq!(fs::read_to_string(root.join(name)).unwrap(), "previous");
+    }
+}
+#[test]
+fn writes_composition_dependencies_and_rebases_assets() {
+    let root = sandbox();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/a.xcss"),
+        ".a { composes: b from \"./b.xcss\"; background: url('./image.svg'); }",
+    )
+    .unwrap();
+    fs::write(root.join("src/b.xcss"), ".b { color: red; }").unwrap();
+    let result = run(&root, "src/a.xcss", "dist/out.css");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let css = fs::read_to_string(root.join("dist/out.css")).unwrap();
+    assert!(css.contains("@import"));
+    assert!(css.contains("../src/image.svg"));
+    assert!(root.join("dist/.xcss/src/b.css").exists());
+}
+#[test]
+fn rejects_sass_and_double_scoped_output() {
+    let root = sandbox();
+    fs::write(root.join("a.xcss"), "$factor: 2;").unwrap();
+    assert!(!run(&root, "a.xcss", "out.css").status.success());
+    assert!(!run(&root, "a.xcss", "out.module.css").status.success());
 }
 
 #[test]
-fn compiles_project_injections_and_writes_shared_partial() {
-    let directory = sandbox();
-    let library = directory.join("library.xcss");
-    let input = directory.join("button.xcss");
-    let output = directory.join("button.module.scss");
-    fs::write(
-        &library,
-        "@injection outlined($width: length = 1px) { border-width: $width; }",
-    )
-    .unwrap();
-    fs::write(
-        &input,
-        "@import lib from '@/library.xcss'; .a { @:lib.outlined(2px); }",
-    )
-    .unwrap();
-
-    let status = Command::new(env!("CARGO_BIN_EXE_xcss"))
-        .args([
-            "compile",
-            input.to_str().unwrap(),
-            "--output",
-            output.to_str().unwrap(),
-            "--root",
-            directory.to_str().unwrap(),
-        ])
-        .status()
-        .unwrap();
-
-    assert!(status.success());
-    let compiled = fs::read_to_string(output).unwrap();
-    assert!(compiled.contains("@include xcss-"));
-    assert!(!compiled.contains("@import lib"));
-    let partial =
-        fs::read_to_string(directory.join("node_modules/.xcss/_injections.scss")).unwrap();
-    assert!(partial.contains("@mixin xcss-"));
-    fs::remove_dir_all(directory).unwrap();
+fn output_can_be_outside_project_root_without_changing_source_identity() {
+    let root = sandbox();
+    fs::write(root.join("a.xcss"), ".a { background: url('./icon.svg'); }").unwrap();
+    let filename = format!(
+        "../outside-{}.css",
+        root.file_name().unwrap().to_string_lossy()
+    );
+    let result = run(&root, "a.xcss", &filename);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let css = fs::read_to_string(root.join(filename)).unwrap();
+    assert!(
+        css.contains(&format!(
+            "./{}/icon.svg",
+            root.file_name().unwrap().to_string_lossy()
+        )),
+        "{css}"
+    );
 }

@@ -1,5 +1,6 @@
 @injection outlined($width: length = 1px) {
   border: $width solid currentColor;
+  background-image: url("./icon.svg");
   @content;
 }
 

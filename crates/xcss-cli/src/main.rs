@@ -1,251 +1,281 @@
 use std::{
+    collections::BTreeMap,
     env, fs,
-    io::{self, Write},
     path::{Path, PathBuf},
     process,
 };
-
-use xcss_core::{ImportResolution, ProjectFile, compile_project, inspect_project_file};
-
+use xcss_core::{AnalysisHost, FileId, GenerateOptions, Severity};
 fn main() {
-    if let Err(message) = run(env::args_os().skip(1).collect()) {
-        eprintln!("{message}");
+    if let Err(error) = run() {
+        eprintln!("{error}");
         process::exit(1);
     }
 }
-
-fn run(args: Vec<std::ffi::OsString>) -> Result<(), String> {
-    let (input, output, root) = parse_args(args)?;
-    validate_paths(&input, &output)?;
-    let root =
-        fs::canonicalize(root.unwrap_or(env::current_dir().map_err(|error| error.to_string())?))
-            .map_err(|error| error.to_string())?;
-    let owned = scan_project(&root)?;
-    let files: Vec<_> = owned
-        .iter()
-        .map(|file| ProjectFile {
-            module_id: &file.module_id,
-            filename: &file.filename,
-            source: &file.source,
-        })
-        .collect();
-    let owned_resolutions = resolve_imports(&owned, &root);
-    let resolutions: Vec<_> = owned_resolutions
-        .iter()
-        .map(|resolution| ImportResolution {
-            importer: &resolution.importer,
-            specifier: &resolution.specifier,
-            target: &resolution.target,
-        })
-        .collect();
-    let absolute_input =
-        fs::canonicalize(&input).map_err(|error| format!("{}: {error}", input.display()))?;
-    let module_id = logical_module_id_from_root(&root, &absolute_input);
-    let partial = root.join("node_modules/.xcss/_injections.scss");
-    let partial_name = partial.to_string_lossy().replace('\\', "/");
-    let transformed = compile_project(&files, &resolutions, &module_id, &partial_name).map_err(
-        |diagnostics| {
-            diagnostics
-                .into_iter()
-                .map(|diagnostic| {
-                    format!(
-                        "{}:{}:{}: error: {}",
-                        diagnostic.filename.as_deref().unwrap_or("<input>"),
-                        diagnostic.line,
-                        diagnostic.column,
-                        diagnostic.message
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        },
-    )?;
-
-    write_complete_file(&partial, transformed.partial.as_bytes())
-        .map_err(|error| format!("{}: {error}", partial.display()))?;
-    write_complete_file(&output, transformed.code.as_bytes())
-        .map_err(|error| format!("{}: {error}", output.display()))
-}
-
-struct OwnedFile {
-    module_id: String,
-    filename: String,
-    source: String,
-}
-struct OwnedResolution {
-    importer: String,
-    specifier: String,
-    target: String,
-}
-
-fn logical_module_id_from_root(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
-}
-
-fn parse_args(
-    args: Vec<std::ffi::OsString>,
-) -> Result<(PathBuf, PathBuf, Option<PathBuf>), String> {
-    if (args.len() == 4 || args.len() == 6)
-        && args[0] == "compile"
-        && (args[2] == "--output" || args[2] == "-o")
+fn run() -> Result<(), String> {
+    let args: Vec<_> = env::args().skip(1).collect();
+    if !matches!(args.len(), 4 | 6)
+        || args[0] != "compile"
+        || !matches!(args[2].as_str(), "--output" | "-o")
+        || args.len() == 6 && args[4] != "--root"
     {
-        let root = if args.len() == 6 && args[4] == "--root" {
-            Some(PathBuf::from(&args[5]))
-        } else if args.len() == 4 {
-            None
+        return Err(
+            "usage: xcss compile <input.xcss> --output <output.css> [--root <directory>]".into(),
+        );
+    }
+    let input = PathBuf::from(&args[1]);
+    let output = PathBuf::from(&args[3]);
+    if input.extension().is_none_or(|s| s != "xcss") {
+        return Err("input must end in .xcss".into());
+    }
+    if output.extension().is_none_or(|s| s != "css")
+        || output.to_string_lossy().ends_with(".module.css")
+    {
+        return Err(
+            "output must end in .css, without .module.css (XCSS already scopes names)".into(),
+        );
+    }
+    let root = canonical(if args.len() == 6 {
+        PathBuf::from(&args[5])
+    } else {
+        env::current_dir().map_err(|e| e.to_string())?
+    })
+    .map_err(|e| e.to_string())?;
+    let input = canonical(input).map_err(|e| e.to_string())?;
+    let output = portable_path(if output.is_absolute() {
+        output
+    } else {
+        env::current_dir().map_err(|e| e.to_string())?.join(output)
+    });
+    if input == output {
+        return Err("input and output must differ".into());
+    }
+    let mut paths = Vec::new();
+    scan(&root, &mut paths)?;
+    paths.sort();
+    let mut host = AnalysisHost::new();
+    let mut files = BTreeMap::new();
+    for path in paths {
+        let module = module_id(&root, &path)?;
+        let source = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        host.set_file(module.clone(), 1, source.clone())
+            .map_err(|e| format!("{e:?}"))?;
+        files.insert(module, (path, source));
+    }
+    for (module, (path, source)) in &files {
+        for specifier in xcss_core::inspect_project_file(source).imports {
+            let candidate = if let Some(alias) = specifier.strip_prefix("@/") {
+                root.join(alias)
+            } else {
+                path.parent().unwrap().join(&specifier)
+            };
+            let target = canonical(candidate)
+                .ok()
+                .and_then(|p| module_id(&root, &p).ok())
+                .filter(|id| files.contains_key(id));
+            host.set_resolution(module.clone(), specifier, target);
+        }
+    }
+    let entry = module_id(&root, &input)?;
+    let destinations: BTreeMap<_, _> = files
+        .keys()
+        .map(|id| {
+            let path = if *id == entry {
+                output.clone()
+            } else {
+                output
+                    .parent()
+                    .unwrap()
+                    .join(".xcss")
+                    .join(&id.0)
+                    .with_extension("css")
+            };
+            (id.clone(), path)
+        })
+        .collect();
+    let output_paths = destinations
+        .iter()
+        .map(|(id, path)| (id.clone(), path.to_string_lossy().replace('\\', "/")))
+        .collect();
+    let snapshot = host.snapshot();
+    let result = xcss_core::generate(
+        &snapshot,
+        &entry,
+        &GenerateOptions {
+            output_paths,
+            source_root: Some(root.to_string_lossy().replace('\\', "/")),
+            ..GenerateOptions::default()
+        },
+    )
+    .map_err(|diagnostics| {
+        diagnostics
+            .into_iter()
+            .map(|d| {
+                let pos = snapshot
+                    .syntax(&d.location.file)
+                    .and_then(|p| p.source.byte_to_utf16(d.location.range.start));
+                format!(
+                    "{}:{}:{}: {}: {}",
+                    d.location.file.0,
+                    pos.map(|p| p.line + 1).unwrap_or(1),
+                    pos.map(|p| p.character + 1).unwrap_or(1),
+                    d.code,
+                    d.message
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    for warning in &result.diagnostics {
+        if warning.severity == Severity::Warning {
+            eprintln!("{}: warning: {}", warning.location.file.0, warning.message);
+        }
+    }
+    let mut writes = Vec::new();
+    for module in result.modules {
+        let path = &destinations[&module.module_id];
+        let parent = path.parent().unwrap();
+        let mut imports = String::new();
+        for dependency in &module.stylesheet_dependencies {
+            let relative = pathdiff::diff_paths(&destinations[dependency], parent)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            imports.push_str(&format!(
+                "@import {};\n",
+                serde_json::to_string(&format!("./{relative}")).unwrap()
+            ));
+        }
+        let mut css = module.css;
+        if css.starts_with("@charset ") {
+            if let Some(end) = css.find(';') {
+                css.insert_str(end + 1, &format!("\n{imports}"));
+            }
         } else {
-            return Err(usage());
-        };
-        return Ok((PathBuf::from(&args[1]), PathBuf::from(&args[3]), root));
-    }
-    Err(usage())
-}
-
-fn usage() -> String {
-    "usage: xcss compile <input.xcss> --output <output.module.scss> [--root <dir>]".into()
-}
-
-fn validate_paths(input: &Path, output: &Path) -> Result<(), String> {
-    let input_name = input.to_string_lossy();
-    let output_name = output.to_string_lossy();
-    if !input_name.ends_with(".xcss") {
-        return Err(format!("{}: input must end in .xcss", input.display()));
-    }
-    if !output_name.ends_with(".module.scss") {
-        return Err(format!(
-            "{}: output must end in .module.scss",
-            output.display()
+            css = format!("{imports}{css}");
+        }
+        let map_path = PathBuf::from(format!("{}.map", path.display()));
+        css.push_str(&format!(
+            "\n/*# sourceMappingURL={} */\n",
+            map_path.file_name().unwrap().to_string_lossy()
+        ));
+        let mut map: serde_json::Value =
+            serde_json::from_str(&module.source_map).map_err(|e| e.to_string())?;
+        map["sourceRoot"] = serde_json::Value::String(
+            pathdiff::diff_paths(&root, parent)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+        map["file"] =
+            serde_json::Value::String(path.file_name().unwrap().to_string_lossy().into_owned());
+        // @import insertion shifts generated lines in the CSS artifact.
+        if !imports.is_empty() {
+            let count = imports.lines().count();
+            let mappings = map["mappings"].as_str().unwrap_or("");
+            map["mappings"] = serde_json::Value::String(format!("{}{mappings}", ";".repeat(count)));
+        }
+        writes.push((path.clone(), css));
+        writes.push((map_path, serde_json::to_string(&map).unwrap()));
+        writes.push((
+            path.with_extension("exports.json"),
+            serde_json::to_string_pretty(&module.classes).unwrap(),
         ));
     }
-    if input == output {
-        return Err("input and output paths must be different".into());
+    write_transaction(writes)
+}
+fn module_id(root: &Path, path: &Path) -> Result<FileId, String> {
+    path.strip_prefix(root)
+        .map(|p| FileId(p.to_string_lossy().replace('\\', "/")))
+        .map_err(|_| format!("{} is outside project root", path.display()))
+}
+fn scan(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    for entry in fs::read_dir(directory).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+            if [
+                "node_modules",
+                ".git",
+                "dist",
+                "target",
+                "coverage",
+                ".xcss",
+            ]
+            .iter()
+            .any(|name| entry.file_name() == *name)
+            {
+                continue;
+            }
+            scan(&path, files)?;
+        } else if path.extension().is_some_and(|s| s == "xcss") {
+            files.push(canonical(path).map_err(|e| e.to_string())?);
+        }
+    }
+    Ok(())
+}
+fn write_transaction(writes: Vec<(PathBuf, String)>) -> Result<(), String> {
+    let mut staged = Vec::new();
+    for (index, (path, text)) in writes.into_iter().enumerate() {
+        fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+        let temp = path.with_extension(format!("xcss-{}-{index}.tmp", process::id()));
+        let backup = path.with_extension(format!("xcss-{}-{index}.bak", process::id()));
+        if let Err(error) = fs::write(&temp, text) {
+            for (_, temp, _) in &staged {
+                let _ = fs::remove_file(temp);
+            }
+            return Err(error.to_string());
+        }
+        staged.push((path, temp, backup));
+    }
+    let mut installed = Vec::new();
+    for (path, temp, backup) in &staged {
+        let had_output = path.exists();
+        let result = (|| {
+            if had_output {
+                fs::rename(path, backup)?;
+            }
+            fs::rename(temp, path)
+        })();
+        if let Err(error) = result {
+            if had_output && backup.exists() {
+                let _ = fs::rename(backup, path);
+            }
+            for (path, backup, had) in installed.iter().rev() {
+                let _ = fs::remove_file(path);
+                if *had {
+                    let _ = fs::rename(backup, path);
+                }
+            }
+            for (_, temp, _) in &staged {
+                let _ = fs::remove_file(temp);
+            }
+            return Err(error.to_string());
+        }
+        installed.push((path.clone(), backup.clone(), had_output));
+    }
+    for (_, backup, had) in installed {
+        if had {
+            fs::remove_file(backup).map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
 
-fn scan_project(root: &Path) -> Result<Vec<OwnedFile>, String> {
-    fn visit(root: &Path, directory: &Path, files: &mut Vec<OwnedFile>) -> Result<(), String> {
-        for entry in
-            fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
-        {
-            let entry = entry.map_err(|error| error.to_string())?;
-            let path = entry.path();
-            if path.is_dir() {
-                let name = entry.file_name();
-                if ["node_modules", ".git", "dist", "target", "coverage"]
-                    .iter()
-                    .any(|skip| name == *skip)
-                {
-                    continue;
-                }
-                visit(root, &path, files)?;
-            } else if path.to_string_lossy().ends_with(".xcss") {
-                let absolute = fs::canonicalize(&path).map_err(|error| error.to_string())?;
-                files.push(OwnedFile {
-                    module_id: logical_module_id_from_root(root, &absolute),
-                    filename: absolute.to_string_lossy().into_owned(),
-                    source: fs::read_to_string(&absolute)
-                        .map_err(|error| format!("{}: {error}", absolute.display()))?,
-                });
-            }
+fn canonical(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
+    fs::canonicalize(path).map(portable_path)
+}
+fn portable_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy().replace('\\', "/");
+        if let Some(rest) = text.strip_prefix("//?/UNC/") {
+            PathBuf::from(format!("//{rest}"))
+        } else {
+            PathBuf::from(text.strip_prefix("//?/").unwrap_or(&text))
         }
-        Ok(())
     }
-    let root = fs::canonicalize(root).map_err(|error| format!("{}: {error}", root.display()))?;
-    let mut files = Vec::new();
-    visit(&root, &root, &mut files)?;
-    files.sort_by(|left, right| left.module_id.cmp(&right.module_id));
-    Ok(files)
-}
-
-fn resolve_imports(files: &[OwnedFile], root: &Path) -> Vec<OwnedResolution> {
-    files
-        .iter()
-        .flat_map(|file| {
-            inspect_project_file(&file.source)
-                .imports
-                .into_iter()
-                .map(|specifier| {
-                    let target_path = if let Some(path) = specifier.strip_prefix("@/") {
-                        root.join(path)
-                    } else {
-                        Path::new(&file.filename)
-                            .parent()
-                            .unwrap_or(root)
-                            .join(&specifier)
-                    };
-                    let target = fs::canonicalize(target_path)
-                        .ok()
-                        .map(|path| logical_module_id_from_root(root, &path))
-                        .unwrap_or_default();
-                    OwnedResolution {
-                        importer: file.module_id.clone(),
-                        specifier,
-                        target,
-                    }
-                })
-        })
-        .collect()
-}
-
-fn write_complete_file(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let stem = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("xcss-output");
-    let temporary = parent.join(format!(".{stem}.{}.tmp", process::id()));
-    let backup = parent.join(format!(".{stem}.{}.bak", process::id()));
-
-    let result = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        file.write_all(contents)?;
-        file.sync_all()?;
-        drop(file);
-
-        let had_output = path.exists();
-        if had_output {
-            fs::rename(path, &backup)?;
-        }
-        if let Err(error) = fs::rename(&temporary, path) {
-            if had_output {
-                let _ = fs::rename(&backup, path);
-            }
-            return Err(error);
-        }
-        if had_output {
-            fs::remove_file(&backup)?;
-        }
-        Ok(())
-    })();
-
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validates_matching_extensions() {
-        assert_eq!(
-            validate_paths(Path::new("a.xcss"), Path::new("a.module.scss")),
-            Ok(())
-        );
-        assert_eq!(
-            validate_paths(Path::new("a.xcss"), Path::new("a.module.scss")),
-            Ok(())
-        );
-        assert!(validate_paths(Path::new("a.css"), Path::new("a.module.scss")).is_err());
+    #[cfg(not(windows))]
+    {
+        path
     }
 }

@@ -1,47 +1,28 @@
 import { normalizePath } from 'vite'
-
 export const XCSS_SOURCE_PARAM = 'xcss-source'
-
-const XCSS_EXTENSION = /\.xcss$/i
-
-export interface VirtualXcssId {
-  id: string
-  sourcePath: string
-}
-
-export function isCrossCssId(id: string): boolean {
-  return XCSS_EXTENSION.test(splitId(id).path)
-}
-
+export interface VirtualXcssId { id: string; sourcePath: string; kind: 'module' | 'css' | 'bundle'; mode: 'module' | 'inline' | 'url' }
+export function isCrossCssId(id: string): boolean { return /\.xcss$/i.test(id.split('?', 1)[0]) }
 export function createVirtualId(resolvedId: string): VirtualXcssId | null {
-  const { path, query } = splitId(resolvedId)
-  if (!XCSS_EXTENSION.test(path)) return null
-
-  const sourcePath = normalizeXcssPath(path)
-  const virtualPath = sourcePath.replace(XCSS_EXTENSION, '.module.scss')
+  const [path, query = ''] = resolvedId.split('?')
+  if (!isCrossCssId(path)) return null
   const params = new URLSearchParams(query)
+  if (params.has('inline') && params.has('url')) throw new Error('XCSS cannot combine ?inline and ?url')
+  for (const key of params.keys()) if (!['inline', 'url', 't', 'import'].includes(key)) throw new Error('Unsupported XCSS query: ' + key)
+  const sourcePath = normalizePath(path.replaceAll('\\', '/'))
   params.set(XCSS_SOURCE_PARAM, sourcePath)
-  return { id: `${virtualPath}?${params}`, sourcePath }
+  params.set('xcss-kind', 'module')
+  return { id: sourcePath + '.js?' + params, sourcePath, kind: 'module', mode: params.has('inline') ? 'inline' : params.has('url') ? 'url' : 'module' }
 }
-
+export function createCssId(sourcePath: string, bundle = false, mode = ''): string {
+  const params = new URLSearchParams({ [XCSS_SOURCE_PARAM]: sourcePath, 'xcss-kind': bundle ? 'bundle' : 'css' })
+  return sourcePath + '.css?' + params + (mode ? '&' + mode : '')
+}
 export function parseVirtualId(id: string): VirtualXcssId | null {
-  const { path, query } = splitId(id)
-  const params = new URLSearchParams(query)
+  const query = id.indexOf('?')
+  if (query === -1) return null
+  const params = new URLSearchParams(id.slice(query + 1))
   const sourcePath = params.get(XCSS_SOURCE_PARAM)
-  if (!sourcePath || !/\.module\.scss$/i.test(path)) return null
-  return {
-    id,
-    sourcePath: normalizeXcssPath(sourcePath),
-  }
-}
-
-function normalizeXcssPath(path: string): string {
-  return normalizePath(path.replaceAll('\\', '/'))
-}
-
-function splitId(id: string): { path: string; query: string } {
-  const queryStart = id.indexOf('?')
-  return queryStart === -1
-    ? { path: id, query: '' }
-    : { path: id.slice(0, queryStart), query: id.slice(queryStart + 1) }
+  const kind = params.get('xcss-kind')
+  if (!sourcePath || !['module', 'css', 'bundle'].includes(kind ?? '')) return null
+  return { id, sourcePath: normalizePath(sourcePath.replaceAll('\\', '/')), kind: kind as VirtualXcssId['kind'], mode: params.has('inline') ? 'inline' : params.has('url') ? 'url' : 'module' }
 }

@@ -1,103 +1,39 @@
 # XCSS (CrossCSS)
 
-XCSS is a parser-backed Rust compiler that makes you cross out CSS boilerplate. It compiles SCSS-backed `.xcss`
-files into `.module.scss` CSS Modules while preserving formatting and comments.
-
-```scss
-.button {
-  color: var(--primary-color);
-  padding: calc(var(--spacing) * 2);
-}
-```
-
-with XCSS can be written as simply:
-
-```scss
-.button {
-  color: --primary-color;
-  padding: --spacing * 2;
-}
-```
-
-Use parentheses when arithmetic is mixed with other whitespace-separated values. XCSS replaces the grouping parentheses with `calc()`:
-
-```scss
-/* Ambiguous: compilation fails with a location-aware diagnostic. */
-margin: 10px + 2px 20px;
-
-/* Explicit: compiles to `calc(10px + 2px) 20px`. */
-margin: (10px + 2px) 20px;
-```
-
-Transition properties can share the same timing values by grouping them in the
-property-first position:
-
-```scss
-/* Compiles to: color .5s ease, --theme .5s ease, width .3s */
-transition: (color, --theme) .5s ease, width .3s;
-
-/* Compiles to: --theme var(--duration) var(--easing), width var(--duration) var(--easing) */
-transition: (--theme, width) --duration --easing;
-```
-
-XCSS automatically adds `allow-discrete` when a `transition` item targets `display`,
-`content-visibility`, or `overlay`. An explicit `normal` opts out of this behavior.
-Custom property names in a transition property group remain bare, while custom values
-used for duration, easing, or delay are wrapped in `var()`. A single ungrouped custom
-property is also supported when it is unambiguous, such as `--theme .3s ease`.
-Ambiguous items such as `--property --duration ease` fail compilation; write the
-property explicitly as `(--property) --duration ease` instead. Custom property names
-in `transition-property` declarations always remain bare.
-
-XCSS also supplies the empty content required by generated pseudo-elements. When every
-branch of a rule ends in `::before`, `::after`, or an exclusive `:is()` containing only
-those pseudo-elements, `content: '';` is inserted as the first declaration:
-
-```scss
-/* Receives content because the selector ends in ::before. */
-.button:hover::before {
-  display: block;
-}
-
-/* Also supported in nested SCSS and for either generated pseudo-element. */
-.button {
-  &:is(::before, ::after) {
-    position: absolute;
-  }
-}
-```
-
-Selectors with anything after the pseudo-element, such as `::before:hover`, and mixed
-selector lists such as `.button::before, .button` are left unchanged. An existing
-`content` declaration disables insertion. Use the XCSS-only `content: preserve;`
-directive when content is supplied by another selector; XCSS removes the directive
-without inserting a replacement.
-
-## Typed custom properties
-
-Declare typed, module-scoped custom properties with a top-level `@vars` block:
+XCSS compiles modern CSS with shorthand values, typed custom properties, and
+injections into **scoped CSS and class-export mappings**. It preserves native
+CSS nesting and runs without Sass.
 
 ```xcss
 @vars {
-  --progress = 0%;
-  --panel-height: length = 20vh;
+  --spacing = 8px;
   --accent: color;
   local --rotation: angle;
+  --custom;
+}
+
+@injection outlined($width: length = 1px) {
+  border: $width solid currentColor;
+  @content;
+}
+
+.button {
+  color: --accent;
+  padding: --spacing * 2;
+  margin: (10px + 2px) 20px;
+  transition: (display, opacity) .3s ease;
+  @:outlined(2px) { border-radius: 4px; }
+  &:hover { color: blue; }
 }
 ```
 
-XCSS emits an `@property` registration for each entry. Types are inferred from simple
-atomic initial values when omitted, and `local` sets `inherits: false`. Declared names
-receive a deterministic module suffix, and their declarations and references in the
-same file are rewritten automatically. Undeclared custom properties remain global.
-Direct JavaScript calls such as `style.setProperty()` must use the generated name.
+Value references become `var()` and arithmetic becomes CSS math. Group arithmetic
+when mixing it with whitespace-separated values. Transition property groups are
+expanded, and discrete properties receive `allow-discrete` unless `normal` is
+specified. Eligible `::before`/`::after` rules receive empty content; use
+`content: preserve` to suppress insertion.
 
-XCSS is in very early development and haven't been thoroughly tested yet. Expect valid XCSS syntax to fail on compilation.
-
-## Vite plugin
-
-The workspace includes `@cross-css/vite-plugin` for Vite 8. Add it first among user `pre` plugins so XCSS compiles direct 
-`.xcss` imports before Vite's CSS Modules, PostCSS, and Sass processing:
+## Vite
 
 ```console
 pnpm add -D @cross-css/vite-plugin
@@ -106,65 +42,71 @@ pnpm add -D @cross-css/vite-plugin
 ```ts
 import { defineConfig } from 'vite'
 import xcss from '@cross-css/vite-plugin'
-
-export default defineConfig({
-  plugins: [xcss()],
-})
+export default defineConfig({ plugins: [xcss()] })
 ```
-
-Then import Cross files directly from JavaScript or TypeScript:
 
 ```ts
-import styles from './button.xcss';
+import styles from './button.xcss'
+import inlineCss from './button.xcss?inline'
+import stylesheetUrl from './button.xcss?url'
 ```
 
-Every XCSS file is treated as a CSS Module. The plugin preserves Vite query parameters and keeps its virtual `.module.scss`
-file beside the source path, so relative `url(...)` references continue to resolve normally.
+The default export maps local class names to generated class strings, including
+compositions. Side-effect imports also work. Inline imports return processed CSS
+without injecting it; URL imports return a stylesheet URL. XCSS owns scoping;
+Vite handles plain CSS delivery, extraction, assets, and native CSS imports.
 
-Injection imports use `@import name from "./file.xcss"` or `@import { injection-name } from "./file.xcss"`.
-They import definitions only, so selectors from the target file never leak into consumers. Other external stylesheet
-directives remain reserved. Alias resolution uses Vite's configured resolver.
+## Variables and injections
 
-## Injections
+An initial value infers the registration type. An explicit annotation validates
+it. A typed declaration without an initial value gets a documented type default
+(for example transparent for color and 0px for length). An untyped declaration
+without an initial value uses wildcard syntax. `local` means `inherits: false`.
+Registration values must meet CSS computational-independence requirements.
+Frequency and flex use wildcard browser registration with static XCSS checking.
+Generated custom-property names are available in Rust/Node artifact metadata.
 
-Injections are typed, project-wide mixins. A local definition wins; a globally unique definition can be called without
-an import. Use a namespace or named import when multiple files define the same name:
+Injection imports use `@import ns from "./library.xcss"` or
+`@import { outlined } from "./library.xcss"`. They import definitions, never the
+library's unrelated selectors. Local definitions win; otherwise globally unique
+injections can be called without imports. Expansion-generated classes belong to
+the caller. Definition-owned variables and asset URLs retain their origins.
 
-```xcss
-@injection custom-underline($thickness: length = 1px) {
-  &::after {
-    width: 100%;
-    height: $thickness;
-    @content;
-  }
-}
+Classes, IDs, and animation names are scoped. Functional and nonfunctional
+`:local`/`:global` switches are supported. Class composition supports project
+XCSS modules and global names. External CSS Modules composition needs a future
+adapter. XCSS does not yet support Sass variables, loops, interpolation, custom
+compile-time functions, or ICSS value import/export syntax.
 
-.element {
-  @:custom-underline(5px) {
-    background-color: white;
-  }
-}
+## CLI and Rust/Node APIs
+
+```console
+cargo run -p xcss-cli -- compile styles/button.xcss --output dist/button.css --root .
 ```
 
-XCSS extracts injections into `node_modules/.xcss/_injections.scss`, imports that generated mixin-only partial from
-compiled modules, and validates literal arguments against their declared CSS types.
+The CLI writes scoped `.css`, adjacent `.css.map` and `.exports.json`, and
+composition dependency artifacts. Do not name output `.module.css`: names are
+already scoped. Compilation errors preserve previous artifacts.
+
+The Rust `xcss-core` facade exposes project inspection, compilation and the
+snapshot-based engine. `@cross-css/native` exposes a reusable `Compiler` class;
+see its [API examples](packages/native/README.md).
 
 ## Development
 
-Build and test the full workspace with:
-
 ```console
 corepack pnpm install
-corepack pnpm build
+corepack pnpm test:engine
+corepack pnpm check:architecture
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --locked
+corepack pnpm check
 corepack pnpm test
+corepack pnpm --filter xcss-vite-fixture exec playwright install chromium
+corepack pnpm --filter xcss-vite-fixture test:browser
 ```
 
-Published releases use platform-specific native packages selected automatically by `@cross-css/native`; consumers do not need Rust installed. Maintainer release instructions are in [RELEASING.md](RELEASING.md).
-
-## CLI usage
-
-```console
-cargo run -p xcss-cli -- compile styles/button.xcss --output styles/button.module.scss --root .
-```
-
-The reusable `xcss-core` crate exposes the in-memory `transform` API used by the napi-rs binding and Vite plugin. The CLI performs file I/O only after parsing and transformation succeed.
+See [architecture](docs/architecture.md), [language](docs/language.md),
+[generation](docs/generation.md), and [release instructions](RELEASING.md).
+The compiler is early-stage; generated formatting and public APIs are evolving.

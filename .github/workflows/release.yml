@@ -33,10 +33,13 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
+      - run: corepack pnpm check:architecture
       - run: corepack pnpm check
       - run: corepack pnpm test
       - run: corepack pnpm pack:release
       - run: corepack pnpm test:release-packages
+      - run: corepack pnpm --filter xcss-vite-fixture exec playwright install --with-deps chromium
+      - run: corepack pnpm --filter xcss-vite-fixture test:browser
 
   build:
     name: Build ${{ matrix.package }}
@@ -193,6 +196,7 @@ jobs:
             fi
             npm publish "$package_file" --access public --provenance
           done
+
       - name: Publish loader and Vite plugin
         shell: bash
         run: |
@@ -206,3 +210,12 @@ jobs:
             fi
             npm publish "$package_file" --access public --provenance
           done
+
+      - name: Verify published language service
+        shell: bash
+        run: |
+          verification_directory=$(mktemp -d)
+          cd "$verification_directory"
+          npm init -y
+          npm install --ignore-scripts @cross-css/native@0.3.0
+          node "$GITHUB_WORKSPACE/npm/test-published-language-service.mjs"

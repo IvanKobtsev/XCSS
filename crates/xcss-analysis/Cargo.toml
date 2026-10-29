@@ -1,0 +1,9 @@
+[package]
+name = "xcss-analysis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+xcss-source = { path = "../xcss-source" }
+xcss-syntax = { path = "../xcss-syntax" }

@@ -1,0 +1,61 @@
+/*! XCSS fixture license */
+@property --space-xcss-be401fb696578b0e {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 8px;
+}
+
+@property --accent-xcss-be401fb696578b0e {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #0000;
+}
+
+@property --rotation-xcss-be401fb696578b0e {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@property --custom-xcss-be401fb696578b0e {
+  syntax: "*";
+  inherits: true
+}
+
+.xcss_bSzT-q_base {
+  color: var(--accent-xcss-be401fb696578b0e);
+}
+
+.xcss_bSzT-q_button {
+  padding: calc(var(--space-xcss-be401fb696578b0e) * 2);
+  transition: display .3s ease allow-discrete, opacity .3s ease;
+  border: 2px solid;
+  border-radius: 4px;
+
+  &:hover {
+    color: #00f;
+  }
+}
+
+.xcss_bSzT-q_button:before {
+  content: "";
+  width: 1px;
+}
+
+.external {
+  color: red;
+}
+
+@keyframes xcss_bSzT-q_spin {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.xcss_bSzT-q_animated {
+  animation: 1s xcss_bSzT-q_spin;
+}

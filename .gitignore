@@ -7,3 +7,5 @@ node_modules/
 /fixtures/vite-basic/dist/
 /coverage/
 /dist/
+/fixtures/vite-basic/test-results/
+/fixtures/vite-basic/playwright-report/

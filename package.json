@@ -1,9 +1,11 @@
 {
   "name": "cross-css-workspace",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "packageManager": "pnpm@10.18.3",
   "scripts": {
+    "check:architecture": "node npm/check-architecture.mjs",
+    "test:engine": "cargo test -p xcss-source -p xcss-syntax -p xcss-analysis -p xcss-codegen",
     "build": "pnpm --filter @cross-css/native build && pnpm --filter @cross-css/vite-plugin build",
     "check": "pnpm --filter @cross-css/vite-plugin typecheck",
     "test": "pnpm build && pnpm --filter @cross-css/native test && pnpm --filter @cross-css/vite-plugin test && pnpm --filter xcss-vite-fixture test",
