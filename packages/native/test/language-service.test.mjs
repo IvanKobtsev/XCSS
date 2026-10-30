@@ -4,7 +4,7 @@ import { LanguageService, languageServiceCapabilities } from '../index.js'
 
 test('editor API returns UTF-16 facts without invoking compilation', () => {
   const service = new LanguageService()
-  assert.equal(languageServiceCapabilities().apiVersion, 2)
+  assert.equal(languageServiceCapabilities().apiVersion, 3)
   const uri = 'file:///app.xcss'
   const source = '/* 😀 */ @import lib from "./lib"; .a { @:lib.paint(); color: --global; }'
   service.setFile('file:///lib.xcss', 1, '@injection paint($p: color = red) { color: $p; }')

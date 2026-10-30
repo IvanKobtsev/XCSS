@@ -1,6 +1,6 @@
 {
   "name": "@cross-css/vite-plugin",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Compile Cross-CSS before Vite's CSS pipeline",
   "license": "MIT",
   "author": "Ivan Kobtsev",
@@ -44,7 +44,7 @@
     "prepack": "node ../../npm/verify-release.mjs"
   },
   "dependencies": {
-    "@cross-css/native": "0.3.2"
+    "@cross-css/native": "0.3.3"
   },
   "peerDependencies": {
     "vite": "^8.0.0"

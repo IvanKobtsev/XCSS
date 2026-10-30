@@ -2,7 +2,11 @@
 use std::sync::Arc;
 use xcss_source::{Diagnostic, SourceFile, TextRange};
 pub mod ast;
+mod selector_analysis;
 mod selectors;
+pub use selector_analysis::{
+    SelectorAnalysis, SelectorKind, SelectorPart, Specificity, analyze_selectors,
+};
 pub use selectors::{local_class_names, selector_classes, selector_needs_content};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

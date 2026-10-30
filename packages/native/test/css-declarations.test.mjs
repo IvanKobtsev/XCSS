@@ -9,7 +9,7 @@ function analyze(source) {
 }
 
 test('CSS declarations preserve literals, source order and UTF-16 locations', () => {
-  assert.equal(languageServiceCapabilities().apiVersion, 2)
+  assert.equal(languageServiceCapabilities().apiVersion, 3)
   const source = '/* 😀 */ .a { dispay: flex;\r\n  display: fex; &:hover { opacity: 1; } } @keyframes x { to { width: 1px; } }'
   const { result } = analyze(source)
   assert.deepEqual(result.declarations.map(d => d.property), ['dispay', 'display', 'opacity', 'width'])

@@ -60,6 +60,29 @@ pub struct CssDeclarations {
     pub declarations: Vec<CssDeclaration>,
 }
 #[napi(object)]
+pub struct Specificity {
+    pub ids: u32,
+    pub classes: u32,
+    pub types: u32,
+}
+#[napi(object)]
+pub struct SelectorPart {
+    pub kind: String,
+    pub range: EditorRange,
+}
+#[napi(object)]
+pub struct Selector {
+    pub range: EditorRange,
+    pub parts: Vec<SelectorPart>,
+    pub specificity: Option<Specificity>,
+    pub reason: Option<String>,
+}
+#[napi(object)]
+pub struct Selectors {
+    pub revision: f64,
+    pub selectors: Vec<Selector>,
+}
+#[napi(object)]
 pub struct EditorHover {
     pub range: EditorRange,
     pub text: String,
@@ -108,6 +131,34 @@ pub struct LanguageService {
 }
 #[napi]
 impl LanguageService {
+    #[napi]
+    pub fn selectors(&mut self, uri: String) -> Selectors {
+        let result = self.inner.snapshot().selectors(&FileId(uri));
+        Selectors {
+            revision: result.revision as f64,
+            selectors: result
+                .selectors
+                .into_iter()
+                .map(|s| Selector {
+                    range: range(s.range),
+                    parts: s
+                        .parts
+                        .into_iter()
+                        .map(|p| SelectorPart {
+                            kind: p.kind,
+                            range: range(p.range),
+                        })
+                        .collect(),
+                    specificity: s.specificity.map(|s| Specificity {
+                        ids: s.ids,
+                        classes: s.classes,
+                        types: s.types,
+                    }),
+                    reason: s.reason,
+                })
+                .collect(),
+        }
+    }
     #[napi]
     pub fn css_declarations(&mut self, uri: String) -> CssDeclarations {
         let result = self.inner.snapshot().css_declarations(&FileId(uri));

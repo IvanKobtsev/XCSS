@@ -56,6 +56,29 @@ revision: number
 declarations: Array<CssDeclaration>
 }
 
+export interface Specificity {
+ids: number
+classes: number
+types: number
+}
+
+export interface SelectorPart {
+kind: string
+range: EditorRange
+}
+
+export interface Selector {
+range: EditorRange
+parts: Array<SelectorPart>
+specificity?: Specificity
+reason?: string
+}
+
+export interface Selectors {
+revision: number
+selectors: Array<Selector>
+}
+
 export interface EditorHover {
 range: EditorRange
 text: string
@@ -115,6 +138,7 @@ export declare function inspect(source: string): NativeInspection
 
 export declare class LanguageService {
 
+ selectors(uri: string): Selectors
  cssDeclarations(uri: string): CssDeclarations
  constructor()
  setFile(uri: string, revision: number, source: string): void

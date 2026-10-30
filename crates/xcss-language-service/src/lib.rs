@@ -4,7 +4,10 @@ use xcss_source::{Diagnostic, FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind};
 
 pub use xcss_analysis::UpdateError;
-pub const API_VERSION: u32 = 2;
+pub const API_VERSION: u32 = 3;
+mod selectors;
+pub use selectors::{Selector, SelectorPart, Selectors};
+pub use xcss_syntax::Specificity;
 mod css;
 pub use css::{CssDeclaration, CssDeclarations, CssValuePart};
 /// Stable order shared by adapters; append new entries rather than reordering.
@@ -17,6 +20,15 @@ pub const TOKEN_TYPES: &[&str] = &[
     "class",
     "enumMember",
     "property",
+    "selectorId",
+    "selectorTag",
+    "selectorAttribute",
+    "pseudoClass",
+    "pseudoElement",
+    "selectorUniversal",
+    "selectorNesting",
+    "selectorCombinator",
+    "selectorNamespace",
 ];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -268,23 +280,6 @@ impl ServiceSnapshot {
                 }
                 candidates.push((range, 0, false, 2));
             }
-            if node.kind == NodeKind::Rule {
-                for (_, range, _) in xcss_syntax::selector_classes(parse, node) {
-                    candidates.push((range, 5, true, 2));
-                }
-                let tokens: Vec<_> = parse
-                    .tokens
-                    .iter()
-                    .filter(|t| {
-                        t.range.start >= node.header.start && t.range.end <= node.header.end
-                    })
-                    .collect();
-                for pair in tokens.windows(2) {
-                    if parse.slice(pair[0].range) == "#" && pair[1].kind == TokenKind::Word {
-                        candidates.push((pair[1].range, 2, true, 2));
-                    }
-                }
-            }
             let annotation = parse
                 .variable(node)
                 .and_then(|v| v.annotation)
@@ -298,6 +293,15 @@ impl ServiceSnapshot {
             for name in annotation {
                 let start = name.as_ptr() as usize - parse.source.text().as_ptr() as usize;
                 candidates.push((TextRange::new(start, start + name.len()), 4, false, 2));
+            }
+        }
+        for selector in selectors::raw_selectors(parse) {
+            for part in selector.parts {
+                let ty = TOKEN_TYPES
+                    .iter()
+                    .position(|name| *name == part.kind.token_type())
+                    .unwrap();
+                candidates.push((part.range, ty, false, 4));
             }
         }
         candidates.sort_by_key(|(r, _, _, priority)| {
