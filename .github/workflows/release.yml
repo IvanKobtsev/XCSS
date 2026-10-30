@@ -218,7 +218,7 @@ jobs:
           cd "$verification_directory"
           npm init -y
           for attempt in $(seq 1 12); do
-            if npm install --ignore-scripts --prefer-online @cross-css/native@0.3.0; then
+            if npm install --ignore-scripts --prefer-online @cross-css/native@0.3.1; then
               break
             fi
             test "$attempt" -lt 12

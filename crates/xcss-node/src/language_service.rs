@@ -40,6 +40,26 @@ pub struct EditorDocument {
     pub tokens: Vec<SemanticToken>,
 }
 #[napi(object)]
+pub struct CssValuePart {
+    pub text: Option<String>,
+    pub value_type: Option<String>,
+    pub range: EditorRange,
+}
+#[napi(object)]
+pub struct CssDeclaration {
+    pub property: String,
+    pub property_range: EditorRange,
+    pub value_range: EditorRange,
+    pub context: String,
+    pub checkable: bool,
+    pub parts: Vec<CssValuePart>,
+}
+#[napi(object)]
+pub struct CssDeclarations {
+    pub revision: f64,
+    pub declarations: Vec<CssDeclaration>,
+}
+#[napi(object)]
 pub struct EditorHover {
     pub range: EditorRange,
     pub text: String,
@@ -88,6 +108,33 @@ pub struct LanguageService {
 }
 #[napi]
 impl LanguageService {
+    #[napi]
+    pub fn css_declarations(&mut self, uri: String) -> CssDeclarations {
+        let result = self.inner.snapshot().css_declarations(&FileId(uri));
+        CssDeclarations {
+            revision: result.revision as f64,
+            declarations: result
+                .declarations
+                .into_iter()
+                .map(|d| CssDeclaration {
+                    property: d.property,
+                    property_range: range(d.property_range),
+                    value_range: range(d.value_range),
+                    context: d.context,
+                    checkable: d.checkable,
+                    parts: d
+                        .parts
+                        .into_iter()
+                        .map(|p| CssValuePart {
+                            text: p.text,
+                            value_type: p.value_type,
+                            range: range(p.range),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
     #[napi(constructor)]
     pub fn new() -> Self {
         Self {

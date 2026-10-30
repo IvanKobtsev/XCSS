@@ -4,7 +4,9 @@ use xcss_source::{Diagnostic, FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind};
 
 pub use xcss_analysis::UpdateError;
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2;
+mod css;
+pub use css::{CssDeclaration, CssDeclarations, CssValuePart};
 /// Stable order shared by adapters; append new entries rather than reordering.
 pub const TOKEN_TYPES: &[&str] = &[
     "function",

@@ -36,6 +36,26 @@ diagnostics: Array<EditorDiagnostic>
 tokens: Array<SemanticToken>
 }
 
+export interface CssValuePart {
+text?: string
+valueType?: string
+range: EditorRange
+}
+
+export interface CssDeclaration {
+property: string
+propertyRange: EditorRange
+valueRange: EditorRange
+context: string
+checkable: boolean
+parts: Array<CssValuePart>
+}
+
+export interface CssDeclarations {
+revision: number
+declarations: Array<CssDeclaration>
+}
+
 export interface EditorHover {
 range: EditorRange
 text: string
@@ -95,6 +115,7 @@ export declare function inspect(source: string): NativeInspection
 
 export declare class LanguageService {
 
+ cssDeclarations(uri: string): CssDeclarations
  constructor()
  setFile(uri: string, revision: number, source: string): void
  removeFile(uri: string, revision: number): void
