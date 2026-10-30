@@ -131,13 +131,30 @@ impl ServiceSnapshot {
             });
             return;
         }
+        // Conditional blocks nested in style rules inherit declaration context;
+        // descriptor blocks such as @font-face and @property never do.
+        let at_name = node
+            .header_text(&parse.source)
+            .trim_start()
+            .split(|c: char| c.is_whitespace() || c == '(' || c == '{')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let nested_conditional = node.kind == NodeKind::AtRule
+            && matches!(context, "rule" | "injection")
+            && matches!(
+                at_name.as_str(),
+                "@media" | "@supports" | "@container" | "@layer" | "@scope" | "@starting-style"
+            );
         let next = match node.kind {
             NodeKind::Rule => "rule",
             NodeKind::Injection => "injection",
             NodeKind::AtRule => {
                 // At-rule children that are declarations are descriptors. Nested rules
                 // remain eligible, including inside unknown extension at-rules.
-                if parse.keyframes(node).is_some() {
+                if nested_conditional {
+                    context
+                } else if parse.keyframes(node).is_some() {
                     "keyframes"
                 } else {
                     "at-rule"
@@ -146,7 +163,10 @@ impl ServiceSnapshot {
             _ => context,
         };
         for child in &node.children {
-            if node.kind == NodeKind::AtRule && child.kind == NodeKind::Declaration {
+            if node.kind == NodeKind::AtRule
+                && child.kind == NodeKind::Declaration
+                && !nested_conditional
+            {
                 continue;
             }
             self.css_visit(file, parse, child, (next, recovered), out);

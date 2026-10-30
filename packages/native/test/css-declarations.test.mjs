@@ -53,3 +53,9 @@ test('recovery keeps property checks but disables value checks', () => {
   assert(result.declarations.length > 0)
   assert(result.declarations.every(d => !d.checkable))
 })
+
+test('nested conditional declarations are CSS properties, not descriptors', () => {
+  const { result } = analyze('.a { @media (width > 1px) { dispay: flex; @supports (display: grid) { display: fex; } } @starting-style { opacity: 0; } } @media print { .b { color: red; } }')
+  assert.deepEqual(result.declarations.map(d => d.property), ['dispay', 'display', 'opacity', 'color'])
+  assert(result.declarations.every(d => d.checkable))
+})

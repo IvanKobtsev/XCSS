@@ -42,7 +42,7 @@ These APIs do not compile CSS or read files. See the repository's
 
 
 
-## CSS declaration validation inputs (API v2, native 0.3.1)
+## CSS declaration validation inputs (API v2, native 0.3.2)
 
 `LanguageService.cssDeclarations(uri)` returns `{ revision, declarations }` from
 the same analysis snapshot as other editor queries, without compiling CSS.
@@ -59,7 +59,7 @@ Unknown references, native var(), recovery regions, transition groups and other
 unsupported transformations make values uncheckable; property names remain
 available. Parts on uncheckable declarations are incomplete and must not be
 validated. XCSS directives, variable registrations, and direct declarations in
-at-rule bodies (descriptors) are excluded. Rules nested inside at-rules remain
+descriptor at-rule bodies are excluded. Conditional blocks nested in rules inherit their declaration context. Rules nested inside at-rules remain
 eligible. Consumers may substitute representative CSS values for typed parts;
 this is a broad compatibility check, not proof for all values of that type.
 Changes to any file or resolution invalidate the snapshot revision.

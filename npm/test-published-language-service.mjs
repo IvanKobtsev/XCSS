@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 const require = createRequire(resolve(process.cwd(), 'package.json'))
 const { LanguageService, languageServiceCapabilities } = require('@cross-css/native')
-assert.equal(require('@cross-css/native/package.json').version, '0.3.1')
+assert.equal(require('@cross-css/native/package.json').version, '0.3.2')
 assert.equal(languageServiceCapabilities().apiVersion, 2)
 const service = new LanguageService()
 const source = '@injection paint {} .a { @:paint; }'
