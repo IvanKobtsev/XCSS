@@ -5,6 +5,168 @@ fn id(name: &str) -> FileId {
     FileId(name.into())
 }
 #[test]
+fn raw_css_bypasses_all_transformations_and_bundling_import_hoisting() {
+    let body = "\r\n/* ordinary 😀 */ .untouched#id::before { x: $missing + --unknown; content: '}' }\r\n@import './missing.xcss'; @raw { @include literal; }\r\n";
+    let mut host = AnalysisHost::new();
+    host.set_file(
+        id("a.xcss"),
+        1,
+        format!(".before {{ color: red; }} @raw {{{body}}} .after {{ color: blue; }}"),
+    )
+    .unwrap();
+    let snapshot = host.snapshot();
+    assert!(
+        snapshot.diagnostics().is_empty(),
+        "{:?}",
+        snapshot.diagnostics()
+    );
+    assert!(snapshot.dependencies().is_empty());
+    for minify in [false, true] {
+        for bundle in [false, true] {
+            let result = generate(
+                &snapshot,
+                &id("a.xcss"),
+                &GenerateOptions {
+                    minify,
+                    bundle,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let module = &result.modules[0];
+            assert!(module.css.contains(body), "{}", module.css);
+            assert_eq!(module.classes.len(), 2);
+            assert!(module.native_imports.is_empty());
+            assert!(!module.css.contains("--xcss-raw-"));
+            assert!(
+                module.css.find(&module.classes["before"]).unwrap()
+                    < module.css.find(body).unwrap()
+            );
+            assert!(
+                module.css.find(body).unwrap() < module.css.find(&module.classes["after"]).unwrap()
+            );
+        }
+    }
+}
+#[test]
+fn raw_expands_in_injections_and_shared_utilities() {
+    let body = " /* untouched */ color: $n; --name: --literal; ";
+    let mut host = AnalysisHost::new();
+    host.set_file(id("a.xcss"),1,format!("@injection i($n: number) {{ @raw {{{body}}} }} @util u {{ @raw {{{body}}} }} .a {{ @:u; @:i(1); }} .b {{ @:i(2); }}")).unwrap();
+    let snapshot = host.snapshot();
+    for minify in [false, true] {
+        for bundle in [false, true] {
+            let result = generate(
+                &snapshot,
+                &id("a.xcss"),
+                &GenerateOptions {
+                    minify,
+                    bundle,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                result.modules[0].css.matches(body).count(),
+                if bundle { 3 } else { 2 }
+            );
+            if let Some(shared) = result.utilities {
+                assert!(shared.css.contains(body));
+                let merged = xcss_codegen::merge_utilities(vec![shared.clone(), shared])
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(merged.css.matches(body).count(), 1);
+            }
+        }
+    }
+}
+#[test]
+fn raw_source_maps_preserve_unicode_and_following_declarations() {
+    let library = "@injection i { @raw {\r\n/* 😀 */ color: future(é);\r\n} }";
+    let caller = "@raw {} .a { @:i; width: 123px; } .b { @:i; height: 234px; }";
+    let mut host = AnalysisHost::new();
+    host.set_file(id("lib.xcss"), 1, library).unwrap();
+    host.set_file(id("a.xcss"), 1, caller).unwrap();
+    let snapshot = host.snapshot();
+    for minify in [false, true] {
+        for bundle in [false, true] {
+            let result = generate(
+                &snapshot,
+                &id("a.xcss"),
+                &GenerateOptions {
+                    minify,
+                    bundle,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let module = &result.modules[0];
+            let mut map = parcel_sourcemap::SourceMap::from_json("/", &module.source_map).unwrap();
+            let generated = xcss_source::SourceFile::new(id("css"), 0, module.css.clone());
+            for (text, file, source) in [
+                ("future", "lib.xcss", library),
+                ("width", "a.xcss", caller),
+                ("height", "a.xcss", caller),
+            ] {
+                for (offset, _) in module.css.match_indices(text) {
+                    let position = generated.byte_to_utf16(offset).unwrap();
+                    let mapping = map
+                        .find_closest_mapping(position.line as u32, position.character as u32)
+                        .unwrap()
+                        .original
+                        .unwrap();
+                    let expected = xcss_source::SourceFile::new(id(file), 0, source)
+                        .byte_to_utf16(source.find(text).unwrap())
+                        .unwrap();
+                    assert_eq!(map.get_source(mapping.source).unwrap(), file);
+                    assert_eq!(
+                        (mapping.original_line, mapping.original_column),
+                        (expected.line as u32, expected.character as u32),
+                        "{text}"
+                    );
+                }
+            }
+        }
+    }
+}
+#[test]
+fn raw_nested_conditions_keep_literal_names_urls_and_comments() {
+    let body = "\n/*! once */\ncontent: preserve; color: $constant; width: --size; background: url('../original.svg');\n";
+    let mut host = AnalysisHost::new();
+    host.set_file(id("src/a.xcss"),1,format!("$constant = red; @vars {{ --size: length = 1px; }} @media (width > 1px) {{ .a::before {{ @supports (display: grid) {{ @raw {{{body}}} }} }} }}")).unwrap();
+    let result = generate(
+        &host.snapshot(),
+        &id("src/a.xcss"),
+        &GenerateOptions {
+            minify: true,
+            output_paths: std::collections::BTreeMap::from([(
+                id("src/a.xcss"),
+                "dist/out.css".into(),
+            )]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let css = &result.modules[0].css;
+    assert!(css.contains(body), "{css}");
+    assert_eq!(css.matches("/*! once */").count(), 1);
+    assert!(css.contains("@media") && css.contains("@supports"));
+}
+#[test]
+fn raw_blocks_in_vars_are_emitted_and_placeholder_collisions_are_avoided() {
+    // This literal unknown at-rule has the exact name initially chosen for the
+    // raw block at bytes 0..17. It must not be mistaken for the private marker.
+    let source = "@raw {color: red;} @--xcss-raw-612e78637373-6-17; @vars { @raw { @property --literal { syntax: '*'; inherits: false; } } }";
+    let project = compile(&[("a.xcss", source)], "a.xcss", &[]).unwrap();
+    let css = &project.modules[0].css;
+    assert!(css.contains("color: red;"));
+    assert!(css.contains("@--xcss-raw-612e78637373-6-17;"), "{css}");
+    assert!(
+        css.contains(" @property --literal { syntax: '*'; inherits: false; } "),
+        "{css}"
+    );
+}
+#[test]
 fn utilities_compose_defaults_and_keep_injected_rules_local() {
     let result = compile(&[("a.xcss", "@util truncate($lines: integer = 3) { display: -webkit-box; max-height: $lines * 1lh; } .a, :local(.b) { @:truncate(2); color: white; } .c { @:truncate; } .d { @:truncate(3); } span[data-truncate] { @:truncate(3); color: black; } .forced:hover { @:truncate(4) as injection; }")], "a.xcss", &[]).unwrap();
     let module = &result.modules[0];

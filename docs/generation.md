@@ -74,6 +74,13 @@ ordinary comments are not guaranteed. Browser targets/prefixing are downstream
 responsibilities. Unknown declarations/at-rules are retained when supported by
 the backend; backend failures produce diagnostics rather than silent omission.
 
+`@raw` bodies bypass lowering and the CSS backend. Their wrappers are removed,
+and their exact bytes survive minification, injection/utility expansion and
+bundling. Raw imports stay in place and are not dependencies. Source maps retain
+raw definition locations and positions after each inserted body. An internal
+`x_xcss_raw` source-map extension preserves opaque boundaries when artifacts are
+subsequently merged; hosts should retain it when passing artifacts back to XCSS.
+
 ## Variable registration
 
 - Initial value only: infer type, or report inference failure.

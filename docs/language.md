@@ -17,6 +17,26 @@ properties remain global. Dynamic values have unknown types, not type errors.
 Mutable Sass variables, interpolation, module directives, mixins and control
 flow are rejected. CSS Modules classes are local unless marked `:global`.
 
+## Raw CSS
+
+`@raw { ... }` is an escape hatch for CSS that XCSS cannot handle. It is allowed
+wherever statements are allowed, including inside rules, injections and utilities.
+The wrapper is removed and everything between its braces is emitted byte for byte,
+including whitespace and comments, even with minification enabled.
+
+```xcss
+@raw {
+  .unscoped { color: var(--global-color); }
+}
+```
+
+Raw contents receive no CSS or XCSS validation, scoping, substitutions, URL rebasing,
+dependency discovery, exports or editor intelligence. Names and URLs must already
+be correct for the output. Injections copy raw bodies literally; parameter names
+inside them are not substituted. A nested `@raw` inside a raw body remains literal.
+Only balanced braces, strings, comments and escapes are scanned to find the end.
+The `@raw` header accepts no arguments and requires a block.
+
 ## Utilities
 
 `@util` declares a reusable, typed style recipe:

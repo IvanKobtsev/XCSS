@@ -10,6 +10,44 @@ fn parsed(text: &str) -> xcss_syntax::ParseResult {
     )))
 }
 #[test]
+fn raw_blocks_are_opaque_and_preserve_ranges() {
+    for body in [
+        "",
+        "\r\n .é { color: $missing; --x: --y; } /* keep */ ",
+        " x { content: '}'; other: \"{\"; /* } */ escaped: \\}; } ",
+        " @raw { @include unknown; } @future [???] { a: b; } ",
+    ] {
+        let source = format!(".a {{ @raw {{{body}}} color: red; }} .b {{ width: 1px; }}");
+        let p = parsed(&source);
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+        let raw = p
+            .tree
+            .descendants()
+            .find(|n| n.kind == NodeKind::Raw)
+            .unwrap();
+        assert!(raw.children.is_empty());
+        assert_eq!(p.slice(raw.raw_body().unwrap()), body);
+        assert_eq!(p.tree.children.len(), 2);
+        assert_eq!(p.tree.children[0].children.len(), 2);
+    }
+    assert!(
+        parsed("@raw /* comment */ {} @raw {} .next {}")
+            .diagnostics
+            .is_empty()
+    );
+    for source in [
+        "@raw;",
+        "@raw extra { a: b; }",
+        "@raw { .a { color: red; }",
+        "@raw {",
+        "@raw { /* }",
+        "@raw { '}'",
+        "@raw { \\}",
+    ] {
+        assert!(!parsed(source).diagnostics.is_empty(), "{source}");
+    }
+}
+#[test]
 fn utility_definitions_and_call_modifiers_keep_original_ranges() {
     let p = parsed(
         "@util trim($lines: integer = 3) { max-height: $lines * 1lh; } .a { @:trim(2) as injection; @:trim as injection; @:trim; }",
@@ -166,7 +204,7 @@ fn css_values_escapes_and_crlf_keep_ranges() {
 fn malformed_input_and_typed_queries_never_panic() {
     let alphabet = [
         "@", ":", ";", "{", "}", "(", ")", "[", "]", "$", "--x", "foo", "\n", "'", "\\", "😀", ",",
-        "=", "/*", "#",
+        "=", "/*", "#", "raw", "@raw",
     ];
     let mut state = 42u64;
     for _ in 0..1500 {
@@ -182,6 +220,7 @@ fn malformed_input_and_typed_queries_never_panic() {
             p.variable(n);
             p.call(n);
             p.injection_import(n);
+            n.raw_body();
         }
     }
 }

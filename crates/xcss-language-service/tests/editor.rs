@@ -7,6 +7,26 @@ fn at(source: &str, needle: &str) -> Position {
         .unwrap()
 }
 #[test]
+fn raw_contents_are_excluded_from_editor_queries() {
+    let source = "@raw { .raw { unknown: $missing; } @:missing; } .normal { color: red; }";
+    let file = FileId("a.xcss".into());
+    let mut host = LanguageService::new();
+    host.set_file(file.clone(), 1, source.into()).unwrap();
+    let snapshot = host.snapshot();
+    assert!(snapshot.diagnostics(&file).is_empty());
+    let position = at(source, "$missing");
+    assert!(snapshot.hover(&file, position).is_none());
+    assert!(snapshot.definition(&file, position).is_empty());
+    assert!(snapshot.references(&file, position, true).is_empty());
+    assert!(
+        snapshot
+            .semantic_tokens(&file)
+            .iter()
+            .all(|t| t.character >= source.find(".normal").unwrap())
+    );
+    assert_eq!(snapshot.css_declarations(&file).declarations.len(), 1);
+}
+#[test]
 fn utilities_have_signatures_hover_navigation_and_tokens() {
     let mut host = LanguageService::new();
     let file = FileId("a.xcss".into());

@@ -5,6 +5,7 @@ use xcss_source::{Diagnostic, FileId, Location, Severity, TextRange};
 use xcss_syntax::{Node, NodeKind, ParseResult};
 mod lower;
 mod mapped;
+mod raw;
 mod registration;
 mod values;
 use mapped::Mapped;
@@ -443,10 +444,11 @@ fn bundle_modules(
     let mut bodies = Vec::new();
     let mut native_imports = BTreeSet::new();
     for module in &ordered {
+        let raw_ranges = raw::ranges(&module.source_map);
         let parsed = xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
             module.module_id.clone(),
             0,
-            module.css.clone(),
+            raw::masked(&module.css, &raw_ranges),
         )));
         let mut cursor = 0;
         for node in parsed
@@ -467,6 +469,7 @@ fn bundle_modules(
         sources.extend(module.source_dependencies.iter().cloned());
         native_imports.extend(module.native_imports.iter().cloned());
     }
+    let mut raw_ranges = Vec::new();
     for (module, range) in imports.into_iter().chain(bodies) {
         let source =
             parcel_sourcemap::SourceMap::from_json("/", &module.source_map).map_err(|e| {
@@ -478,6 +481,14 @@ fn bundle_modules(
                 )]
             })?;
         let base = artifact.css.len();
+        for raw in raw::ranges(&module.source_map) {
+            if raw.start >= range.start && raw.end <= range.end {
+                raw_ranges.push(TextRange::new(
+                    base + raw.start - range.start,
+                    base + raw.end - range.start,
+                ));
+            }
+        }
         artifact.css.push_str(&module.css[range.start..range.end]);
         if !artifact.css.ends_with('\n') {
             artifact.css.push('\n');
@@ -531,6 +542,7 @@ fn bundle_modules(
             e.to_string(),
         )]
     })?;
+    artifact.source_map = raw::tag(artifact.source_map, &raw_ranges);
     Ok(artifact)
 }
 fn compose(
@@ -687,5 +699,6 @@ fn backend(
         .into_iter()
         .map(|(name, value)| (name, value.name))
         .collect();
-    Ok((result.code, source_map, exports))
+    let (css, source_map) = raw::restore(snapshot, result.code, source_map, input);
+    Ok((css, source_map, exports))
 }

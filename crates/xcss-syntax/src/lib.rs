@@ -17,6 +17,7 @@ pub enum TokenKind {
     Comment,
     Punctuation,
     Invalid,
+    Raw,
 }
 #[derive(Clone, Debug)]
 pub struct Token {
@@ -37,6 +38,7 @@ pub enum NodeKind {
     Import,
     Content,
     AtRule,
+    Raw,
     Error,
 }
 #[derive(Clone, Debug)]
@@ -49,6 +51,16 @@ pub struct Node {
     pub block: Option<TextRange>,
 }
 impl Node {
+    pub fn raw_body(&self) -> Option<TextRange> {
+        if self.kind != NodeKind::Raw {
+            return None;
+        }
+        let block = self.block?;
+        Some(TextRange::new(
+            block.start + 1,
+            block.end - usize::from(!self.missing.contains(&'}')),
+        ))
+    }
     pub fn text<'a>(&self, source: &'a SourceFile) -> &'a str {
         &source.text()[self.range.start..self.range.end]
     }
@@ -116,7 +128,10 @@ fn lex(source: &SourceFile) -> (Vec<Token>, Vec<Diagnostic>) {
         let start = i;
         let c = text[i..].chars().next().unwrap();
         let kind;
-        if text[i..].starts_with("/*") {
+        if c == '{' && raw_header(&out, text) {
+            kind = TokenKind::Raw;
+            i = raw_end(text, start).0;
+        } else if text[i..].starts_with("/*") {
             kind = TokenKind::Comment;
             if let Some(end) = text[i + 2..].find("*/") {
                 i += end + 4;
@@ -240,6 +255,73 @@ fn lex(source: &SourceFile) -> (Vec<Token>, Vec<Diagnostic>) {
     (out, diagnostics)
 }
 
+fn raw_header(tokens: &[Token], text: &str) -> bool {
+    let header: Vec<_> = tokens
+        .iter()
+        .rev()
+        .take_while(|t| {
+            t.kind != TokenKind::Raw
+                && !matches!(&text[t.range.start..t.range.end], "{" | "}" | ";")
+        })
+        .filter(|t| !matches!(t.kind, TokenKind::Whitespace | TokenKind::Comment))
+        .collect();
+    header.len() >= 2
+        && &text[header[header.len() - 1].range.start..header[header.len() - 1].range.end] == "@"
+        && &text[header[header.len() - 2].range.start..header[header.len() - 2].range.end] == "raw"
+}
+
+/// Find only the structural boundary; raw contents never enter CSS/XCSS parsers.
+fn raw_end(text: &str, start: usize) -> (usize, bool) {
+    let bytes = text.as_bytes();
+    let mut i = start + 1;
+    let mut depth = 1;
+    while i < bytes.len() {
+        if bytes[i..].starts_with(b"/*") {
+            i = text[i + 2..]
+                .find("*/")
+                .map_or(bytes.len(), |end| i + end + 4);
+            continue;
+        }
+        match bytes[i] {
+            b'\\' => {
+                i += 1;
+                if i < bytes.len() {
+                    i += text[i..].chars().next().unwrap().len_utf8();
+                }
+                continue;
+            }
+            b'\'' | b'"' => {
+                let quote = bytes[i];
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                        if i < bytes.len() {
+                            i += text[i..].chars().next().unwrap().len_utf8();
+                        }
+                    } else if bytes[i] == quote {
+                        i += 1;
+                        break;
+                    } else {
+                        i += text[i..].chars().next().unwrap().len_utf8();
+                    }
+                }
+                continue;
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return (i + 1, true);
+                }
+            }
+            _ => {}
+        }
+        i += text[i..].chars().next().unwrap().len_utf8();
+    }
+    (i, false)
+}
+
 struct Parser<'a> {
     source: &'a SourceFile,
     tokens: &'a [Token],
@@ -248,6 +330,9 @@ struct Parser<'a> {
 }
 impl Parser<'_> {
     fn token(&self, i: usize) -> &str {
+        if self.tokens[i].kind == TokenKind::Raw {
+            return "{";
+        }
         let r = self.tokens[i].range;
         &self.source.text()[r.start..r.end]
     }
@@ -369,6 +454,7 @@ impl Parser<'_> {
                 ""
             };
             let kind = match at_name {
+                "raw" => NodeKind::Raw,
                 "vars" => NodeKind::Vars,
                 "injection" => NodeKind::Injection,
                 "util" => NodeKind::Util,
@@ -431,7 +517,14 @@ impl Parser<'_> {
             let mut children = Vec::new();
             let mut node_end = end;
             let block_start = has_block.then_some(end);
-            if has_block {
+            if has_block && kind == NodeKind::Raw && self.tokens[self.cursor].kind == TokenKind::Raw
+            {
+                node_end = self.tokens[self.cursor].range.end;
+                if !raw_end(self.source.text(), end).1 {
+                    missing.push('}');
+                }
+                self.cursor += 1;
+            } else if has_block {
                 self.cursor += 1;
                 children = self.block(true, kind == NodeKind::Vars, depth + 1);
                 if self.cursor < self.tokens.len() && self.token(self.cursor) == "}" {
@@ -512,6 +605,19 @@ fn validate_fragments(result: &mut ParseResult) {
                     })
             }
             NodeKind::Vars => node.block.is_none(),
+            NodeKind::Raw => {
+                let header: Vec<_> = result
+                    .tokens
+                    .iter()
+                    .filter(|t| {
+                        node.header.contains(t.range.start)
+                            && !matches!(t.kind, TokenKind::Whitespace | TokenKind::Comment)
+                    })
+                    .collect();
+                node.block.is_none()
+                    || header.len() != 2
+                    || header[0].range.end != header[1].range.start
+            }
             NodeKind::Call => result.call(node).is_none_or(|c| c.name.is_empty()),
             _ => false,
         };

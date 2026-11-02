@@ -3,6 +3,7 @@ use super::*;
 pub(super) struct Mapped {
     pub text: String,
     pub spans: Vec<(TextRange, Location)>,
+    pub raw: BTreeMap<String, (String, Location)>,
 }
 impl Mapped {
     pub fn origin_at(&self, offset: usize) -> Option<Location> {
@@ -130,6 +131,7 @@ impl Mapped {
             .push((TextRange::new(start, self.text.len()), origin.clone()));
     }
     pub fn append(&mut self, other: &Self) {
+        self.raw.extend(other.raw.clone());
         let offset = self.text.len();
         self.text.push_str(&other.text);
         self.spans.extend(other.spans.iter().map(|(range, origin)| {

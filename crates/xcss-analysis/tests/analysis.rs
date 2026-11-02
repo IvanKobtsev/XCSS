@@ -5,6 +5,21 @@ fn id(name: &str) -> FileId {
     FileId(name.into())
 }
 #[test]
+fn raw_contents_have_no_semantics() {
+    let mut host = AnalysisHost::new();
+    host.set_file(id("a.xcss"),1,"@raw { @import { missing } from './absent.xcss'; @vars { --raw: length = nonsense; } $x = $unknown; .raw { @:missing; composes: absent; } @keyframes raw {} } .normal { color: red; }").unwrap();
+    let snapshot = host.snapshot();
+    assert!(
+        snapshot.diagnostics().is_empty(),
+        "{:?}",
+        snapshot.diagnostics()
+    );
+    assert!(snapshot.dependencies().is_empty());
+    assert!(snapshot.references().iter().all(|r| r.name == "normal"));
+    assert_eq!(snapshot.symbols().len(), 1);
+    assert_eq!(snapshot.symbols()[0].name, "normal");
+}
+#[test]
 fn utilities_validate_context_order_types_and_transitive_bodies() {
     for (source, code) in [
         ("@util u {} @:u;", "syntax.util-selector"),

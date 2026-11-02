@@ -152,8 +152,50 @@ impl<'a> Lowerer<'a> {
                 )]);
             }
             match node.kind {
+                NodeKind::Raw => {
+                    let range = node.raw_body().unwrap();
+                    let body = parse.slice(range).to_owned();
+                    // Exact definition identities avoid collisions across merged artifacts.
+                    let identity: String = file.0.bytes().map(|b| format!("{b:02x}")).collect();
+                    let mut marker =
+                        format!("@--xcss-raw-{identity}-{}-{}", range.start, range.end);
+                    while self.snapshot.files().any(|f| {
+                        let source = self.snapshot.syntax(f).unwrap();
+                        source.source.text().contains(&marker)
+                            || source.tokens.iter().any(|t| {
+                                t.kind == xcss_syntax::TokenKind::Word
+                                    && xcss_syntax::ast::decode_identifier(source.token_text(t))
+                                        == marker[1..]
+                            })
+                    }) {
+                        marker.push('x');
+                    }
+                    let location = Location {
+                        file: file.clone(),
+                        range,
+                    };
+                    let mut header = Mapped::default();
+                    header.push(&marker, &location);
+                    header.raw.insert(marker, (body, location));
+                    out.push(Statement {
+                        kind: NodeKind::Raw,
+                        header,
+                        children: None,
+                        origin,
+                        preserve_content: false,
+                    });
+                }
                 NodeKind::Vars => {
                     for variable in &node.children {
+                        if variable.kind == NodeKind::Raw {
+                            out.extend(self.nodes(
+                                file,
+                                std::slice::from_ref(variable),
+                                frame,
+                                depth,
+                            )?);
+                            continue;
+                        }
                         if let Some(syntax) = parse.variable(variable)
                             && let Some(symbol) = self.snapshot.symbol_at(file, syntax.range.start)
                         {
