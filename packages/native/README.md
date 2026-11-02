@@ -104,3 +104,24 @@ module artifacts. It contains `css`, `sourceMap`, `sourceDependencies`, and mapp
 `Compiler.compileUtilities(entries)` returns the deduplicated utility union for
 several entry modules. Recompute the union after source updates or removals.
 Bundled compilation includes utility CSS directly in the module artifact.
+
+## Source formatting
+
+`formatSource(source, options?)` formats XCSS without compiling CSS, resolving
+imports, or reading files. It returns `{ text, diagnostics }`: `text` is absent
+when syntax is invalid, and the original source must be left unchanged. Semantic
+errors such as unresolved references do not prevent formatting. Diagnostic ranges
+are zero-based UTF-16 positions in the original input.
+
+Options are `tabWidth` (1–16, default 2), `useTabs` (default false),
+`printWidth` (1–1000, default 80), and `endOfLine` (`lf` or `crlf`, default
+`lf`). Formatting adds a final newline to nonempty output. `@raw` bodies and
+nodes preceded by `/* prettier-ignore */` remain verbatim, even when their line
+endings differ from the requested layout. Unknown at-rules remain opaque.
+
+The Rust API is `xcss_format::format(source, &FormatOptions)`. The formatter
+uses Malva's Raffia-based CSS printer and an XCSS document printer. CSS golden
+fixtures are pinned to Prettier 3.6.2; exhaustive Prettier equivalence is not
+guaranteed. XCSS headers and expressions use compatible layout conventions.
+Opaque fragments deliberately retain their original spelling; comments are
+preserved byte-for-byte. There is no CLI formatting command in this release.

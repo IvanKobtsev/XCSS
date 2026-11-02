@@ -76,6 +76,8 @@ try {
      const root = process.argv[1];
      const requireFromTest = createRequire(join(root, 'entry.js'));
      const source = 'a { width: --size * 2; }';
+     const formatted = requireFromTest('@cross-css/native').formatSource('.a{color:red}');
+     if (formatted.text !== '.a {\\n  color: red;\\n}\\n') throw new Error('packed formatter did not load');
      const compiler = new (requireFromTest('@cross-css/native').Compiler)();
      compiler.setFile('a.xcss', 1, source);
      const result = compiler.compile('a.xcss');

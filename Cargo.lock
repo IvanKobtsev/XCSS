@@ -27,6 +27,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aho-corasick"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "base64-simd"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -363,6 +372,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -415,7 +433,7 @@ dependencies = [
  "data-encoding",
  "getrandom 0.3.4",
  "indexmap",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "lightningcss-derive",
  "parcel_selectors",
@@ -442,6 +460,19 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "malva"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed54a855fc80dddeb3518c03d04a2bb06954955297ee514429935149e58eaa75"
+dependencies = [
+ "aho-corasick",
+ "itertools 0.14.0",
+ "memchr",
+ "raffia 0.12.3",
+ "tiny_pretty",
+]
 
 [[package]]
 name = "matches"
@@ -718,6 +749,16 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "raffia"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a589c5611a5f7713bf0c13e949c4c791a359ff517a9f27552475b470e8873229"
+dependencies = [
+ "raffia_macro",
+ "smallvec",
+]
+
+[[package]]
+name = "raffia"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0a83eb5987650fcfc3f2e912d3a718f19b8e87c0d980e12e36edf79fa0221d93"
@@ -930,6 +971,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
+name = "tiny_pretty"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58b2d5989bcee0f42e4efffdd6280defe2d0ea91ebbea29c7615412855ef75fa"
+
+[[package]]
 name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1052,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-analysis"
-version = "0.3.3"
+version = "0.5.0"
 dependencies = [
  "xcss-source",
  "xcss-syntax",
@@ -1060,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-cli"
-version = "0.3.3"
+version = "0.5.0"
 dependencies = [
  "pathdiff",
  "serde_json",
@@ -1069,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-codegen"
-version = "0.3.3"
+version = "0.5.0"
 dependencies = [
  "lightningcss",
  "parcel_sourcemap",
@@ -1081,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-core"
-version = "0.3.3"
+version = "0.5.0"
 dependencies = [
  "xcss-analysis",
  "xcss-codegen",
@@ -1090,8 +1137,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "xcss-format"
+version = "0.5.0"
+dependencies = [
+ "malva",
+ "xcss-source",
+ "xcss-syntax",
+]
+
+[[package]]
 name = "xcss-language-service"
-version = "0.3.3"
+version = "0.5.0"
 dependencies = [
  "xcss-analysis",
  "xcss-source",
@@ -1100,25 +1156,26 @@ dependencies = [
 
 [[package]]
 name = "xcss-node"
-version = "0.3.3"
+version = "0.5.0"
 dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
  "xcss-core",
+ "xcss-format",
  "xcss-language-service",
  "xcss-source",
 ]
 
 [[package]]
 name = "xcss-source"
-version = "0.3.3"
+version = "0.5.0"
 
 [[package]]
 name = "xcss-syntax"
-version = "0.3.3"
+version = "0.5.0"
 dependencies = [
- "raffia",
+ "raffia 0.13.0",
  "xcss-source",
 ]
 

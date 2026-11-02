@@ -1,0 +1,37 @@
+{
+  "prettierVersion": "3.6.2",
+  "fixtures": [
+    {
+      "input": ".a{}",
+      "output": ".a {\n}\n"
+    },
+    {
+      "input": ".a,.b{color:red;margin:.5px 0;content:'hi'}",
+      "output": ".a,\n.b {\n  color: red;\n  margin: 0.5px 0;\n  content: \"hi\";\n}\n"
+    },
+    {
+      "input": "@media (width > 10px){.a{display:flex}}",
+      "output": "@media (width > 10px) {\n  .a {\n    display: flex;\n  }\n}\n"
+    },
+    {
+      "input": "@keyframes spin{0%,100%{opacity:0}50%{opacity:1}}",
+      "output": "@keyframes spin {\n  0%,\n  100% {\n    opacity: 0;\n  }\n  50% {\n    opacity: 1;\n  }\n}\n"
+    },
+    {
+      "input": ".a{background:linear-gradient(to right,red,blue);width:calc(100% - 1px)}",
+      "output": ".a {\n  background: linear-gradient(to right, red, blue);\n  width: calc(100% - 1px);\n}\n"
+    },
+    {
+      "input": ".a[data-kind=hello]:not(.b)>*{content:\"😀\";background:url(https://example.com/a.png)}",
+      "output": ".a[data-kind=\"hello\"]:not(.b) > * {\n  content: \"😀\";\n  background: url(https://example.com/a.png);\n}\n"
+    },
+    {
+      "input": ".a{&:hover{color:red}--tokens: 10px 20px}",
+      "output": ".a {\n  &:hover {\n    color: red;\n  }\n  --tokens: 10px 20px;\n}\n"
+    },
+    {
+      "input": "/* lead */\n.a{color:red;/* inline */\n\nwidth:1px}\n/* end */",
+      "output": "/* lead */\n.a {\n  color: red; /* inline */\n\n  width: 1px;\n}\n/* end */\n"
+    }
+  ]
+}

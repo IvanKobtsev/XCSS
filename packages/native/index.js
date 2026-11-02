@@ -44,3 +44,5 @@ module.exports.Compiler = binding.Compiler
 module.exports.inspect = binding.inspect
 module.exports.LanguageService = binding.LanguageService
 module.exports.languageServiceCapabilities = binding.languageServiceCapabilities
+
+module.exports.formatSource = binding.formatSource

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const allowed = new Map([
+  ['xcss-format', new Set(['xcss-source', 'xcss-syntax', 'malva'])],
   ['xcss-source', new Set()],
   ['xcss-syntax', new Set(['xcss-source', 'raffia'])],
   ['xcss-analysis', new Set(['xcss-source', 'xcss-syntax'])],

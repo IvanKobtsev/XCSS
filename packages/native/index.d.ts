@@ -150,6 +150,27 @@ imports: Array<string>
 
 export declare function inspect(source: string): NativeInspection
 
+export interface SourceFormatOptions {
+tabWidth?: number
+useTabs?: boolean
+printWidth?: number
+endOfLine?: string
+}
+
+export interface FormatDiagnostic {
+code: string
+message: string
+/** UTF-16 positions in the original source, not Rust byte offsets. */
+range: EditorRange
+}
+
+export interface SourceFormatResult {
+text?: string
+diagnostics: Array<FormatDiagnostic>
+}
+
+export declare function formatSource(source: string, options?: SourceFormatOptions | undefined | null): SourceFormatResult
+
 export declare class LanguageService {
 
  selectors(uri: string): Selectors

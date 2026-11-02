@@ -10,6 +10,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+xcss-format = { path = "../xcss-format" }
 napi.workspace = true
 napi-derive.workspace = true
 xcss-core = { path = "../xcss-core" }
