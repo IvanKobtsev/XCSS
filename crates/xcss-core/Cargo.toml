@@ -6,5 +6,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-raffia.workspace = true
+xcss-source = { path = "../xcss-source" }
+xcss-syntax = { path = "../xcss-syntax" }
+xcss-analysis = { path = "../xcss-analysis" }
+xcss-codegen = { path = "../xcss-codegen" }
 

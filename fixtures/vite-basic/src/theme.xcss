@@ -1,4 +1,4 @@
-$factor: 2;
+
 @import mixins from "@/styles.xcss";
 
 .theme {
@@ -7,6 +7,6 @@ $factor: 2;
   }
 
   .label {
-    width: --unit * $factor;
+    width: --unit * 2;
   }
 }

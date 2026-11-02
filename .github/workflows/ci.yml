@@ -28,10 +28,13 @@ jobs:
           components: rustfmt, clippy
       - run: corepack pnpm install --frozen-lockfile
       - run: corepack pnpm verify-release
+      - run: corepack pnpm check:architecture
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
       - run: corepack pnpm check
       - run: corepack pnpm test
+      - run: corepack pnpm --filter xcss-vite-fixture exec playwright install --with-deps chromium
+      - run: corepack pnpm --filter xcss-vite-fixture test:browser
       - run: corepack pnpm pack:release
       - run: corepack pnpm test:release-packages

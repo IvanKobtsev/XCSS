@@ -1,0 +1,24 @@
+@import url("base.css") layer(base);
+@import { outlined } from "./injections.xcss";
+@vars {
+  --progress = 0%;
+  --panel-height: length = 20vh;
+  --accent: color;
+  local --rotation: angle;
+}
+@injection custom-underline($thickness: length = 1px) {
+  &::after { width: 100%; height: $thickness; @content; }
+}
+.button {
+  color: --accent;
+  padding: --panel-height * 2;
+  margin: (10px + 2px) 20px;
+  transition: (color, --theme) .5s ease, width .3s;
+  transition-property: --theme;
+  @:custom-underline(5px) { background-color: white; }
+  &:is(::before, ::after) { content: preserve; }
+  :global(.external) { unknown-property: future-value(foo); }
+}
+:local(.local) { composes: button; }
+@media (width > 10px) { .nested { width: calc(100% - 1px); } }
+@future arbitrary { future: value; }

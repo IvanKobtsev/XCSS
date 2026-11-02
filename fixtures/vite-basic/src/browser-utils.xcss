@@ -1,0 +1,16 @@
+@util browser-util-padding($space: length = 12px) {
+  padding-left: $space;
+}
+
+.utility {
+  @:browser-util-padding;
+}
+
+.override {
+  @:browser-util-padding;
+  padding-left: 4px;
+}
+
+:global(#injected-util) {
+  @:browser-util-padding(16px);
+}

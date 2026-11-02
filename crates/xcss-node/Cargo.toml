@@ -13,6 +13,8 @@ crate-type = ["cdylib"]
 napi.workspace = true
 napi-derive.workspace = true
 xcss-core = { path = "../xcss-core" }
+xcss-language-service = { path = "../xcss-language-service" }
+xcss-source = { path = "../xcss-source" }
 
 [build-dependencies]
 napi-build.workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "xcss-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+xcss-source = { path = "../xcss-source" }
+xcss-syntax = { path = "../xcss-syntax" }
+xcss-analysis = { path = "../xcss-analysis" }
+lightningcss.workspace = true
+parcel_sourcemap.workspace = true
+serde_json.workspace = true
+

@@ -1,0 +1,226 @@
+use std::sync::Arc;
+use xcss_source::{FileId, SourceFile};
+use xcss_syntax::{NodeKind, ast::ValueKind, parse};
+
+fn parsed(text: &str) -> xcss_syntax::ParseResult {
+    parse(Arc::new(SourceFile::new(
+        FileId("test.xcss".into()),
+        1,
+        text,
+    )))
+}
+#[test]
+fn raw_blocks_are_opaque_and_preserve_ranges() {
+    for body in [
+        "",
+        "\r\n .é { color: $missing; --x: --y; } /* keep */ ",
+        " x { content: '}'; other: \"{\"; /* } */ escaped: \\}; } ",
+        " @raw { @include unknown; } @future [???] { a: b; } ",
+    ] {
+        let source = format!(".a {{ @raw {{{body}}} color: red; }} .b {{ width: 1px; }}");
+        let p = parsed(&source);
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+        let raw = p
+            .tree
+            .descendants()
+            .find(|n| n.kind == NodeKind::Raw)
+            .unwrap();
+        assert!(raw.children.is_empty());
+        assert_eq!(p.slice(raw.raw_body().unwrap()), body);
+        assert_eq!(p.tree.children.len(), 2);
+        assert_eq!(p.tree.children[0].children.len(), 2);
+    }
+    assert!(
+        parsed("@raw /* comment */ {} @raw {} .next {}")
+            .diagnostics
+            .is_empty()
+    );
+    for source in [
+        "@raw;",
+        "@raw extra { a: b; }",
+        "@raw { .a { color: red; }",
+        "@raw {",
+        "@raw { /* }",
+        "@raw { '}'",
+        "@raw { \\}",
+    ] {
+        assert!(!parsed(source).diagnostics.is_empty(), "{source}");
+    }
+}
+#[test]
+fn utility_definitions_and_call_modifiers_keep_original_ranges() {
+    let p = parsed(
+        "@util trim($lines: integer = 3) { max-height: $lines * 1lh; } .a { @:trim(2) as injection; @:trim as injection; @:trim; }",
+    );
+    assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+    let node = p
+        .tree
+        .descendants()
+        .find(|n| n.kind == NodeKind::Util)
+        .unwrap();
+    let definition = p.injection(node).unwrap();
+    assert_eq!(definition.name, "trim");
+    assert_eq!(definition.parameters[0].default, Some("3"));
+    let calls: Vec<_> = p.tree.descendants().filter_map(|n| p.call(n)).collect();
+    assert_eq!(calls.len(), 3);
+    for call in &calls {
+        assert_eq!(p.slice(call.name_range), "trim");
+    }
+    assert!(calls[0].as_injection && calls[1].as_injection);
+    assert!(!calls[2].as_injection);
+    assert_eq!(calls[0].arguments.len(), 1);
+    assert!(
+        !parsed(".a { @:trim(2) as injection garbage; }")
+            .diagnostics
+            .is_empty()
+    );
+    assert!(
+        !parsed("@util broken($n: integer { width: $n; } .later { color: red; }")
+            .diagnostics
+            .is_empty()
+    );
+}
+#[test]
+fn constants_retain_annotations_values_and_recover() {
+    let p =
+        parsed("/* comment */ $header-height: length = 56px; .a { $size = 8px; width:\n $size; }");
+    assert!(p.diagnostics.is_empty(), "{:#?}", p.diagnostics);
+    let constants: Vec<_> = p.tree.descendants().filter_map(|n| p.constant(n)).collect();
+    assert_eq!(constants.len(), 2);
+    assert_eq!(constants[0].name, "$header-height");
+    assert_eq!(constants[0].annotation, Some("length"));
+    assert_eq!(p.slice(constants[0].initial.range).trim(), "56px");
+    for source in [
+        "$x;",
+        "$x: length;",
+        "$x =;",
+        "$x: = 1px;",
+        "$x: length extra = 1px;",
+        "$x = 1px\n$next = 2px;",
+    ] {
+        let p = parsed(source);
+        assert!(!p.diagnostics.is_empty(), "Expected error: {source}");
+    }
+    let p = parsed("$x = 1px\n$next = 2px;");
+    assert!(
+        p.tree
+            .descendants()
+            .filter_map(|n| p.constant(n))
+            .any(|c| c.name == "$next")
+    );
+}
+
+#[test]
+fn retained_language_fixture_has_owned_views() {
+    let p = parsed(include_str!("fixtures/language.xcss"));
+    assert!(p.diagnostics.is_empty(), "{:#?}", p.diagnostics);
+    assert_eq!(
+        p.tree.descendants().filter_map(|n| p.variable(n)).count(),
+        4
+    );
+    assert_eq!(
+        p.tree
+            .descendants()
+            .filter_map(|n| p.injection_import(n))
+            .count(),
+        1
+    );
+    let injection = p.tree.descendants().find_map(|n| p.injection(n)).unwrap();
+    assert_eq!(injection.parameters[0].name, "$thickness");
+    assert_eq!(injection.parameters[0].default, Some("1px"));
+    assert!(
+        p.tree
+            .descendants()
+            .filter_map(|n| p.declaration(n))
+            .any(|d| d
+                .value
+                .descendants()
+                .iter()
+                .any(|v| matches!(v.kind, ValueKind::Group(_))))
+    );
+}
+
+#[test]
+fn rejects_sass_without_rejecting_injection_parameters() {
+    for text in [
+        "$factor: 2;",
+        "@mixin foo {}",
+        "@include foo;",
+        "@use 'foo';",
+        "@forward 'foo';",
+        "@if true {}",
+        "@each $x in 1 {}",
+        ".a { color: #{$x}; }",
+    ] {
+        let p = parsed(text);
+        assert!(!p.diagnostics.is_empty(), "Accepted {text}");
+    }
+    assert!(
+        parsed("@injection foo($size: length) { width: $size; @content; }")
+            .diagnostics
+            .is_empty()
+    );
+}
+
+#[test]
+fn recovers_unfinished_calls_and_declarations() {
+    let p = parsed(".a { color: red\n width: 2px; @:foo(\n height: 3px; } .b { color: blue }");
+    for property in ["width", "height", "color"] {
+        assert!(
+            p.tree
+                .descendants()
+                .filter_map(|n| p.declaration(n))
+                .any(|d| d.property == property),
+            "Lost {property}"
+        );
+    }
+    assert!(p.tree.descendants().any(|n| n.missing.contains(&')')));
+    assert!(
+        p.tree
+            .descendants()
+            .any(|n| n.kind == NodeKind::Rule && n.header_text(&p.source).trim() == ".b")
+    );
+}
+
+#[test]
+fn css_values_escapes_and_crlf_keep_ranges() {
+    let p = parsed("/*😀*/\r\n.caf\\e9 { --data: { key: value; }; opacity: .5; width: 1e2px; }");
+    assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+    assert_eq!(
+        p.tokens
+            .iter()
+            .map(|t| p.slice(t.range))
+            .collect::<String>(),
+        p.source.text()
+    );
+    for node in p.tree.descendants() {
+        assert!(p.source.text().is_char_boundary(node.range.start));
+        assert!(p.source.text().is_char_boundary(node.range.end));
+    }
+    assert_eq!(xcss_syntax::ast::decode_identifier("caf\\e9"), "café");
+}
+
+#[test]
+fn malformed_input_and_typed_queries_never_panic() {
+    let alphabet = [
+        "@", ":", ";", "{", "}", "(", ")", "[", "]", "$", "--x", "foo", "\n", "'", "\\", "😀", ",",
+        "=", "/*", "#", "raw", "@raw",
+    ];
+    let mut state = 42u64;
+    for _ in 0..1500 {
+        let mut text = String::new();
+        for _ in 0..32 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            text.push_str(alphabet[(state >> 32) as usize % alphabet.len()]);
+        }
+        let p = parsed(&text);
+        for n in p.tree.descendants() {
+            p.declaration(n);
+            p.injection(n);
+            p.variable(n);
+            p.call(n);
+            p.injection_import(n);
+            n.raw_body();
+        }
+    }
+}

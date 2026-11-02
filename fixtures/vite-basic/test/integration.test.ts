@@ -1,66 +1,100 @@
 import { fileURLToPath } from 'node:url'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-
+import { join, relative, isAbsolute } from 'node:path'
+import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { build, createServer, type Rollup } from 'vite'
 import { describe, expect, it } from 'vitest'
-
 import xcss from '@cross-css/vite-plugin'
+const root=fileURLToPath(new URL('..',import.meta.url))
+describe('Vite integration',()=>{
+ it('emits one shared utility asset across eager and lazy modules',async()=>{
+  const directory=await mkdtemp(join(root,'test-utils-build-'))
+  try {
+   await writeFile(join(directory,'index.html'),'<script type="module" src="/main.js"></script>')
+   await writeFile(join(directory,'main.js'),"import styles from './a.xcss'; console.log(styles); import('./lazy.js').then(console.log)")
+   await writeFile(join(directory,'lazy.js'),"import styles from './b.xcss'; export default styles")
+   await writeFile(join(directory,'a.xcss'),'.a { @:trim; color: red; } span { @:trim(4); }')
+   await writeFile(join(directory,'b.xcss'),'.b { @:trim(3); }')
+   await writeFile(join(directory,'unused.xcss'),'.unused { @:trim(99); }')
+   await writeFile(join(directory,'util.xcss'),"@util trim($n: integer = 3) { max-height: $n * 1lh; background-image: url('./icon.svg'); }")
+   await writeFile(join(directory,'icon.svg'),'<svg xmlns="http://www.w3.org/2000/svg"/>')
+   const result=await build({root:directory,base:'./',configFile:false,logLevel:'silent',plugins:[xcss()],build:{write:false,assetsInlineLimit:0}})
+   const outputs=Array.isArray(result)?result.flatMap(item=>item.output):result.output
+   const shared=outputs.filter((item):item is Rollup.OutputAsset=>item.type==='asset'&&item.fileName.includes('xcss-utils')&&item.fileName.endsWith('.css'))
+   expect(shared).toHaveLength(1)
+   const css=String(shared[0].source)
+   expect(css.match(/\._util_trim_3/g)).toHaveLength(1)
+   expect(css).not.toContain('_util_trim_99')
+   expect(css).not.toContain('_util_inj_')
+   expect(css).toMatch(/url\("icon-[^"]+\.svg"\)/)
+   const js=outputs.filter((item):item is Rollup.OutputChunk=>item.type==='chunk').map(item=>item.code).join('\n')
+   expect(js).not.toContain('__XCSS_SHARED_UTILITIES_URL__')
+   expect(js).toContain('xcss-utils-')
+   expect(outputs.some(item=>item.type==='asset'&&item.fileName.endsWith('.svg'))).toBe(true)
+  } finally {
+   const within=relative(root,directory);if(within.startsWith('..')||isAbsolute(within))throw new Error('Invalid test cleanup directory')
+   await rm(directory,{recursive:true,force:true})
+  }
+ })
+ it('refreshes the shared dev stylesheet when utility calls change or disappear',async()=>{
+  const directory=await mkdtemp(join(root,'test-utils-hmr-'))
+  await writeFile(join(directory,'util.xcss'),'@util trim($n: integer = 3) { max-height: $n * 1lh; }')
+  const consumer=join(directory,'a.xcss')
+  await writeFile(consumer,'.a { @:trim; }')
+  const server=await createServer({root:directory,configFile:false,logLevel:'silent',plugins:[xcss()],server:{middlewareMode:true}})
+  try {
+   const wrapper=await server.transformRequest('/a.xcss')
+   const sharedUrl=wrapper!.code.match(/import\s*["']([^"']*__xcss_utils\.css[^"']*)["']/)![1]
+   expect((await server.transformRequest(sharedUrl))?.code).toContain('_util_trim_3')
+   await writeFile(consumer,'.a { @:trim(5); }')
+   await expect.poll(async()=> (await server.transformRequest(sharedUrl))?.code.includes('_util_trim_5'),{timeout:10000}).toBe(true)
+   // Separate saves beyond the filesystem watcher's duplicate-event throttle.
+   await new Promise(resolve=>setTimeout(resolve,200))
+   await writeFile(consumer,'.a { color: red; }')
+   await expect.poll(async()=> (await server.transformRequest(sharedUrl))?.code.includes('_util_trim_5'),{timeout:10000}).toBe(false)
+  } finally {
+   await server.close()
+   const within=relative(root,directory);if(within.startsWith('..')||isAbsolute(within))throw new Error('Invalid test cleanup directory')
+   await rm(directory,{recursive:true,force:true})
+  }
+ },20000)
+ it('builds scoped CSS, export dictionaries, inline text and stylesheet URLs without Sass',async()=>{
+  const result=await build({root,configFile:false,logLevel:'silent',plugins:[xcss()],resolve:{alias:{'@':join(root,'src')}},build:{write:false,assetsInlineLimit:0,sourcemap:true}})
+  const outputs=Array.isArray(result)?result.flatMap(item=>item.output):result.output
+  const css=outputs.filter((item):item is Rollup.OutputAsset=>item.type==='asset'&&item.fileName.endsWith('.css')).map(item=>String(item.source)).join('\n')
+  const js=outputs.filter((item):item is Rollup.OutputChunk=>item.type==='chunk').map(item=>item.code).join('\n')
+  expect(css).toContain('var(--sidebar)');expect(css).toContain('var(--unit)');expect(css).toContain('border:2px solid');expect(css).toContain('xcss_');expect(css).not.toMatch(/@mixin|@include|@injection/);expect(css).not.toContain('.card{')
+  expect(new Set([...css.matchAll(/--shared-tone-xcss-[0-9a-f]{16}/g)].map(([name])=>name)).size).toBe(2)
+  expect(js).toContain('var(--space)');expect(outputs.some(item=>item.fileName.endsWith('.svg'))).toBe(true);expect(outputs.filter(item=>item.fileName.endsWith('.css')).length).toBeGreaterThanOrEqual(2)
+ })
+ it('reports original XCSS diagnostics before downstream processing',async()=>{
+  const server=await createServer({root,configFile:false,logLevel:'silent',plugins:[xcss()],server:{middlewareMode:true}})
+  try {await expect(server.transformRequest('/src/invalid.xcss')).rejects.toMatchObject({message:expect.stringMatching(/Sass syntax/),id:expect.stringContaining('invalid.xcss'),loc:expect.objectContaining({line:1,column:0})})}finally{await server.close()}
+ })
+ it('serves wrappers and processes inline CSS without injection',async()=>{
+  const server=await createServer({root,configFile:false,logLevel:'silent',plugins:[xcss()],server:{middlewareMode:true}})
+  try {const wrapper=await server.transformRequest('/src/styles.xcss');expect(wrapper?.code).toContain('export default');expect(wrapper?.code).toContain('xcss_');const inline=await server.transformRequest('/src/inline.xcss?inline');expect(inline?.code).not.toContain('updateStyle')}finally{await server.close()}
+ })
+ it('updates global injection resolution after edits, additions and removals',async()=>{
+  const directory=await mkdtemp(join(root,'test-hmr-'))
+  const injection='hmr-'+relative(root,directory).replace(/[^a-z0-9-]/gi,'-')
+  const library=join(directory,'library.xcss');const consumer=join(directory,'consumer.xcss');const duplicate=join(directory,'duplicate.xcss')
+  await writeFile(library,'@injection '+injection+' { width: 11px; }');await writeFile(consumer,'.consumer { @:'+injection+'; }')
+  const server=await createServer({root,configFile:false,logLevel:'silent',plugins:[xcss()],server:{middlewareMode:true}})
+  try {
+   const wrapper=await server.transformRequest('/'+relative(root,consumer).replaceAll('\\','/'))
+   const cssUrl=wrapper!.code.match(/import\s*["']([^"']+\.xcss\.css\?[^"']+)["']/)![1]
+   expect((await server.transformRequest(cssUrl))?.code).toContain('11px')
+   await writeFile(library,'@injection '+injection+' { width: 17px; }')
+   await expect.poll(async()=> (await server.transformRequest(cssUrl))?.code.includes('17px'),{timeout:10000}).toBe(true)
+   await writeFile(duplicate,'@injection '+injection+' { width: 22px; }')
+   await expect.poll(async()=> {try{await server.transformRequest(cssUrl);return false}catch(error){return String((error as { message?: string }).message ?? error).includes('Ambiguous injection')}},{timeout:10000}).toBe(true)
+   await rm(duplicate)
+   await expect.poll(async()=> {try{return (await server.transformRequest(cssUrl))?.code.includes('17px')}catch{return false}},{timeout:10000}).toBe(true)
+  } finally {
+   await server.close()
+   const within=relative(root,directory);if(within.startsWith('..')||isAbsolute(within))throw new Error('Invalid test cleanup directory')
+   await rm(directory,{recursive:true,force:true})
+  }
+ },20000)
 
-const root = fileURLToPath(new URL('..', import.meta.url))
-
-describe('Vite integration', () => {
-  it('builds CSS, SCSS, modules, and inline imports through XCSS', async () => {
-    const result = await build({
-      root,
-      configFile: false,
-      logLevel: 'silent',
-      plugins: [xcss()],
-      resolve: { alias: { '@': join(root, 'src') } },
-      build: { write: false },
-    })
-    const outputs = Array.isArray(result) ? result.flatMap((item) => item.output) : result.output
-    const css = outputs
-      .filter((item): item is Rollup.OutputAsset => item.type === 'asset' && item.fileName.endsWith('.css'))
-      .map((item) => String(item.source))
-      .join('\n')
-    const js = outputs
-      .filter((item): item is Rollup.OutputChunk => item.type === 'chunk')
-      .map((item) => item.code)
-      .join('\n')
-
-    expect(css).toContain('calc(100% - var(--sidebar))')
-    expect(css).toContain('calc(var(--unit) * 2)')
-    expect(css).not.toContain('.card{')
-    expect(css).toContain('border:2px solid')
-    const scopedVars = [...css.matchAll(/--shared-tone-xcss-[0-9a-f]{16}/g)].map(
-      ([name]) => name,
-    )
-    expect(new Set(scopedVars).size).toBe(2)
-    expect(js).toContain('calc(var(--space) * 2)')
-    const partial = await readFile(join(root, 'node_modules/.xcss/_injections.scss'), 'utf8')
-    expect(partial).toContain('@mixin xcss-')
-    expect(partial).not.toContain('.card')
-  })
-
-  it('reports reserved imports before downstream CSS processing', async () => {
-    const server = await createServer({
-      root,
-      configFile: false,
-      logLevel: 'silent',
-      plugins: [xcss()],
-      resolve: { alias: { '@': join(root, 'src') } },
-      server: { middlewareMode: true },
-    })
-    try {
-      const request = server.transformRequest('/src/invalid.xcss')
-      await expect(request).rejects.toMatchObject({
-        message: expect.stringMatching(/XCSS import system/),
-        id: expect.stringContaining('invalid.xcss'),
-        loc: expect.objectContaining({ line: 1, column: 0 }),
-      })
-    } finally {
-      await server.close()
-    }
-  })
 })

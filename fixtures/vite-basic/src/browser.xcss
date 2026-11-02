@@ -1,0 +1,7 @@
+@vars { local --opacity: number; --accent: color; }
+.parent { --opacity: .75; color: --accent; }
+.child { opacity: --opacity; &:hover { color: blue; } }
+.base { background-color: red; }
+.composed { composes: base; width: 5px; }
+@keyframes pulse { from { transform: translateX(0px); } to { transform: translateX(10px); } }
+.animated { animation: pulse 100s linear infinite; }
