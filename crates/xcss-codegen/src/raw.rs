@@ -73,7 +73,7 @@ pub(super) fn restore(
     for (i, name) in original.get_sources().iter().enumerate() {
         map.add_source(name);
         if let Ok(content) = original.get_source_content(i as u32) {
-            let _ = map.set_source_content(i, &content);
+            let _ = map.set_source_content(i, content);
         }
     }
     for name in original.get_names() {
