@@ -3,8 +3,14 @@ import { dirname, join } from 'node:path'
 import { normalizePath } from 'vite'
 import { describe, expect, it, vi } from 'vitest'
 import xcss from '../src/index.js'
-import { createVirtualId, createCssId, parseVirtualId } from '../src/internal.js'
+import { createVirtualId, createCssId, cssAssetUrls, parseVirtualId } from '../src/internal.js'
 describe('virtual XCSS ids', () => {
+ it('finds real asset URLs while preserving strings, comments, and CSS escapes',()=>{
+  const css=String.raw`.a { content: "url(fake.svg)"; /* url(comment.svg) */ background: url("a\20 b.svg?q=1#part"); mask: url(icon.svg); }`
+  const urls=cssAssetUrls(css)
+  expect(urls.map(item=>item.url)).toEqual(['a b.svg?q=1#part','icon.svg'])
+  expect(css.slice(urls[1].start,urls[1].end)).toBe('url(icon.svg)')
+ })
  it('uses JavaScript wrappers and plain CSS without double module scoping',()=>{
   const virtual=createVirtualId('C:/project/button.xcss?inline')!;expect(virtual.id).toContain('button.xcss.js?');expect(virtual.mode).toBe('inline');expect(parseVirtualId(virtual.id)?.sourcePath).toBe('C:/project/button.xcss');expect(createCssId(virtual.sourcePath)).toContain('button.xcss.css?');expect(createCssId(virtual.sourcePath)).not.toContain('.module.css')
  })
@@ -20,7 +26,7 @@ describe('plugin shape',()=>{
  it('anchors source maps to original files rather than the virtual CSS directory',async()=>{
   const root=fileURLToPath(new URL('../../../fixtures/vite-basic/',import.meta.url))
   const source=normalizePath(join(root,'src/styles.xcss'));const plugin=xcss()
-  ;(plugin.configResolved as Function)({root,command:'serve',base:'/'})
+  ;(plugin.configResolved as Function)({root,command:'serve',base:'/',build:{assetsDir:'assets',outDir:'dist'}})
   const result=await (plugin.load as Function).call({resolve:async(specifier:string,importer:string)=>({id:specifier.startsWith('@/')?join(root,'src',specifier.slice(2)):join(dirname(importer),specifier)}),addWatchFile:()=>{},warn:()=>{},error:(error:{message:string})=>{throw new Error(error.message)}},createCssId(source))
   expect(result.map.sources).toContain(source)
   expect(result.map.sources.some((path:string)=>path.includes('/src/src/'))).toBe(false)

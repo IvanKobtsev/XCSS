@@ -10,6 +10,7 @@ pub enum SymbolKind {
     Keyframe,
     Variable,
     Injection,
+    Util,
     Parameter,
     Constant,
     Class,

@@ -31,6 +31,14 @@ pub(super) struct Lowerer<'a> {
     pub native_imports: BTreeSet<String>,
     pub constant_depth: usize,
     pub constant_expansions: usize,
+    pub utilities: BTreeMap<String, Mapped>,
+    pub utility_order: Vec<String>,
+    pub utility_classes: BTreeMap<String, Vec<String>>,
+    pub utility_output_identity: &'a str,
+    selector: Option<String>,
+    conditions: Vec<(Mapped, Location)>,
+    injected_utils: Mapped,
+    util_depth: usize,
     count: usize,
 }
 impl<'a> Lowerer<'a> {
@@ -53,6 +61,14 @@ impl<'a> Lowerer<'a> {
             native_imports: BTreeSet::new(),
             constant_depth: 0,
             constant_expansions: 0,
+            utilities: BTreeMap::new(),
+            utility_order: Vec::new(),
+            utility_classes: BTreeMap::new(),
+            utility_output_identity: output_identity,
+            selector: None,
+            conditions: Vec::new(),
+            injected_utils: Mapped::default(),
+            util_depth: 0,
             count: 0,
         }
     }
@@ -108,6 +124,7 @@ impl<'a> Lowerer<'a> {
         }) {
             self.print(statement, &mut out);
         }
+        out.append(&self.injected_utils);
         Ok(out)
     }
     fn nodes(
@@ -144,7 +161,7 @@ impl<'a> Lowerer<'a> {
                         }
                     }
                 }
-                NodeKind::Injection | NodeKind::Constant => {}
+                NodeKind::Injection | NodeKind::Util | NodeKind::Constant => {}
                 NodeKind::Import if parse.injection_import(node).is_some() => {}
                 NodeKind::Call => {
                     let Some(target) = self.snapshot.resolved_call(file, node) else {
@@ -160,6 +177,17 @@ impl<'a> Lowerer<'a> {
                     let syntax = parse.call(node).unwrap();
                     let signature = self.snapshot.signature(target).unwrap();
                     let definition_syntax = definition.injection(body).unwrap();
+                    let call_output = self.output_identity;
+                    if body.kind == NodeKind::Util
+                        && self.util_depth == 0
+                        && !syntax.as_injection
+                        && self
+                            .selector
+                            .as_ref()
+                            .is_some_and(|s| !composition_classes(s).is_empty())
+                    {
+                        self.output_identity = self.utility_output_identity;
+                    }
                     let mut call_frame = Frame::default();
                     for (index, parameter) in signature.parameters.iter().enumerate() {
                         let value = if let Some(argument) = syntax.arguments.get(index) {
@@ -209,7 +237,120 @@ impl<'a> Lowerer<'a> {
                             frame: frame.clone(),
                         }));
                     }
-                    out.extend(self.nodes(&def_file, &body.children, &call_frame, depth + 1)?);
+                    let is_util = body.kind == NodeKind::Util;
+                    if is_util && self.util_depth == 0 {
+                        let Some(selector) = self.selector.clone() else {
+                            return Err(vec![Diagnostic::error(
+                                "generate.util-selector",
+                                file,
+                                node.header,
+                                "A util call requires a selector",
+                            )]);
+                        };
+                        let owners = if syntax.as_injection {
+                            Vec::new()
+                        } else {
+                            composition_classes(&selector)
+                        };
+                        let arguments: Vec<_> = signature
+                            .parameters
+                            .iter()
+                            .map(|p| canonical(&call_frame.parameters[&p.symbol].text))
+                            .collect();
+                        let symbol = self.snapshot.symbol(target).unwrap();
+                        let identity = format!("{}:{}:{:?}", def_file.0, symbol.name, arguments);
+                        let mut label = std::iter::once(readable(&symbol.name))
+                            .chain(arguments.iter().map(|v| readable(v)))
+                            .collect::<Vec<_>>()
+                            .join("_");
+                        let duplicate_name = self
+                            .snapshot
+                            .symbols()
+                            .iter()
+                            .filter(|s| {
+                                matches!(s.kind, SymbolKind::Util | SymbolKind::Injection)
+                                    && s.name == symbol.name
+                            })
+                            .count()
+                            > 1;
+                        if duplicate_name
+                            || !symbol
+                                .name
+                                .chars()
+                                .all(|c| c.is_ascii_alphanumeric() || c == '-')
+                            || arguments
+                                .iter()
+                                .any(|v| !v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+                            || self.snapshot.symbols().iter().any(|s| {
+                                s.kind == SymbolKind::Class
+                                    && s.global
+                                    && s.name == format!("_util_{label}")
+                            })
+                        {
+                            label.push_str(&format!("_{:016x}", stable_hash(&identity)));
+                        }
+                        let class = format!("_util_{label}");
+                        let old_output = call_output;
+                        if !owners.is_empty() {
+                            self.output_identity = self.utility_output_identity;
+                        }
+                        self.util_depth += 1;
+                        let expanded =
+                            self.nodes(&def_file, &body.children, &call_frame, depth + 1);
+                        self.util_depth -= 1;
+                        self.output_identity = old_output;
+                        let expanded = expanded?;
+                        let mut css = Mapped::default();
+                        css.push("@layer utils {\n", &origin);
+                        for (condition, location) in &self.conditions {
+                            css.append(condition);
+                            css.push(" {\n", location);
+                        }
+                        let header = if owners.is_empty() {
+                            format!("_util_inj_\\[{label}\\], {selector}")
+                        } else {
+                            format!(":global(.{class})")
+                        };
+                        css.push(&header, &origin);
+                        css.push(" {\n", &origin);
+                        for statement in &expanded {
+                            self.print(statement, &mut css);
+                        }
+                        css.push("}\n", &origin);
+                        for (_, location) in self.conditions.iter().rev() {
+                            css.push("}\n", location);
+                        }
+                        css.push("}\n", &origin);
+                        if owners.is_empty() {
+                            self.injected_utils.append(&css);
+                        } else {
+                            for owner in owners {
+                                self.utility_classes
+                                    .entry(owner)
+                                    .or_default()
+                                    .push(class.clone());
+                            }
+                            let key = format!(
+                                "{identity}:{:?}",
+                                self.conditions
+                                    .iter()
+                                    .map(|(m, _)| &m.text)
+                                    .collect::<Vec<_>>()
+                            );
+                            if !self.utilities.contains_key(&key) {
+                                self.utility_order.push(key.clone());
+                                self.utilities.insert(key, css);
+                            }
+                        }
+                    } else {
+                        out.extend(self.nodes(
+                            &def_file,
+                            &body.children,
+                            &call_frame,
+                            depth + 1,
+                        )?);
+                        self.output_identity = call_output;
+                    }
                 }
                 NodeKind::Content => {
                     if let Some(content) = &frame.content {
@@ -332,11 +473,26 @@ impl<'a> Lowerer<'a> {
                             },
                         )?;
                     }
+                    let old_selector = self.selector.clone();
+                    let old_conditions = self.conditions.len();
+                    if self.util_depth == 0 {
+                        if node.kind == NodeKind::Rule {
+                            self.selector =
+                                Some(resolve_selector(old_selector.as_deref(), &header.text));
+                        } else if node.kind == NodeKind::AtRule
+                            && node.block.is_some()
+                            && !header.text.trim_start().starts_with("@layer")
+                        {
+                            self.conditions.push((header.clone(), origin.clone()));
+                        }
+                    }
                     let children = if node.block.is_some() {
                         Some(self.nodes(file, &node.children, frame, depth)?)
                     } else {
                         None
                     };
+                    self.selector = old_selector;
+                    self.conditions.truncate(old_conditions);
                     if node.kind == NodeKind::Import {
                         let parsed =
                             xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
@@ -434,6 +590,108 @@ fn native_import_string<'a>(parse: &'a ParseResult, node: &Node) -> Option<&'a x
         .filter(|t| t.kind == xcss_syntax::TokenKind::String)
 }
 
+fn parsed_text(text: &str) -> ParseResult {
+    xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
+        FileId("utility".into()),
+        0,
+        text.to_owned(),
+    )))
+}
+fn canonical(text: &str) -> String {
+    let parse = parsed_text(text);
+    parse
+        .tokens
+        .iter()
+        .filter(|t| {
+            !matches!(
+                t.kind,
+                xcss_syntax::TokenKind::Whitespace | xcss_syntax::TokenKind::Comment
+            )
+        })
+        .map(|t| parse.token_text(t))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+fn readable(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+fn stable_hash(text: &str) -> u64 {
+    text.bytes().fold(0xcbf29ce484222325, |hash, b| {
+        (hash ^ u64::from(b)).wrapping_mul(0x100000001b3)
+    })
+}
+fn composition_classes(selector: &str) -> Vec<String> {
+    let members = xcss_syntax::analyze_selectors(selector, 0, None);
+    let mut classes = Vec::new();
+    for member in members {
+        let mut text = selector[member.range.start..member.range.end].trim();
+        if let Some(local) = text
+            .strip_prefix(":local(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
+            text = local.trim();
+        }
+        let parse = parsed_text(text);
+        let tokens: Vec<_> = parse
+            .tokens
+            .iter()
+            .filter(|t| {
+                !matches!(
+                    t.kind,
+                    xcss_syntax::TokenKind::Whitespace | xcss_syntax::TokenKind::Comment
+                )
+            })
+            .collect();
+        if tokens.len() != 2
+            || parse.token_text(tokens[0]) != "."
+            || tokens[1].kind != xcss_syntax::TokenKind::Word
+        {
+            return Vec::new();
+        }
+        classes.push(xcss_syntax::ast::decode_identifier(
+            parse.token_text(tokens[1]),
+        ));
+    }
+    classes
+}
+fn resolve_selector(parent: Option<&str>, child: &str) -> String {
+    let Some(parent) = parent else {
+        return child.to_owned();
+    };
+    let parent = format!(":is({parent})");
+    xcss_syntax::analyze_selectors(child, 0, Some(None))
+        .iter()
+        .map(|member| {
+            let text = &child[member.range.start..member.range.end];
+            let parse = parsed_text(text);
+            let nesting: Vec<_> = parse
+                .tokens
+                .iter()
+                .filter(|t| {
+                    t.kind == xcss_syntax::TokenKind::Punctuation && parse.token_text(t) == "&"
+                })
+                .collect();
+            if nesting.is_empty() {
+                format!("{parent} {}", text.trim())
+            } else {
+                let mut resolved = text.to_owned();
+                for token in nesting.into_iter().rev() {
+                    resolved.replace_range(token.range.start..token.range.end, &parent);
+                }
+                resolved
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 fn normalize_selector(raw: &str) -> String {
     // Scope switches only occur outside strings and attribute selectors; parse token ranges.
     let parse = xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(

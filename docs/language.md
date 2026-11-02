@@ -17,6 +17,64 @@ properties remain global. Dynamic values have unknown types, not type errors.
 Mutable Sass variables, interpolation, module directives, mixins and control
 flow are rejected. CSS Modules classes are local unless marked `:global`.
 
+## Utilities
+
+`@util` declares a reusable, typed style recipe:
+
+```xcss
+@util truncate-multiline($lines: integer = 3) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-height: $lines * 1lh;
+}
+
+.someText {
+  @:truncate-multiline(2);
+  color: white;
+}
+
+span[data-truncate] {
+  @:truncate-multiline;
+  color: black;
+}
+```
+
+For a single local class, or a list consisting entirely of single local classes
+(`.a, :local(.b)`), the exported class strings include a generated utility class,
+such as `_util_truncate-multiline_2`. Its styles are deduplicated in a shared
+stylesheet, inside the top-level `@layer utils`. Compound classes, descendants,
+pseudo-classes, and mixed/global selector lists instead receive separate rules in
+their own stylesheet. These pair the caller selector with a readable, escaped
+DevTools marker such as `_util_inj_\[truncate-multiline_3\]`.
+
+`@:truncate-multiline(3) as injection;` forces that selector-based output for any
+selector. It still uses the top-level `utils` layer and does not insert declarations
+into the caller's ordinary rule. The marker element names are reserved for XCSS.
+Declare an explicit layer order, for example `@layer utils, components;`, when
+utility precedence matters; normal unlayered declarations outrank layered styles.
+
+Util calls may form a prefix group, a suffix group, or both. A call between two
+ordinary properties is an error. Comments and compile-time constants do not count
+as properties. Calls require a selector, including when expanded through an
+injection; calling a util directly at stylesheet root is invalid.
+
+Utils share injection parameters, defaults, lexical constants, imports, namespaces,
+type checking, and lookup precedence. Equally visible callable names are ambiguous;
+use imports and namespaces to disambiguate definitions in different files. Utils
+can nest rules and call other utils or injections; inner calls expand into the
+outer recipe. Local class selectors, `@content`, and supplied content blocks are
+forbidden, including when introduced through another call. Class selectors inside
+a util must be explicitly `:global`. Ordinary injections retain their existing
+expansion and content behavior.
+
+Resolved default and explicit arguments share a utility rule. Insignificant
+formatting is normalized, but mathematically equivalent expressions are not
+evaluated for deduplication. Different runtime conditions retain separate rules.
+Complex argument labels and conflicting definition names receive stable suffixes.
+Bare words remain CSS literals: use `$lines`, not `lines`, to substitute a parameter.
+
 ## Compile-time constants
 
 Declare constants with `$name = value;` or `$name: type = value;`. An initializer

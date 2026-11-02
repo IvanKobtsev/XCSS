@@ -143,6 +143,7 @@ pub struct Constant<'a> {
 }
 #[derive(Clone, Debug)]
 pub struct Call<'a> {
+    pub as_injection: bool,
     pub name: &'a str,
     pub name_range: TextRange,
     pub arguments: Vec<Value>,
@@ -288,7 +289,7 @@ impl ParseResult {
         })
     }
     pub fn injection<'a>(&'a self, node: &Node) -> Option<Injection<'a>> {
-        if node.kind != NodeKind::Injection {
+        if !matches!(node.kind, NodeKind::Injection | NodeKind::Util) {
             return None;
         }
         let tokens = self.significant(node.header);
@@ -349,12 +350,26 @@ impl ParseResult {
         if node.kind != NodeKind::Call {
             return None;
         }
-        let tokens = self.significant(node.header);
+        let mut tokens = self.significant(node.header);
+        let as_injection = tokens.len() >= 2
+            && self.token_text(tokens[tokens.len() - 2]) == "as"
+            && self.token_text(tokens[tokens.len() - 1]) == "injection";
+        let call_end = if as_injection {
+            let end = tokens[tokens.len() - 2].range.start;
+            tokens.truncate(tokens.len() - 2);
+            end
+        } else {
+            node.header.end
+        };
         let start = tokens.get(2)?.range.start;
         let open = tokens.iter().position(|t| self.token_text(t) == "(");
-        let end = open
-            .map(|i| tokens[i].range.start)
-            .unwrap_or(node.header.end);
+        if open.is_some()
+            && node.missing.is_empty()
+            && tokens.last().is_none_or(|t| self.token_text(t) != ")")
+        {
+            return None;
+        }
+        let end = open.map(|i| tokens[i].range.start).unwrap_or(call_end);
         let name = self.source.text()[start..end].trim();
         let arguments = if let Some(open) = open {
             let end = tokens
@@ -372,6 +387,7 @@ impl ParseResult {
             Vec::new()
         };
         Some(Call {
+            as_injection,
             name,
             name_range: TextRange::new(start, start + name.len()),
             arguments,

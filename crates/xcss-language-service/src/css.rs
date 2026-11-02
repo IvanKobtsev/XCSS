@@ -148,7 +148,7 @@ impl ServiceSnapshot {
             );
         let next = match node.kind {
             NodeKind::Rule => "rule",
-            NodeKind::Injection => "injection",
+            NodeKind::Injection | NodeKind::Util => "injection",
             NodeKind::AtRule => {
                 // At-rule children that are declarations are descriptors. Nested rules
                 // remain eligible, including inside unknown extension at-rules.

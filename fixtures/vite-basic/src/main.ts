@@ -16,3 +16,9 @@ const parent=document.createElement('div'); parent.id='parent';parent.className=
 const child=document.createElement('div');child.id='child';child.className=browser.child;child.textContent='child';parent.append(child);document.body.append(parent)
 const composed=document.createElement('div');composed.id='composed';composed.className=browser.composed;document.body.append(composed)
 const animated=document.createElement('div');animated.id='animated';animated.className=browser.animated;document.body.append(animated)
+
+import utilities from './browser-utils.xcss'
+for (const name of ['utility', 'override']) {
+  const element = document.createElement('div'); element.id = 'util-' + name; element.className = utilities[name]; document.body.append(element)
+}
+const injectedUtility = document.createElement('div'); injectedUtility.id = 'injected-util'; document.body.append(injectedUtility)

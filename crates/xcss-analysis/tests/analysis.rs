@@ -5,6 +5,50 @@ fn id(name: &str) -> FileId {
     FileId(name.into())
 }
 #[test]
+fn utilities_validate_context_order_types_and_transitive_bodies() {
+    for (source, code) in [
+        ("@util u {} @:u;", "syntax.util-selector"),
+        (
+            "@util u {} .a { color: red; @:u; width: 1px; }",
+            "syntax.util-order",
+        ),
+        (
+            "@util u { .local { color: red; } }",
+            "syntax.util-local-class",
+        ),
+        (
+            "@injection bad { .local {} } @util u { @:bad; }",
+            "syntax.util-local-class",
+        ),
+        ("@util u { @content; }", "syntax.util-content"),
+        ("@util u {} .a { @:u {} }", "syntax.util-content"),
+        (
+            "@injection i {} .a { @:i as injection; }",
+            "syntax.util-modifier",
+        ),
+        (
+            "@util u($n: integer) {} .a { @:u(red); }",
+            "type.argument-mismatch",
+        ),
+        ("@util u { @:u; } .a { @:u; }", "binding.injection-cycle"),
+    ] {
+        let mut h = host(&[("a.xcss", source)]);
+        let snapshot = h.snapshot();
+        assert!(
+            snapshot.diagnostics().iter().any(|d| d.code == code),
+            "{source}: {:?}",
+            snapshot.diagnostics()
+        );
+    }
+    let mut h = host(&[(
+        "a.xcss",
+        "@util u($n: integer = 3) { &:hover { color: red; } :global(.icon) { width: $n * 1px; } } .a { @:u; color: red; @:u(4); }",
+    )]);
+    let s = h.snapshot();
+    assert!(s.diagnostics().is_empty(), "{:?}", s.diagnostics());
+    assert!(s.symbols().iter().any(|s| s.kind == SymbolKind::Util));
+}
+#[test]
 fn constants_infer_through_references_and_dimensional_arithmetic() {
     let mut h = host(&[(
         "a.xcss",

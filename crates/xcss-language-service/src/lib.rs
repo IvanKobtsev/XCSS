@@ -189,7 +189,12 @@ impl ServiceSnapshot {
                 })
                 .collect();
             text = format!(
-                "@injection {}({}){}",
+                "@{} {}({}){}",
+                if symbol.kind == SymbolKind::Util {
+                    "util"
+                } else {
+                    "injection"
+                },
                 symbol.name,
                 parameters.join(", "),
                 if signature.accepts_content {
@@ -225,7 +230,7 @@ impl ServiceSnapshot {
         // Priority resolves broad contextual candidates against resolved identifiers.
         let mut candidates: Vec<(TextRange, usize, bool, u8)> = Vec::new();
         let kind = |kind| match kind {
-            SymbolKind::Injection => 0,
+            SymbolKind::Injection | SymbolKind::Util => 0,
             SymbolKind::Parameter => 1,
             SymbolKind::Variable | SymbolKind::Constant => 2,
             SymbolKind::Namespace => 3,

@@ -1,5 +1,22 @@
 import { test,expect } from '@playwright/test'
 test.beforeEach(async({page})=>{await page.goto('/')})
+
+test('shared utilities compose exports and selector-based calls retain their layer',async({page})=>{
+ await expect(page.locator('#util-utility')).toHaveCSS('padding-left','12px')
+ await expect(page.locator('#util-override')).toHaveCSS('padding-left','4px')
+ await expect(page.locator('#injected-util')).toHaveCSS('padding-left','16px')
+ expect((await page.locator('#util-utility').getAttribute('class'))!.split(' ')).toHaveLength(2)
+})
+
+test('loading another module refreshes the existing shared utility stylesheet',async({page})=>{
+ await expect(page.locator('#util-utility')).toHaveCSS('padding-left','12px')
+ await page.evaluate(async()=>{
+  const path='/src/browser-lazy-utils.xcss'
+  const styles=(await import(/* @vite-ignore */ path)).default
+  const element=document.createElement('div');element.id='util-lazy';element.className=styles.lazy;document.body.append(element)
+ })
+ await expect(page.locator('#util-lazy')).toHaveCSS('padding-top','20px')
+})
 test('registered defaults and non-inheritance work in a browser',async({page})=>{
  await expect(page.locator('#child')).toHaveCSS('opacity','0')
  await expect(page.locator('#parent')).toHaveCSS('color','rgba(0, 0, 0, 0)')

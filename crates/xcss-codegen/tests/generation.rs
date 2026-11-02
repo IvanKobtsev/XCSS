@@ -5,6 +5,191 @@ fn id(name: &str) -> FileId {
     FileId(name.into())
 }
 #[test]
+fn utilities_compose_defaults_and_keep_injected_rules_local() {
+    let result = compile(&[("a.xcss", "@util truncate($lines: integer = 3) { display: -webkit-box; max-height: $lines * 1lh; } .a, :local(.b) { @:truncate(2); color: white; } .c { @:truncate; } .d { @:truncate(3); } span[data-truncate] { @:truncate(3); color: black; } .forced:hover { @:truncate(4) as injection; }")], "a.xcss", &[]).unwrap();
+    let module = &result.modules[0];
+    let shared = result.utilities.as_ref().unwrap();
+    assert_eq!(shared.rules.len(), 2, "{}", shared.css);
+    assert!(shared.css.contains("._util_truncate_2"), "{}", shared.css);
+    assert!(shared.css.contains("@layer utils"));
+    assert!(module.classes["a"].contains("_util_truncate_2"));
+    assert!(module.classes["b"].contains("_util_truncate_2"));
+    assert!(module.classes["c"].contains("_util_truncate_3"));
+    assert!(!module.classes.keys().any(|key| key.starts_with("_util_")));
+    assert!(!module.classes["forced"].contains("_util_"));
+    assert!(module.css.contains("_util_inj_"), "{}", module.css);
+    assert!(module.css.contains("span[data-truncate]"));
+    assert!(module.css.contains("4lh"), "{}", module.css);
+}
+#[test]
+fn utilities_share_across_modules_and_preserve_conditions_assets_and_maps() {
+    let mut host = AnalysisHost::new();
+    for (file, source) in [
+        (
+            "lib/util.xcss",
+            "$default = 3; @util trim($n: integer = $default) { max-height: $n * 1lh; background: url('./icon.svg'); &:hover { color: red; } :global(.icon) { display: block; } }",
+        ),
+        (
+            "src/a.xcss",
+            ".a { composes: b from './b.xcss'; @:trim(3); } @media (width > 10px) { @layer components { .c { @:trim; } } } .parent { &:hover { @:trim(4); } }",
+        ),
+        ("src/b.xcss", ".b { @:trim; }"),
+    ] {
+        host.set_file(id(file), 1, source).unwrap();
+    }
+    host.set_resolution(id("src/a.xcss"), "./b.xcss", Some(id("src/b.xcss")));
+    let snapshot = host.snapshot();
+    let options = GenerateOptions {
+        utilities_output_path: Some("dist/shared/utils.css".into()),
+        ..Default::default()
+    };
+    let project = generate(&snapshot, &id("src/a.xcss"), &options).unwrap();
+    let shared = project.utilities.as_ref().unwrap();
+    assert_eq!(shared.rules.len(), 2, "{}", shared.css);
+    assert!(shared.css.contains("../../lib/icon.svg"), "{}", shared.css);
+    assert!(shared.css.contains("@media"));
+    assert!(!shared.css.contains("components"));
+    assert!(shared.css.contains(".icon"));
+    assert!(shared.source_map.contains("lib/util.xcss"));
+    let caller = project
+        .modules
+        .iter()
+        .find(|m| m.module_id == id("src/a.xcss"))
+        .unwrap();
+    assert!(caller.css.contains(":hover"), "{}", caller.css);
+    assert!(caller.css.contains("_util_inj_"));
+    assert_eq!(caller.classes["a"].matches("_util_trim_3").count(), 1);
+    assert!(!caller.classes["parent"].contains("_util_"));
+    let bundled = generate(
+        &snapshot,
+        &id("src/a.xcss"),
+        &GenerateOptions {
+            bundle: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(bundled.utilities.is_none());
+    assert_eq!(bundled.modules[0].css.matches("._util_trim_3 {").count(), 2); // unconditional + media
+}
+
+#[test]
+fn utility_selectors_and_nested_calls_choose_the_right_emission_mode() {
+    let result = compile(&[("a.xcss", "@injection plain { border-width: 1px; } @util inner { @:plain; color: red; } @util outer { @:inner; &:hover { opacity: .5; } } .a.b, .c:hover { @:outer; } .parent .descendant { @:outer; } :global(.g), .mixed { @:outer; } .composed { @:outer; color: blue; @:outer; }")], "a.xcss", &[]).unwrap();
+    let shared = result.utilities.unwrap();
+    assert_eq!(shared.rules.len(), 1);
+    assert!(shared.css.contains("_util_outer"));
+    assert!(!shared.css.contains("_util_inner"));
+    let m = &result.modules[0];
+    assert!(m.classes["composed"].contains("_util_outer"));
+    for name in ["a", "b", "c", "parent", "descendant", "mixed"] {
+        assert!(!m.classes[name].contains("_util_"));
+    }
+    assert_eq!(m.css.matches("_util_inj_").count(), 3);
+}
+
+#[test]
+fn imported_utilities_names_and_rule_order_are_stable() {
+    let files = [
+        (
+            "left.xcss",
+            "@util same($n: integer = 2) { width: $n * 1px; }",
+        ),
+        (
+            "right.xcss",
+            "@util same($n: integer = 2) { height: $n * 1px; }",
+        ),
+        (
+            "a.xcss",
+            "@import l from './left.xcss'; @import r from './right.xcss'; .a { @:r.same; @:l.same; }",
+        ),
+    ];
+    let resolutions = [
+        ("a.xcss", "./left.xcss", "left.xcss"),
+        ("a.xcss", "./right.xcss", "right.xcss"),
+    ];
+    let result = compile(&files, "a.xcss", &resolutions).unwrap();
+    let shared = result.utilities.unwrap();
+    assert_eq!(shared.rules.len(), 2);
+    assert_eq!(result.modules[0].classes["a"].split_whitespace().count(), 3);
+    assert!(shared.css.find("height:").unwrap() < shared.css.find("width:").unwrap());
+    let merged = xcss_codegen::merge_utilities(vec![shared.clone(), shared.clone()])
+        .unwrap()
+        .unwrap();
+    assert_eq!(merged.rules.len(), 2);
+    assert!(merged.css.find("height:").unwrap() < merged.css.find("width:").unwrap());
+    let minified = {
+        let mut host = AnalysisHost::new();
+        host.set_file(
+            id("a.xcss"),
+            1,
+            "@util u($n: integer = 2) { width: $n * 1px; } .a { @:u; }",
+        )
+        .unwrap();
+        generate(
+            &host.snapshot(),
+            &id("a.xcss"),
+            &GenerateOptions {
+                minify: true,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    assert!(minified.utilities.unwrap().css.contains("@layer utils"));
+}
+
+#[test]
+fn utility_layer_preludes_global_keyframes_and_bundle_assets_keep_their_meaning() {
+    let mut host = AnalysisHost::new();
+    host.set_file(id("lib/util.xcss"), 1, "@keyframes :global(spin) { to { opacity: 1; } } @util u { animation: spin 1s; background: url('./icon.svg'); }").unwrap();
+    host.set_file(id("src/a.xcss"), 1, "@layer components, utils; .a { @:u; }")
+        .unwrap();
+    let snapshot = host.snapshot();
+    let project = generate(&snapshot, &id("src/a.xcss"), &GenerateOptions::default()).unwrap();
+    let shared = project.utilities.unwrap();
+    assert!(
+        shared.css.starts_with("@layer components, utils;"),
+        "{}",
+        shared.css
+    );
+    assert!(shared.css.contains("animation: 1s spin"), "{}", shared.css);
+    assert!(!shared.css.contains("__xcss_global_"));
+    let bundled = generate(
+        &snapshot,
+        &id("src/a.xcss"),
+        &GenerateOptions {
+            bundle: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        bundled.modules[0].css.contains("../lib/icon.svg"),
+        "{}",
+        bundled.modules[0].css
+    );
+}
+
+#[test]
+fn invalid_unrelated_utils_do_not_poison_ordinary_injection_consumers() {
+    let project = compile(
+        &[
+            (
+                "injection.xcss",
+                "@injection ordinary { .child { color: red; } }",
+            ),
+            ("invalid-util.xcss", "@util invalid { @:ordinary; }"),
+            ("a.xcss", ".a { @:ordinary; }"),
+        ],
+        "a.xcss",
+        &[],
+    )
+    .unwrap();
+    assert!(project.modules[0].classes.contains_key("child"));
+    assert!(project.utilities.is_none());
+}
+#[test]
 fn constant_values_gradients_math_and_conditions() {
     let result = compile(&[("a.xcss", "$base = 56px; $height: length = $base + --my-height / 2; $gradient = linear-gradient(to right, #000 --start-value, #fff (--end-value + --offset)); @media (width > $base) { .a { height: $height; background: $gradient; width: $height * 2; } }")], "a.xcss", &[]).unwrap();
     let css = &result.modules[0].css;

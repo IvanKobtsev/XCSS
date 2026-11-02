@@ -95,3 +95,12 @@ Invalid/recovered selectors, unsupported functional selectors, unresolved parent
 and selectors in injection definitions whose call-site context is unknown have
 no exact score. Other valid selector-list members remain queryable. This API does
 not expand injection calls or provide lint thresholds or editor hover UI.
+
+## Shared utilities
+
+`Compiler.compile(entry)` returns an optional `utilities` artifact alongside
+module artifacts. It contains `css`, `sourceMap`, `sourceDependencies`, and mapped
+`rules`. Hosts should deliver that CSS once alongside consuming modules.
+`Compiler.compileUtilities(entries)` returns the deduplicated utility union for
+several entry modules. Recompute the union after source updates or removals.
+Bundled compilation includes utility CSS directly in the module artifact.

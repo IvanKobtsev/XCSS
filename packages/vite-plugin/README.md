@@ -27,3 +27,11 @@ additions/removals rebuild the global injection index. Active XCSS wrappers and
 stylesheets are invalidated together because unimported global injection calls
 can be affected. Native source maps point to original XCSS, including imported
 injection definitions and caller-owned arguments/content.
+
+## Shared utilities
+
+`@util` class compositions automatically load one shared utility stylesheet.
+Development updates its active usages through HMR; production includes utilities
+from eager and lazy modules in one CSS asset. Selector-based calls and
+`as injection` remain in the consuming module's CSS, inside `@layer utils`.
+`?inline` and `?url` requests include their utilities in their bundled stylesheet.

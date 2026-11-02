@@ -81,7 +81,7 @@ fn visit(
         return;
     }
     let mut parent = parent;
-    if node.kind == NodeKind::Injection {
+    if matches!(node.kind, NodeKind::Injection | NodeKind::Util) {
         // Definition-site selectors may have an unknown call-site nesting context.
         parent = Some(None);
     }

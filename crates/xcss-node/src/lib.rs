@@ -43,6 +43,20 @@ pub struct NativeCompilation {
     pub success: bool,
     pub artifacts: Vec<NativeArtifact>,
     pub diagnostics: Vec<NativeDiagnostic>,
+    pub utilities: Option<NativeUtilities>,
+}
+#[napi(object, object_from_js = false)]
+pub struct NativeUtilities {
+    pub css: String,
+    pub source_map: String,
+    pub source_dependencies: Vec<String>,
+    pub rules: Vec<NativeUtilityRule>,
+}
+#[napi(object, object_from_js = false)]
+pub struct NativeUtilityRule {
+    pub key: String,
+    pub css: String,
+    pub source_map: String,
 }
 /// Define own data properties rather than invoking JavaScript prototype setters.
 pub struct StringMap(BTreeMap<String, String>);
@@ -108,6 +122,45 @@ impl Compiler {
             .set_resolution(FileId(importer), specifier, target.map(FileId));
     }
     #[napi]
+    pub fn compile_utilities(&mut self, entries: Vec<String>) -> NativeCompilation {
+        let snapshot = self.host.snapshot();
+        let mut artifacts = Vec::new();
+        let mut diagnostics = Vec::new();
+        for entry in entries {
+            match xcss_core::generate(&snapshot, &FileId(entry), &GenerateOptions::default()) {
+                Ok(project) => {
+                    diagnostics.extend(project.diagnostics);
+                    if let Some(shared) = project.utilities {
+                        artifacts.push(shared);
+                    }
+                }
+                Err(errors) => diagnostics.extend(errors),
+            }
+        }
+        let mut success = !diagnostics.iter().any(|d| d.severity == Severity::Error);
+        let utilities = if success {
+            match xcss_core::merge_utilities(artifacts) {
+                Ok(shared) => shared.map(convert_utilities),
+                Err(errors) => {
+                    diagnostics.extend(errors);
+                    success = false;
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        NativeCompilation {
+            success,
+            artifacts: Vec::new(),
+            utilities,
+            diagnostics: diagnostics
+                .into_iter()
+                .map(|d| convert_diagnostic(d, &snapshot))
+                .collect(),
+        }
+    }
+    #[napi]
     pub fn compile(
         &mut self,
         entry: String,
@@ -124,10 +177,11 @@ impl Compiler {
                 ..GenerateOptions::default()
             },
         );
-        let (success, artifacts, diagnostics) = match result {
+        let (success, artifacts, diagnostics, utilities) = match result {
             Ok(GeneratedProject {
                 modules,
                 diagnostics,
+                utilities,
                 ..
             }) => (
                 true,
@@ -153,17 +207,38 @@ impl Compiler {
                     })
                     .collect(),
                 diagnostics,
+                utilities.map(convert_utilities),
             ),
-            Err(diagnostics) => (false, Vec::new(), diagnostics),
+            Err(diagnostics) => (false, Vec::new(), diagnostics, None),
         };
         NativeCompilation {
             success,
             artifacts,
+            utilities,
             diagnostics: diagnostics
                 .into_iter()
                 .map(|d| convert_diagnostic(d, &snapshot))
                 .collect(),
         }
+    }
+}
+fn convert_utilities(mut u: xcss_core::GeneratedUtilities) -> NativeUtilities {
+    NativeUtilities {
+        css: u.css,
+        source_map: u.source_map,
+        source_dependencies: u.source_dependencies.into_iter().map(|f| f.0).collect(),
+        rules: u
+            .rule_order
+            .into_iter()
+            .map(|key| {
+                let r = u.rules.remove(&key).unwrap();
+                NativeUtilityRule {
+                    key,
+                    css: r.css,
+                    source_map: r.source_map,
+                }
+            })
+            .collect(),
     }
 }
 impl Default for Compiler {

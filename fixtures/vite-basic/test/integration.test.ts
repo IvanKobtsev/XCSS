@@ -6,6 +6,57 @@ import { describe, expect, it } from 'vitest'
 import xcss from '@cross-css/vite-plugin'
 const root=fileURLToPath(new URL('..',import.meta.url))
 describe('Vite integration',()=>{
+ it('emits one shared utility asset across eager and lazy modules',async()=>{
+  const directory=await mkdtemp(join(root,'test-utils-build-'))
+  try {
+   await writeFile(join(directory,'index.html'),'<script type="module" src="/main.js"></script>')
+   await writeFile(join(directory,'main.js'),"import styles from './a.xcss'; console.log(styles); import('./lazy.js').then(console.log)")
+   await writeFile(join(directory,'lazy.js'),"import styles from './b.xcss'; export default styles")
+   await writeFile(join(directory,'a.xcss'),'.a { @:trim; color: red; } span { @:trim(4); }')
+   await writeFile(join(directory,'b.xcss'),'.b { @:trim(3); }')
+   await writeFile(join(directory,'unused.xcss'),'.unused { @:trim(99); }')
+   await writeFile(join(directory,'util.xcss'),"@util trim($n: integer = 3) { max-height: $n * 1lh; background-image: url('./icon.svg'); }")
+   await writeFile(join(directory,'icon.svg'),'<svg xmlns="http://www.w3.org/2000/svg"/>')
+   const result=await build({root:directory,base:'./',configFile:false,logLevel:'silent',plugins:[xcss()],build:{write:false,assetsInlineLimit:0}})
+   const outputs=Array.isArray(result)?result.flatMap(item=>item.output):result.output
+   const shared=outputs.filter((item):item is Rollup.OutputAsset=>item.type==='asset'&&item.fileName.includes('xcss-utils')&&item.fileName.endsWith('.css'))
+   expect(shared).toHaveLength(1)
+   const css=String(shared[0].source)
+   expect(css.match(/\._util_trim_3/g)).toHaveLength(1)
+   expect(css).not.toContain('_util_trim_99')
+   expect(css).not.toContain('_util_inj_')
+   expect(css).toMatch(/url\("icon-[^"]+\.svg"\)/)
+   const js=outputs.filter((item):item is Rollup.OutputChunk=>item.type==='chunk').map(item=>item.code).join('\n')
+   expect(js).not.toContain('__XCSS_SHARED_UTILITIES_URL__')
+   expect(js).toContain('xcss-utils-')
+   expect(outputs.some(item=>item.type==='asset'&&item.fileName.endsWith('.svg'))).toBe(true)
+  } finally {
+   const within=relative(root,directory);if(within.startsWith('..')||isAbsolute(within))throw new Error('Invalid test cleanup directory')
+   await rm(directory,{recursive:true,force:true})
+  }
+ })
+ it('refreshes the shared dev stylesheet when utility calls change or disappear',async()=>{
+  const directory=await mkdtemp(join(root,'test-utils-hmr-'))
+  await writeFile(join(directory,'util.xcss'),'@util trim($n: integer = 3) { max-height: $n * 1lh; }')
+  const consumer=join(directory,'a.xcss')
+  await writeFile(consumer,'.a { @:trim; }')
+  const server=await createServer({root:directory,configFile:false,logLevel:'silent',plugins:[xcss()],server:{middlewareMode:true}})
+  try {
+   const wrapper=await server.transformRequest('/a.xcss')
+   const sharedUrl=wrapper!.code.match(/import\s*["']([^"']*__xcss_utils\.css[^"']*)["']/)![1]
+   expect((await server.transformRequest(sharedUrl))?.code).toContain('_util_trim_3')
+   await writeFile(consumer,'.a { @:trim(5); }')
+   await expect.poll(async()=> (await server.transformRequest(sharedUrl))?.code.includes('_util_trim_5'),{timeout:10000}).toBe(true)
+   // Separate saves beyond the filesystem watcher's duplicate-event throttle.
+   await new Promise(resolve=>setTimeout(resolve,200))
+   await writeFile(consumer,'.a { color: red; }')
+   await expect.poll(async()=> (await server.transformRequest(sharedUrl))?.code.includes('_util_trim_5'),{timeout:10000}).toBe(false)
+  } finally {
+   await server.close()
+   const within=relative(root,directory);if(within.startsWith('..')||isAbsolute(within))throw new Error('Invalid test cleanup directory')
+   await rm(directory,{recursive:true,force:true})
+  }
+ },20000)
  it('builds scoped CSS, export dictionaries, inline text and stylesheet URLs without Sass',async()=>{
   const result=await build({root,configFile:false,logLevel:'silent',plugins:[xcss()],resolve:{alias:{'@':join(root,'src')}},build:{write:false,assetsInlineLimit:0,sourcemap:true}})
   const outputs=Array.isArray(result)?result.flatMap(item=>item.output):result.output

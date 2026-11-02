@@ -128,6 +128,20 @@ export interface NativeCompilation {
 success: boolean
 artifacts: Array<NativeArtifact>
 diagnostics: Array<NativeDiagnostic>
+utilities?: NativeUtilities
+}
+
+export interface NativeUtilities {
+css: string
+sourceMap: string
+sourceDependencies: Array<string>
+rules: Array<NativeUtilityRule>
+}
+
+export interface NativeUtilityRule {
+key: string
+css: string
+sourceMap: string
 }
 
 export interface NativeInspection {
@@ -156,5 +170,6 @@ export declare class Compiler {
  setFile(moduleId: string, revision: number, source: string): void
  removeFile(moduleId: string, revision: number): void
  setResolution(importer: string, specifier: string, target?: string | undefined | null): void
+ compileUtilities(entries: Array<string>): NativeCompilation
  compile(entry: string, minify?: boolean | undefined | null, bundle?: boolean | undefined | null): NativeCompilation
 }

@@ -1,0 +1,7 @@
+@util browser-lazy-padding {
+  padding-top: 20px;
+}
+
+.lazy {
+  @:browser-lazy-padding;
+}

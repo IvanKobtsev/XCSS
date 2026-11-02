@@ -32,6 +32,7 @@ pub enum NodeKind {
     Variable,
     Constant,
     Injection,
+    Util,
     Call,
     Import,
     Content,
@@ -370,6 +371,7 @@ impl Parser<'_> {
             let kind = match at_name {
                 "vars" => NodeKind::Vars,
                 "injection" => NodeKind::Injection,
+                "util" => NodeKind::Util,
                 ":" => NodeKind::Call,
                 "import" => NodeKind::Import,
                 "content" => NodeKind::Content,
@@ -444,7 +446,10 @@ impl Parser<'_> {
                 self.cursor += 1;
             } else if kind != NodeKind::Error
                 && (self.cursor < self.tokens.len() && self.token(self.cursor) != "}"
-                    || matches!(kind, NodeKind::Injection | NodeKind::Vars | NodeKind::Rule))
+                    || matches!(
+                        kind,
+                        NodeKind::Injection | NodeKind::Util | NodeKind::Vars | NodeKind::Rule
+                    ))
             {
                 missing.push(';');
             }
@@ -497,7 +502,7 @@ fn validate_fragments(result: &mut ParseResult) {
         let raw = node.header_text(&result.source);
         let invalid_shape = match node.kind {
             NodeKind::Constant => node.block.is_some() || result.constant(node).is_none(),
-            NodeKind::Injection => {
+            NodeKind::Injection | NodeKind::Util => {
                 node.block.is_none()
                     || result.injection(node).is_none_or(|i| {
                         i.name.is_empty()

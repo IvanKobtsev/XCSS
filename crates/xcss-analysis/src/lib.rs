@@ -66,6 +66,11 @@ struct Collected {
 }
 
 impl Database {
+    fn callable(&self, file: &FileId, name: &str) -> Option<SymbolId> {
+        self.local(file, name, SymbolKind::Util)
+            .or_else(|| self.local(file, name, SymbolKind::Injection))
+    }
+
     fn error(
         &mut self,
         code: &'static str,
@@ -105,7 +110,15 @@ impl Database {
                 .symbols
                 .iter()
                 .map(|id| &self.symbols[id.0])
-                .find(|s| s.name == name && s.kind == kind)
+                .find(|s| {
+                    s.name == name
+                        && (s.kind == kind
+                            || matches!(
+                                (s.kind, kind),
+                                (SymbolKind::Injection, SymbolKind::Util)
+                                    | (SymbolKind::Util, SymbolKind::Injection)
+                            ))
+                })
         {
             let related = old.location.clone();
             self.error(
@@ -247,9 +260,7 @@ fn analyze(
             });
         }
         for (name, range) in &import.names {
-            let symbol = target
-                .as_ref()
-                .and_then(|f| db.local(f, name, SymbolKind::Injection));
+            let symbol = target.as_ref().and_then(|f| db.callable(f, name));
             db.imports.push(ImportBinding {
                 location: Location {
                     file: import.file.clone(),
@@ -321,14 +332,14 @@ fn analyze(
         let mut suppressed = false;
         let target = if let Some((ns, member)) = name.split_once('.') {
             match namespaces.get(&(call.file.clone(), ns.into())) {
-                Some(Some(file)) => db.local(file, member, SymbolKind::Injection),
+                Some(Some(file)) => db.callable(file, member),
                 Some(None) => {
                     suppressed = true;
                     None
                 }
                 None => None,
             }
-        } else if let Some(local) = db.local(&call.file, name, SymbolKind::Injection) {
+        } else if let Some(local) = db.callable(&call.file, name) {
             Some(local)
         } else if let Some(imported) = named.get(&(call.file.clone(), name.into())) {
             suppressed = imported.is_none();
@@ -337,7 +348,9 @@ fn analyze(
             let candidates: Vec<_> = db
                 .symbols
                 .iter()
-                .filter(|s| s.kind == SymbolKind::Injection && s.name == name)
+                .filter(|s| {
+                    matches!(s.kind, SymbolKind::Injection | SymbolKind::Util) && s.name == name
+                })
                 .map(|s| s.id)
                 .collect();
             if candidates.len() > 1 {
@@ -382,6 +395,7 @@ fn analyze(
         }
     }
     check_cycles(&mut db, &edges, "binding.injection-cycle");
+    validate_utils(&mut db);
     analyze_compositions(&mut db, &collected.compositions, resolutions);
     for i in 0..db.expressions.len() {
         let expression = &db.expressions[i];
@@ -389,6 +403,166 @@ fn analyze(
         db.expressions[i].value_type = value_type;
     }
     db
+}
+
+fn validate_utils(db: &mut Database) {
+    fn target(db: &Database, file: &FileId, node: &Node) -> Option<SymbolId> {
+        let call = db.files[file].call(node)?;
+        db.references
+            .iter()
+            .find(|r| r.location.file == *file && r.location.range == call.name_range)
+            .and_then(|r| r.target)
+    }
+    fn body(db: &mut Database, file: &FileId, util: &Node, seen: &mut BTreeSet<SymbolId>) {
+        // Walk the call graph iteratively: semantic validation must remain safe even
+        // when generation will subsequently reject an over-deep expansion.
+        let owner = Location {
+            file: file.clone(),
+            range: util.header,
+        };
+        let mut pending: Vec<_> = util
+            .children
+            .iter()
+            .cloned()
+            .map(|node| (file.clone(), node))
+            .collect();
+        while let Some((file, node)) = pending.pop() {
+            let file = &file;
+            let node = &node;
+            if node.kind == NodeKind::Content
+                || (node.kind == NodeKind::Call && node.block.is_some())
+            {
+                db.error(
+                    "syntax.util-content",
+                    &owner.file,
+                    owner.range,
+                    "Utils cannot contain or supply content",
+                );
+                db.diagnostics.last_mut().unwrap().related.push(Location {
+                    file: file.clone(),
+                    range: node.header,
+                });
+            }
+            if node.kind == NodeKind::Rule
+                && xcss_syntax::selector_classes(&db.files[file], node)
+                    .iter()
+                    .any(|(_, _, global)| !global)
+            {
+                db.error(
+                    "syntax.util-local-class",
+                    &owner.file,
+                    owner.range,
+                    "Class selectors inside utils must be explicitly :global",
+                );
+                db.diagnostics.last_mut().unwrap().related.push(Location {
+                    file: file.clone(),
+                    range: node.header,
+                });
+            }
+            if node.kind == NodeKind::Call
+                && let Some(id) = target(db, file, node)
+                && seen.insert(id)
+            {
+                let symbol = &db.symbols[id.0];
+                let source = symbol.location.file.clone();
+                let range = symbol.location.range;
+                let definition = db.files[&source]
+                    .tree
+                    .descendants()
+                    .find(|n| {
+                        db.files[&source]
+                            .injection(n)
+                            .is_some_and(|i| i.name_range == range)
+                    })
+                    .cloned();
+                if let Some(definition) = definition {
+                    pending.extend(
+                        definition
+                            .children
+                            .into_iter()
+                            .map(|node| (source.clone(), node)),
+                    );
+                }
+            }
+            pending.extend(
+                node.children
+                    .iter()
+                    .cloned()
+                    .map(|node| (file.clone(), node)),
+            );
+        }
+    }
+    fn walk(db: &mut Database, file: &FileId, node: &Node, selector: bool, callable: bool) {
+        let is_definition = matches!(node.kind, NodeKind::Util | NodeKind::Injection);
+        let selector = if is_definition {
+            false
+        } else {
+            selector || node.kind == NodeKind::Rule
+        };
+        if node.kind == NodeKind::Util {
+            body(db, file, node, &mut BTreeSet::new());
+        }
+        if node.kind == NodeKind::Call
+            && let Some(id) = target(db, file, node)
+        {
+            let util = db.symbols[id.0].kind == SymbolKind::Util;
+            let syntax = db.files[file].call(node).unwrap();
+            if syntax.as_injection && !util {
+                db.error(
+                    "syntax.util-modifier",
+                    file,
+                    node.header,
+                    "as injection is only valid on util calls",
+                );
+            }
+            if util {
+                if !selector && !callable {
+                    db.error(
+                        "syntax.util-selector",
+                        file,
+                        node.header,
+                        "A util call requires a selector",
+                    );
+                }
+                if node.block.is_some() {
+                    db.error(
+                        "syntax.util-content",
+                        file,
+                        node.header,
+                        "Utils do not accept content blocks",
+                    );
+                }
+            }
+        }
+        for (index, child) in node.children.iter().enumerate() {
+            if child.kind == NodeKind::Call
+                && target(db, file, child)
+                    .is_some_and(|id| db.symbols[id.0].kind == SymbolKind::Util)
+                && node.children[..index]
+                    .iter()
+                    .any(|n| n.kind == NodeKind::Declaration)
+                && node.children[index + 1..]
+                    .iter()
+                    .any(|n| n.kind == NodeKind::Declaration)
+            {
+                db.error(
+                    "syntax.util-order",
+                    file,
+                    child.header,
+                    "Util calls must precede or follow all properties",
+                );
+            }
+            walk(db, file, child, selector, callable || is_definition);
+        }
+    }
+    let files: Vec<_> = db
+        .files
+        .iter()
+        .map(|(id, p)| (id.clone(), p.clone()))
+        .collect();
+    for (file, parse) in files {
+        walk(db, &file, &parse.tree, false, false);
+    }
 }
 
 fn ambiguous_arithmetic(value: &str) -> bool {

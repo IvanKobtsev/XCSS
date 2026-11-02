@@ -10,6 +10,39 @@ fn parsed(text: &str) -> xcss_syntax::ParseResult {
     )))
 }
 #[test]
+fn utility_definitions_and_call_modifiers_keep_original_ranges() {
+    let p = parsed(
+        "@util trim($lines: integer = 3) { max-height: $lines * 1lh; } .a { @:trim(2) as injection; @:trim as injection; @:trim; }",
+    );
+    assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+    let node = p
+        .tree
+        .descendants()
+        .find(|n| n.kind == NodeKind::Util)
+        .unwrap();
+    let definition = p.injection(node).unwrap();
+    assert_eq!(definition.name, "trim");
+    assert_eq!(definition.parameters[0].default, Some("3"));
+    let calls: Vec<_> = p.tree.descendants().filter_map(|n| p.call(n)).collect();
+    assert_eq!(calls.len(), 3);
+    for call in &calls {
+        assert_eq!(p.slice(call.name_range), "trim");
+    }
+    assert!(calls[0].as_injection && calls[1].as_injection);
+    assert!(!calls[2].as_injection);
+    assert_eq!(calls[0].arguments.len(), 1);
+    assert!(
+        !parsed(".a { @:trim(2) as injection garbage; }")
+            .diagnostics
+            .is_empty()
+    );
+    assert!(
+        !parsed("@util broken($n: integer { width: $n; } .later { color: red; }")
+            .diagnostics
+            .is_empty()
+    );
+}
+#[test]
 fn constants_retain_annotations_values_and_recover() {
     let p =
         parsed("/* comment */ $header-height: length = 56px; .a { $size = 8px; width:\n $size; }");

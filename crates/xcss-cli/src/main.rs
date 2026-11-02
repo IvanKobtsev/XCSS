@@ -97,12 +97,14 @@ fn run() -> Result<(), String> {
         .map(|(id, path)| (id.clone(), path.to_string_lossy().replace('\\', "/")))
         .collect();
     let snapshot = host.snapshot();
+    let utilities_path = output.with_extension("utils.css");
     let result = xcss_core::generate(
         &snapshot,
         &entry,
         &GenerateOptions {
             output_paths,
             source_root: Some(root.to_string_lossy().replace('\\', "/")),
+            utilities_output_path: Some(utilities_path.to_string_lossy().replace('\\', "/")),
             ..GenerateOptions::default()
         },
     )
@@ -131,10 +133,47 @@ fn run() -> Result<(), String> {
         }
     }
     let mut writes = Vec::new();
+    if let Some(shared) = &result.utilities {
+        let mut map: serde_json::Value =
+            serde_json::from_str(&shared.source_map).map_err(|e| e.to_string())?;
+        map["sourceRoot"] = serde_json::Value::String(
+            pathdiff::diff_paths(&root, utilities_path.parent().unwrap())
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+        map["file"] = serde_json::Value::String(
+            utilities_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let map_path = PathBuf::from(format!("{}.map", utilities_path.display()));
+        writes.push((
+            utilities_path.clone(),
+            format!(
+                "{}\n/*# sourceMappingURL={} */\n",
+                shared.css,
+                map_path.file_name().unwrap().to_string_lossy()
+            ),
+        ));
+        writes.push((map_path, serde_json::to_string(&map).unwrap()));
+    }
     for module in result.modules {
         let path = &destinations[&module.module_id];
         let parent = path.parent().unwrap();
         let mut imports = String::new();
+        if result.utilities.is_some() {
+            let relative = pathdiff::diff_paths(&utilities_path, parent)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            imports.push_str(&format!(
+                "@import {};\n",
+                serde_json::to_string(&format!("./{relative}")).unwrap()
+            ));
+        }
         for dependency in &module.stylesheet_dependencies {
             let relative = pathdiff::diff_paths(&destinations[dependency], parent)
                 .unwrap()

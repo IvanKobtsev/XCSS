@@ -127,7 +127,7 @@ impl AnalysisSnapshot {
     }
     pub fn injection_definition(&self, id: SymbolId) -> Option<(&ParseResult, &Node)> {
         let symbol = self.symbol(id)?;
-        if symbol.kind != SymbolKind::Injection {
+        if !matches!(symbol.kind, SymbolKind::Injection | SymbolKind::Util) {
             return None;
         }
         let parse = self.syntax(&symbol.location.file)?;

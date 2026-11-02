@@ -3,6 +3,29 @@ import test from 'node:test'
 import { Compiler, inspect } from '../index.js'
 function compile(source) { const compiler=new Compiler(); compiler.setFile('a.xcss',1,source); return compiler.compile('a.xcss') }
 
+test('shares composed utilities across entries and updates the union after removal', () => {
+ const c = new Compiler()
+ c.setFile('util.xcss', 1, '@util trim($n: integer = 3) { max-height: $n * 1lh; }')
+ c.setFile('a.xcss', 1, '.a { @:trim; }')
+ c.setFile('b.xcss', 1, '.b { @:trim(3); } span { @:trim(5); }')
+ const a = c.compile('a.xcss')
+ assert.equal(a.success, true)
+ assert.match(a.artifacts[0].classes.a, /_util_trim_3/)
+ assert.equal(a.utilities.rules.length, 1)
+ const union = c.compileUtilities(['a.xcss', 'b.xcss'])
+ assert.equal(union.success, true)
+ assert.equal(union.utilities.rules.length, 1)
+ assert.match(union.utilities.css, /_util_trim_3/)
+ assert.doesNotMatch(union.utilities.css, /_util_inj_|5lh/)
+ assert(JSON.parse(union.utilities.sourceMap).sources.includes('util.xcss'))
+ const bundled = c.compile('a.xcss', false, true)
+ assert.equal(bundled.utilities, undefined)
+ assert.match(bundled.artifacts[0].css, /_util_trim_3/)
+ c.setFile('a.xcss', 2, '.a { color: red; }')
+ c.setFile('b.xcss', 2, '.b { color: blue; }')
+ assert.equal(c.compileUtilities(['a.xcss', 'b.xcss']).utilities, undefined)
+})
+
 test('substitutes immutable typed constants and retains runtime CSS math', () => {
  const result = compile('$base = 56px; $height: length = $base + --my-height / 2; .a { height: $height; }')
  assert.equal(result.success, true)

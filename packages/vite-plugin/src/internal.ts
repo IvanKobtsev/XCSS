@@ -1,5 +1,22 @@
 import { normalizePath } from 'vite'
 export const XCSS_SOURCE_PARAM = 'xcss-source'
+
+/** CSS URL tokens, excluding quoted strings and comments that merely mention url(). */
+export function cssAssetUrls(css: string): Array<{ start: number; end: number; url: string }> {
+  const tokens = /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\/\*[\s\S]*?\*\/|(?<![\w-])url\(\s*(?:"((?:\\[\s\S]|[^"\\])*)"|'((?:\\[\s\S]|[^'\\])*)'|((?:\\[\s\S]|[^)\\])*))\s*\)/gi
+  const result: Array<{ start: number; end: number; url: string }> = []
+  for (const match of css.matchAll(tokens)) {
+    const raw = match[1] ?? match[2] ?? match[3]?.trim()
+    if (raw === undefined) continue
+    const url = raw.replace(/\\(?:\r\n|[\n\r\f])|\\([0-9a-f]{1,6})(?:\r\n|[\t\n\f\r ])?|\\([\s\S])/gi, (_match, hex: string | undefined, character: string | undefined) => {
+      if (!hex) return character ?? ''
+      const codepoint = parseInt(hex, 16)
+      return String.fromCodePoint(codepoint === 0 || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff) ? 0xfffd : codepoint)
+    })
+    result.push({ start: match.index, end: match.index + match[0].length, url })
+  }
+  return result
+}
 export interface VirtualXcssId { id: string; sourcePath: string; kind: 'module' | 'css' | 'bundle'; mode: 'module' | 'inline' | 'url' }
 export function isCrossCssId(id: string): boolean { return /\.xcss$/i.test(id.split('?', 1)[0]) }
 export function createVirtualId(resolvedId: string): VirtualXcssId | null {

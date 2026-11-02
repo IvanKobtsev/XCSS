@@ -7,6 +7,32 @@ fn at(source: &str, needle: &str) -> Position {
         .unwrap()
 }
 #[test]
+fn utilities_have_signatures_hover_navigation_and_tokens() {
+    let mut host = LanguageService::new();
+    let file = FileId("a.xcss".into());
+    let source =
+        "@util trim($n: integer = 3) { max-height: $n * 1lh; } .a { @:trim(2) as injection; }";
+    host.set_file(file.clone(), 1, source.into()).unwrap();
+    let snapshot = host.snapshot();
+    let position = at(source, "trim(2)");
+    let hover = snapshot.hover(&file, position).unwrap();
+    assert!(
+        hover.text.contains("@util trim($n: integer = 3)"),
+        "{}",
+        hover.text
+    );
+    assert_eq!(snapshot.definition(&file, position).len(), 1);
+    assert_eq!(snapshot.references(&file, position, true).len(), 2);
+    assert_eq!(
+        snapshot
+            .semantic_tokens(&file)
+            .iter()
+            .filter(|t| TOKEN_TYPES[t.token_type] == "function")
+            .count(),
+        2
+    );
+}
+#[test]
 fn constants_have_types_navigation_tokens_and_revisioned_values() {
     let mut host = LanguageService::new();
     let file = FileId("a.xcss".into());

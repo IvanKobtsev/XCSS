@@ -45,6 +45,36 @@ fn writes_scoped_css_exports_and_maps() {
     assert!(root.join("out.css.map").exists());
 }
 #[test]
+fn writes_one_shared_utility_stylesheet_with_imports_and_maps() {
+    let root = sandbox();
+    fs::write(
+        root.join("util.xcss"),
+        "@util trim($n: integer = 3) { max-height: $n * 1lh; background: url('./icon.svg'); }",
+    )
+    .unwrap();
+    fs::write(
+        root.join("a.xcss"),
+        ".a { composes: b from './b.xcss'; @:trim; } span { @:trim(4); }",
+    )
+    .unwrap();
+    fs::write(root.join("b.xcss"), ".b { @:trim(3); }").unwrap();
+    let output = run(&root, "a.xcss", "dist/out.css");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let shared = fs::read_to_string(root.join("dist/out.utils.css")).unwrap();
+    assert_eq!(shared.matches("._util_trim_3").count(), 1);
+    assert!(shared.contains("../icon.svg"));
+    assert!(root.join("dist/out.utils.css.map").exists());
+    let caller = fs::read_to_string(root.join("dist/out.css")).unwrap();
+    assert!(caller.contains("@import \"./out.utils.css\";"));
+    assert!(caller.contains("_util_inj_"));
+    let dependency = fs::read_to_string(root.join("dist/.xcss/b.css")).unwrap();
+    assert!(dependency.contains("out.utils.css"));
+}
+#[test]
 fn compile_errors_preserve_all_previous_artifacts() {
     let root = sandbox();
     fs::write(root.join("a.xcss"), ".a { @:missing; }").unwrap();

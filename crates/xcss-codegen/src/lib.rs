@@ -16,6 +16,8 @@ pub struct GenerateOptions {
     pub bundle: bool,
     /// Optional host path coordinate system for asset rebasing; never used for hashes.
     pub source_root: Option<String>,
+    /// Destination used to rebase assets in the shared utility stylesheet.
+    pub utilities_output_path: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct GeneratedModule {
@@ -33,6 +35,80 @@ pub struct GeneratedProject {
     pub entry: FileId,
     pub modules: Vec<GeneratedModule>,
     pub diagnostics: Vec<Diagnostic>,
+    pub utilities: Option<GeneratedUtilities>,
+}
+#[derive(Clone, Debug)]
+pub struct GeneratedUtilities {
+    pub css: String,
+    pub source_map: String,
+    pub source_dependencies: Vec<FileId>,
+    /// Independently mapped rules allow hosts to union several entry compilations.
+    pub rules: BTreeMap<String, GeneratedUtilityRule>,
+    pub rule_order: Vec<String>,
+}
+#[derive(Clone, Debug)]
+pub struct GeneratedUtilityRule {
+    pub css: String,
+    pub source_map: String,
+}
+
+/// Union utility artifacts from independent entries, preserving their source maps.
+pub fn merge_utilities(
+    artifacts: Vec<GeneratedUtilities>,
+) -> Result<Option<GeneratedUtilities>, Vec<Diagnostic>> {
+    let mut rules = BTreeMap::new();
+    let mut rule_order = Vec::new();
+    let mut sources = BTreeSet::new();
+    for mut artifact in artifacts {
+        sources.extend(artifact.source_dependencies);
+        for key in artifact.rule_order {
+            if !rules.contains_key(&key) {
+                rule_order.push(key.clone());
+                rules.insert(key.clone(), artifact.rules.remove(&key).unwrap());
+            }
+        }
+    }
+    if rules.is_empty() {
+        return Ok(None);
+    }
+    // Layer-order declarations must precede the first rule that establishes a layer.
+    rule_order.sort_by_key(|key| !key.starts_with("@layer-order:"));
+    let entry = FileId("xcss-utils.css".into());
+    let mut modules: Vec<_> = rule_order
+        .iter()
+        .map(|key| {
+            let rule = &rules[key];
+            GeneratedModule {
+                module_id: FileId(key.clone()),
+                css: rule.css.clone(),
+                source_map: rule.source_map.clone(),
+                classes: BTreeMap::new(),
+                custom_properties: BTreeMap::new(),
+                stylesheet_dependencies: Vec::new(),
+                native_imports: Vec::new(),
+                source_dependencies: Vec::new(),
+            }
+        })
+        .collect();
+    let dependencies = modules.iter().map(|m| m.module_id.clone()).collect();
+    modules.push(GeneratedModule {
+        module_id: entry.clone(),
+        css: String::new(),
+        source_map: "{\"version\":3,\"sources\":[],\"names\":[],\"mappings\":\"\"}".into(),
+        classes: BTreeMap::new(),
+        custom_properties: BTreeMap::new(),
+        stylesheet_dependencies: dependencies,
+        native_imports: Vec::new(),
+        source_dependencies: Vec::new(),
+    });
+    let bundled = bundle_modules(&entry, &modules)?;
+    Ok(Some(GeneratedUtilities {
+        css: bundled.css,
+        source_map: bundled.source_map,
+        source_dependencies: sources.into_iter().collect(),
+        rules,
+        rule_order,
+    }))
 }
 
 pub fn generate(
@@ -119,6 +195,27 @@ pub fn generate(
     }
     let mut modules = Vec::new();
     let mut diagnostics = Vec::new();
+    let mut utility_rules = BTreeMap::new();
+    let mut utility_order = Vec::new();
+    let mut utility_sources = BTreeSet::new();
+    let mut utility_globals = BTreeMap::new();
+    let utility_identity = if options.bundle {
+        options.output_paths.get(entry).cloned().unwrap_or_else(|| {
+            options
+                .source_root
+                .as_ref()
+                .map(|root| format!("{root}/{}", entry.0))
+                .unwrap_or_else(|| entry.0.clone())
+        })
+    } else {
+        options.utilities_output_path.clone().unwrap_or_else(|| {
+            options
+                .source_root
+                .as_ref()
+                .map(|root| format!("{root}/xcss-utils.css"))
+                .unwrap_or_else(|| "xcss-utils.css".into())
+        })
+    };
     for file in &emitted {
         let output_file = if options.bundle { entry } else { file };
         let output_identity = options
@@ -138,7 +235,43 @@ pub fn generate(
             &output_identity,
             options.source_root.as_deref(),
         );
+        lower.utility_output_identity = &utility_identity;
         let mapped = lower.module()?;
+        utility_globals.extend(lower.globals.clone());
+        let parse = snapshot.syntax(file).unwrap();
+        for node in &parse.tree.children {
+            let header = parse.slice(node.header).trim();
+            if node.kind == NodeKind::AtRule
+                && node.block.is_none()
+                && header.to_ascii_lowercase().starts_with("@layer ")
+            {
+                let key = format!("@layer-order:{header}");
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    utility_rules.entry(key.clone())
+                {
+                    let mut mapped = Mapped::default();
+                    mapped.push(
+                        &format!("{header};\n"),
+                        &Location {
+                            file: file.clone(),
+                            range: node.header,
+                        },
+                    );
+                    utility_order.push(key.clone());
+                    entry.insert(mapped);
+                    utility_sources.insert(file.clone());
+                }
+            }
+        }
+        for key in &lower.utility_order {
+            if !utility_rules.contains_key(key) {
+                utility_order.push(key.clone());
+                utility_rules.insert(key.clone(), lower.utilities[key].clone());
+            }
+        }
+        if !lower.utilities.is_empty() {
+            utility_sources.extend(lower.sources.iter().cloned());
+        }
         diagnostics.extend(lower.diagnostics);
         let (css, source_map, exports) = backend(snapshot, file, &mapped, options, &lower.globals)?;
         let mut classes = BTreeMap::new();
@@ -153,6 +286,20 @@ pub fn generate(
             if let Some(compiled) = exports.get(&name) {
                 classes.insert(name, compiled.clone());
             }
+        }
+        for (owner, utilities) in &lower.utility_classes {
+            // Empty rules can be removed by the backend, but their class still needs an export.
+            let value = classes
+                .entry(owner.clone())
+                .or_insert_with(|| exports.get(owner).cloned().unwrap_or_default());
+            let mut names: Vec<_> = value.split_whitespace().map(str::to_owned).collect();
+            names.extend(utilities.iter().cloned());
+            let mut seen = BTreeSet::new();
+            *value = names
+                .into_iter()
+                .filter(|name| seen.insert(name.clone()))
+                .collect::<Vec<_>>()
+                .join(" ");
         }
         modules.push(GeneratedModule {
             module_id: file.clone(),
@@ -191,19 +338,75 @@ pub fn generate(
                 let mut seen = BTreeSet::new();
                 *value = names
                     .into_iter()
+                    .flat_map(|n| n.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
                     .filter(|n| seen.insert(n.clone()))
                     .collect::<Vec<_>>()
                     .join(" ");
             }
         }
     }
+    let utilities = if utility_rules.is_empty() {
+        None
+    } else {
+        let mut mapped = Mapped::default();
+        let mut rules = BTreeMap::new();
+        utility_order.sort_by_key(|key| !key.starts_with("@layer-order:"));
+        for key in &utility_order {
+            let rule = utility_rules.remove(key).unwrap();
+            mapped.append(&rule);
+            let (css, source_map, _) = backend(
+                snapshot,
+                &FileId("xcss-utils.css".into()),
+                &rule,
+                options,
+                &utility_globals,
+            )?;
+            rules.insert(key.clone(), GeneratedUtilityRule { css, source_map });
+        }
+        let (css, source_map, _) = backend(
+            snapshot,
+            &FileId("xcss-utils.css".into()),
+            &mapped,
+            options,
+            &utility_globals,
+        )?;
+        Some(GeneratedUtilities {
+            css,
+            source_map,
+            source_dependencies: utility_sources.into_iter().collect(),
+            rules,
+            rule_order: utility_order,
+        })
+    };
     if options.bundle {
+        if let Some(shared) = &utilities {
+            // The existing bundler combines mapped module artifacts and preserves import placement.
+            modules.insert(
+                0,
+                GeneratedModule {
+                    module_id: FileId("__xcss_utilities__".into()),
+                    css: shared.css.clone(),
+                    source_map: shared.source_map.clone(),
+                    classes: BTreeMap::new(),
+                    custom_properties: BTreeMap::new(),
+                    stylesheet_dependencies: Vec::new(),
+                    native_imports: Vec::new(),
+                    source_dependencies: shared.source_dependencies.clone(),
+                },
+            );
+            for module in modules.iter_mut().skip(1) {
+                module
+                    .stylesheet_dependencies
+                    .insert(0, FileId("__xcss_utilities__".into()));
+            }
+        }
         modules = vec![bundle_modules(entry, &modules)?];
     }
     Ok(GeneratedProject {
         entry: entry.clone(),
         modules,
         diagnostics,
+        utilities: if options.bundle { None } else { utilities },
     })
 }
 fn bundle_modules(

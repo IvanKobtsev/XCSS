@@ -85,7 +85,7 @@ pub(super) fn collect(
                 false,
             );
         }
-        NodeKind::Injection => {
+        NodeKind::Injection | NodeKind::Util => {
             let Some(injection) = parse.injection(node) else {
                 return;
             };
@@ -93,10 +93,18 @@ pub(super) fn collect(
             let name = decoded.as_str();
             if db.scopes[scope.0].parent.is_some() {
                 db.error(
-                    "syntax.injection-placement",
+                    if node.kind == NodeKind::Util {
+                        "syntax.util-placement"
+                    } else {
+                        "syntax.injection-placement"
+                    },
                     file,
                     node.header,
-                    "Injection definitions must be top-level",
+                    if node.kind == NodeKind::Util {
+                        "Util definitions must be top-level"
+                    } else {
+                        "Injection definitions must be top-level"
+                    },
                 );
             }
             let id = db.declare(
@@ -105,7 +113,11 @@ pub(super) fn collect(
                     range: injection.name_range,
                 },
                 name.into(),
-                SymbolKind::Injection,
+                if node.kind == NodeKind::Util {
+                    SymbolKind::Util
+                } else {
+                    SymbolKind::Injection
+                },
                 scope,
                 ValueType::Unknown,
                 false,

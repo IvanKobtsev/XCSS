@@ -8,6 +8,32 @@ native/composition/source dependencies. `GenerateOptions` supports minification,
 per-module output identities for URL rebasing, and composition-only bundling.
 `xcss-core` re-exports these APIs and provides project inspection/compilation.
 
+`GeneratedProject.utilities` optionally contains shared composed-utility CSS,
+its source map and source dependencies, and independently mapped rules with an
+explicit first-use order. `utilities_output_path` sets its destination for asset
+rebasing. `merge_utilities` unions artifacts from multiple entries by definition,
+resolved arguments, and enclosing runtime conditions. Generated utility classes
+are appended to class-export values; they are not additional export keys.
+
+All utility styles use the top-level `utils` layer. Composed rules live in the
+shared artifact; selector-based calls stay in their caller's artifact. Nesting
+selectors resolve before extraction, and media/supports/container conditions are
+preserved. Explicit top-level layer-order statements are copied into the shared
+prelude so importing utilities does not establish an unintended layer order.
+Consequently a shared artifact may contain only layer-order statements.
+
+The CLI writes `<output>.utils.css` (for example `out.utils.css`), with an adjacent
+source map, and imports it from generated module stylesheets. Bundling includes
+the shared rules once and returns no separate utility artifact. Native Node
+compilation exposes `utilities`; `Compiler.compileUtilities(entries)` collects a
+deduplicated union for hosts delivering several independent entry modules.
+
+Vite serves a single shared virtual CSS module during development and refreshes
+it when calls change or files disappear. Production emits one utility CSS asset
+after discovering the complete graph, including lazy modules. HTML entries link
+that asset; a shared JavaScript loader also handles non-HTML and lazy entry usage.
+Inline and URL stylesheet requests include their own bundled utilities.
+
 Class, ID and animation scoping use pinned Lightning CSS with
 `xcss_[hash]_[local]` and project-relative filenames. Dashed-identifier scoping is
 disabled: only declared XCSS custom properties receive an XCSS module suffix.
