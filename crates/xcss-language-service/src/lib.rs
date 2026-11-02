@@ -209,6 +209,9 @@ impl ServiceSnapshot {
                 text.push_str(&format!("\ninitial: {initial}"));
             }
         }
+        if let Some((parse, initial)) = self.0.constant_initializer(symbol.id) {
+            text.push_str(&format!("\nvalue: {}", parse.slice(initial.range).trim()));
+        }
         text.push_str(&format!("\n{}", symbol.location.file.0));
         Some(Hover {
             range: self.location(occurrence)?.range,
@@ -224,7 +227,7 @@ impl ServiceSnapshot {
         let kind = |kind| match kind {
             SymbolKind::Injection => 0,
             SymbolKind::Parameter => 1,
-            SymbolKind::Variable => 2,
+            SymbolKind::Variable | SymbolKind::Constant => 2,
             SymbolKind::Namespace => 3,
             SymbolKind::Class => 5,
             SymbolKind::Keyframe => 6,
@@ -284,6 +287,7 @@ impl ServiceSnapshot {
                 .variable(node)
                 .and_then(|v| v.annotation)
                 .into_iter()
+                .chain(parse.constant(node).and_then(|c| c.annotation))
                 .chain(
                     parse
                         .injection(node)

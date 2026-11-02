@@ -29,6 +29,8 @@ pub(super) struct Lowerer<'a> {
     pub registrations: BTreeSet<SymbolId>,
     pub globals: BTreeMap<String, String>,
     pub native_imports: BTreeSet<String>,
+    pub constant_depth: usize,
+    pub constant_expansions: usize,
     count: usize,
 }
 impl<'a> Lowerer<'a> {
@@ -49,6 +51,8 @@ impl<'a> Lowerer<'a> {
             registrations: BTreeSet::new(),
             globals: BTreeMap::new(),
             native_imports: BTreeSet::new(),
+            constant_depth: 0,
+            constant_expansions: 0,
             count: 0,
         }
     }
@@ -140,7 +144,7 @@ impl<'a> Lowerer<'a> {
                         }
                     }
                 }
-                NodeKind::Injection => {}
+                NodeKind::Injection | NodeKind::Constant => {}
                 NodeKind::Import if parse.injection_import(node).is_some() => {}
                 NodeKind::Call => {
                     let Some(target) = self.snapshot.resolved_call(file, node) else {

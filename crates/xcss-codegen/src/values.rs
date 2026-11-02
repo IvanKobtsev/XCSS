@@ -67,7 +67,24 @@ pub(super) fn render(
                 .snapshot
                 .symbol_at(&parse.source.id, value.range.start)
                 .map(|s| s.id);
-            if let Some(replacement) = symbol.and_then(|id| frame.parameters.get(&id)) {
+            if let Some((definition, initial)) =
+                symbol.and_then(|id| lower.snapshot.constant_initializer(id))
+            {
+                if lower.constant_depth >= 128 || lower.constant_expansions >= 100_000 {
+                    return Err(vec![Diagnostic::error(
+                        "generate.expansion-limit",
+                        &origin.file,
+                        origin.range,
+                        "Constant expansion exceeds the depth or value limit",
+                    )]);
+                }
+                lower.constant_depth += 1;
+                lower.constant_expansions += 1;
+                // Render from the definition to retain lexical bindings and asset origins.
+                let replacement = render(lower, definition, &initial, frame, Context::default());
+                lower.constant_depth -= 1;
+                out.append(&replacement?);
+            } else if let Some(replacement) = symbol.and_then(|id| frame.parameters.get(&id)) {
                 out.append(replacement);
             } else {
                 return Err(vec![Diagnostic::error(

@@ -9,6 +9,35 @@ fn parsed(text: &str) -> xcss_syntax::ParseResult {
         text,
     )))
 }
+#[test]
+fn constants_retain_annotations_values_and_recover() {
+    let p =
+        parsed("/* comment */ $header-height: length = 56px; .a { $size = 8px; width:\n $size; }");
+    assert!(p.diagnostics.is_empty(), "{:#?}", p.diagnostics);
+    let constants: Vec<_> = p.tree.descendants().filter_map(|n| p.constant(n)).collect();
+    assert_eq!(constants.len(), 2);
+    assert_eq!(constants[0].name, "$header-height");
+    assert_eq!(constants[0].annotation, Some("length"));
+    assert_eq!(p.slice(constants[0].initial.range).trim(), "56px");
+    for source in [
+        "$x;",
+        "$x: length;",
+        "$x =;",
+        "$x: = 1px;",
+        "$x: length extra = 1px;",
+        "$x = 1px\n$next = 2px;",
+    ] {
+        let p = parsed(source);
+        assert!(!p.diagnostics.is_empty(), "Expected error: {source}");
+    }
+    let p = parsed("$x = 1px\n$next = 2px;");
+    assert!(
+        p.tree
+            .descendants()
+            .filter_map(|n| p.constant(n))
+            .any(|c| c.name == "$next")
+    );
+}
 
 #[test]
 fn retained_language_fixture_has_owned_views() {

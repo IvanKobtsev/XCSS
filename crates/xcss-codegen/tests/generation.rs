@@ -4,6 +4,57 @@ use xcss_source::FileId;
 fn id(name: &str) -> FileId {
     FileId(name.into())
 }
+#[test]
+fn constant_values_gradients_math_and_conditions() {
+    let result = compile(&[("a.xcss", "$base = 56px; $height: length = $base + --my-height / 2; $gradient = linear-gradient(to right, #000 --start-value, #fff (--end-value + --offset)); @media (width > $base) { .a { height: $height; background: $gradient; width: $height * 2; } }")], "a.xcss", &[]).unwrap();
+    let css = &result.modules[0].css;
+    for expected in [
+        "56px",
+        "var(--my-height)",
+        "var(--start-value)",
+        "var(--end-value)",
+        "var(--offset)",
+        "linear-gradient",
+        "@media",
+    ] {
+        assert!(css.contains(expected), "Missing {expected}: {css}");
+    }
+    assert!(!css.contains('$'), "{css}");
+    assert!(!css.contains("@property"), "{css}");
+    assert!(result.modules[0].source_map.contains("a.xcss"));
+}
+
+#[test]
+fn constants_capture_definition_values_and_expand_per_call() {
+    let result = compile(&[
+        ("lib/paint.xcss", "$asset = url('./icon.svg'); $default = 3px; @injection paint($size: length = $default) { $double = $size * 2; background-image: $asset; width: $double; @content; }"),
+        ("a.xcss", "@import { paint } from './lib/paint.xcss'; $caller = 7px; .a { @:paint(5px) { height: $caller; } } .b { @:paint(); }")
+    ], "a.xcss", &[("a.xcss", "./lib/paint.xcss", "lib/paint.xcss")]).unwrap();
+    let css = &result.modules[0].css;
+    for expected in ["10px", "6px", "7px", "lib/icon.svg"] {
+        assert!(css.contains(expected), "Missing {expected}: {css}");
+    }
+    assert!(!css.contains('$'));
+}
+#[test]
+fn constant_substitution_preserves_precedence_and_conditions() {
+    let result = compile(&[("a.xcss", "$sum: length = 10px + --offset; $min = 56px; @supports (width: $min) { @container layout (width > $min) { .a { width: $sum * 2; } } }")], "a.xcss", &[]).unwrap();
+    let css = &result.modules[0].css;
+    assert!(css.contains("(10px + var(--offset)) * 2"), "{css}");
+    assert!(css.contains("@supports (width: 56px)"), "{css}");
+    assert!(css.contains("_layout (width > 56px)"), "{css}");
+}
+
+#[test]
+fn constant_expansion_depth_is_bounded() {
+    let mut source = "$c0 = 1px;".to_string();
+    for i in 1..140 {
+        source.push_str(&format!("$c{i} = $c{};", i - 1));
+    }
+    source.push_str(".a { width: $c139; }");
+    let errors = compile(&[("a.xcss", &source)], "a.xcss", &[]).unwrap_err();
+    assert!(errors.iter().any(|e| e.code == "generate.expansion-limit"));
+}
 fn compile(
     files: &[(&str, &str)],
     entry: &str,

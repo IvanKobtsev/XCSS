@@ -81,6 +81,14 @@ impl AnalysisHost {
 #[derive(Clone)]
 pub struct AnalysisSnapshot(Arc<Database>);
 impl AnalysisSnapshot {
+    pub fn constant_initializer(&self, id: SymbolId) -> Option<(&ParseResult, Value)> {
+        let symbol = self.symbol(id)?;
+        if symbol.kind != SymbolKind::Constant {
+            return None;
+        }
+        let parse = self.syntax(&symbol.location.file)?;
+        Some((parse, self.0.constants.get(&id)?.clone()))
+    }
     pub fn imports(&self) -> &[ImportBinding] {
         &self.0.imports
     }

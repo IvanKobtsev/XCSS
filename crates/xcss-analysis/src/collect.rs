@@ -15,6 +15,22 @@ pub(super) fn collect(
     let mut child_classes = classes.to_vec();
     state.scopes.insert((file.clone(), node.range.start), scope);
     match node.kind {
+        NodeKind::Constant => {
+            if let Some(constant) = parse.constant(node) {
+                let id = db.declare(
+                    Location {
+                        file: file.clone(),
+                        range: constant.range,
+                    },
+                    decode_identifier(constant.name),
+                    SymbolKind::Constant,
+                    scope,
+                    ValueType::Unknown,
+                    false,
+                );
+                db.constants.insert(id, constant.initial);
+            }
+        }
         NodeKind::Vars => {
             if db.scopes[scope.0].parent.is_some() {
                 db.error(
@@ -111,7 +127,12 @@ pub(super) fn collect(
                     );
                 }
                 let initial = parameter.default;
-                let value_type = checked_type(db, file, range, parameter.annotation, initial);
+                // Reference-dependent defaults are checked after lexical binding.
+                let value_type = if initial.is_some_and(|v| v.contains('$')) {
+                    ValueType::Unknown
+                } else {
+                    checked_type(db, file, range, parameter.annotation, initial)
+                };
                 if optional_seen && initial.is_none() {
                     db.error(
                         "type.parameter-order",
@@ -175,7 +196,6 @@ pub(super) fn collect(
             state.calls.push(Call {
                 file: file.clone(),
                 node: node.clone(),
-                scope,
                 owner,
             });
             if node.block.is_some() {

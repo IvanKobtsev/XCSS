@@ -8,11 +8,13 @@ use xcss_syntax::ast::{Value, ValueKind, decode_identifier};
 use xcss_syntax::{Node, NodeKind, ParseResult, TokenKind};
 
 mod collect;
+mod constants;
 mod facts;
 mod host;
 mod registration;
 mod types;
 use collect::collect;
+use constants::analyze_constants;
 pub use facts::*;
 pub use host::{AnalysisHost, AnalysisSnapshot, UpdateError};
 pub use registration::registration_initial_is_independent;
@@ -32,6 +34,7 @@ struct Database {
     dependencies: Vec<Dependency>,
     compositions: Vec<ResolvedComposition>,
     imports: Vec<ImportBinding>,
+    constants: BTreeMap<SymbolId, Value>,
 }
 #[derive(Clone)]
 struct Import {
@@ -46,7 +49,6 @@ struct Import {
 struct Call {
     file: FileId,
     node: Node,
-    scope: ScopeId,
     owner: Option<SymbolId>,
 }
 #[derive(Clone)]
@@ -136,12 +138,21 @@ impl Database {
             .find(|s| &s.location.file == file && s.kind == kind && s.name == name && !s.global)
             .map(|s| s.id)
     }
-    fn lexical(&self, mut scope: ScopeId, name: &str) -> Option<SymbolId> {
+    fn lexical_at(&self, mut scope: ScopeId, name: &str, offset: usize) -> Option<SymbolId> {
         loop {
-            if let Some(id) = self.scopes[scope.0].symbols.iter().find(|id| {
-                self.symbols[id.0].kind == SymbolKind::Parameter && self.symbols[id.0].name == name
-            }) {
-                return Some(*id);
+            for id in &self.scopes[scope.0].symbols {
+                let symbol = &self.symbols[id.0];
+                if symbol.name != name {
+                    continue;
+                }
+                if symbol.kind == SymbolKind::Parameter {
+                    return Some(*id);
+                }
+                if symbol.kind == SymbolKind::Constant
+                    && self.constants.get(id).is_some_and(|v| v.range.end < offset)
+                {
+                    return Some(*id);
+                }
             }
             scope = self.scopes[scope.0].parent?;
         }
@@ -278,6 +289,10 @@ fn analyze(
             });
         }
     }
+    for parse in &parsed {
+        analyze_references(&mut db, &collected, parse);
+    }
+    analyze_constants(&mut db, &parsed);
     let mut edges = Vec::new();
     for call in &collected.calls {
         let parsed = db.files[&call.file].clone();
@@ -368,9 +383,6 @@ fn analyze(
     }
     check_cycles(&mut db, &edges, "binding.injection-cycle");
     analyze_compositions(&mut db, &collected.compositions, resolutions);
-    for parse in &parsed {
-        analyze_references(&mut db, &collected, parse);
-    }
     for i in 0..db.expressions.len() {
         let expression = &db.expressions[i];
         let value_type = expression_type(&db, &expression.location.file, &expression.syntax);
@@ -406,21 +418,74 @@ fn expression_type(db: &Database, file: &FileId, value: &Value) -> ValueType {
             if values.len() == 1 {
                 return expression_type(db, file, &values[0]);
             }
-            let mut operands = values
-                .iter()
-                .filter(|v| !matches!(v.kind, ValueKind::Operator(_)))
-                .map(|v| expression_type(db, file, v));
-            let Some(first) = operands.next() else {
-                return ValueType::Unknown;
-            };
-            if values
-                .iter()
-                .any(|v| matches!(v.kind, ValueKind::Operator(_)))
-                && operands.all(|t| t == first)
-            {
-                first
+            fn arithmetic_type(
+                db: &Database,
+                file: &FileId,
+                tree: &xcss_syntax::ast::ArithmeticExpression,
+            ) -> ValueType {
+                use xcss_syntax::ast::ArithmeticKind;
+                match &tree.kind {
+                    ArithmeticKind::Operand(v) => expression_type(db, file, v),
+                    ArithmeticKind::Unary { operand, .. } => arithmetic_type(db, file, operand),
+                    ArithmeticKind::Binary {
+                        operator,
+                        left,
+                        right,
+                    } => {
+                        let a = arithmetic_type(db, file, left);
+                        let b = arithmetic_type(db, file, right);
+                        let numeric = |t: &ValueType| matches!(t, ValueType::Named(n) if n == "number" || n == "integer");
+                        let dimensional = |t: &ValueType| matches!(t, ValueType::Named(n) if matches!(n.as_str(), "length" | "length-percentage" | "percentage" | "angle" | "time" | "frequency" | "resolution" | "flex"));
+                        let length_percentage = |t: &ValueType| matches!(t, ValueType::Named(n) if matches!(n.as_str(), "length" | "percentage" | "length-percentage"));
+                        if a == ValueType::Unknown || b == ValueType::Unknown {
+                            return ValueType::Unknown;
+                        }
+                        match operator {
+                            '+' | '-' if a == b && (numeric(&a) || dimensional(&a)) => a,
+                            '+' | '-' if numeric(&a) && numeric(&b) => ValueType::named("number"),
+                            '+' | '-' if length_percentage(&a) && length_percentage(&b) => {
+                                ValueType::named("length-percentage")
+                            }
+                            '*' if numeric(&b) && (numeric(&a) || dimensional(&a)) => a,
+                            '*' if numeric(&a) && dimensional(&b) => b,
+                            '/' if numeric(&b) && (numeric(&a) || dimensional(&a)) => {
+                                if numeric(&a) {
+                                    ValueType::named("number")
+                                } else {
+                                    a
+                                }
+                            }
+                            _ => ValueType::Unknown,
+                        }
+                    }
+                }
+            }
+            value
+                .arithmetic()
+                .map(|tree| arithmetic_type(db, file, &tree))
+                .unwrap_or(ValueType::Unknown)
+        }
+        ValueKind::Function { name, .. } => {
+            let lower = name.to_ascii_lowercase();
+            if lower.ends_with("gradient") {
+                ValueType::named("image")
+            } else if matches!(
+                lower.as_str(),
+                "rgb"
+                    | "rgba"
+                    | "hsl"
+                    | "hsla"
+                    | "hwb"
+                    | "lab"
+                    | "lch"
+                    | "oklab"
+                    | "oklch"
+                    | "color"
+                    | "color-mix"
+            ) {
+                ValueType::named("color")
             } else {
-                ValueType::Unknown
+                infer_type(db.files[file].slice(value.range))
             }
         }
         _ => infer_type(db.files[file].slice(value.range)),
@@ -546,22 +611,7 @@ fn validate_call(db: &mut Database, call: &Call, target: SymbolId) {
         );
     }
     for (value, param) in args.iter().zip(&signature.parameters) {
-        let arg = parse.slice(value.range);
-        let actual = if arg.trim().starts_with('$') {
-            db.lexical(call.scope, arg.trim())
-                .map(|id| db.symbols[id.0].value_type.clone())
-                .unwrap_or(ValueType::Unknown)
-        } else if arg.trim().starts_with("--") {
-            db.local(
-                &call.file,
-                &decode_identifier(arg.trim()),
-                SymbolKind::Variable,
-            )
-            .map(|id| db.symbols[id.0].value_type.clone())
-            .unwrap_or(ValueType::Unknown)
-        } else {
-            infer_type(arg)
-        };
+        let actual = expression_type(db, &call.file, value);
         if !param.value_type.accepts(&actual) {
             db.error(
                 "type.argument-mismatch",
@@ -659,6 +709,10 @@ fn analyze_references(db: &mut Database, state: &Collected, parse: &ParseResult)
         if is_transition_property_name(parse, range) {
             continue;
         }
+        if name.starts_with('$') && !reference_value_position(parse, range) {
+            db.error("binding.constant-position", file, range,
+                "Constants and parameters can only be referenced in values and supported at-rule conditions");
+        }
         // Scoped custom-property assignments bind to the same module symbol.
         // Ordinary CSS custom-property declarations remain global.
         if !name.starts_with('$')
@@ -680,7 +734,7 @@ fn analyze_references(db: &mut Database, state: &Collected, parse: &ParseResult)
             .max_by_key(|((_, start), _)| *start)
             .map(|(_, scope)| *scope);
         let target = if name.starts_with('$') {
-            scope.and_then(|scope| db.lexical(scope, &name))
+            scope.and_then(|scope| db.lexical_at(scope, &name, range.start))
         } else {
             db.local(file, &name, SymbolKind::Variable)
         };
@@ -689,7 +743,7 @@ fn analyze_references(db: &mut Database, state: &Collected, parse: &ParseResult)
                 "binding.parameter-scope",
                 file,
                 range,
-                format!("Unknown injection parameter `{name}`"),
+                format!("Unknown or not yet declared constant or injection parameter `{name}`"),
             );
         }
         db.references.push(Reference {
@@ -702,6 +756,51 @@ fn analyze_references(db: &mut Database, state: &Collected, parse: &ParseResult)
             target,
         });
     }
+}
+fn reference_value_position(parse: &ParseResult, range: TextRange) -> bool {
+    let contains = |r: TextRange| r.start <= range.start && r.end >= range.end;
+    for node in parse.tree.descendants().filter(|n| contains(n.header)) {
+        let value = if let Some(c) = parse.constant(node) {
+            Some(c.initial)
+        } else {
+            parse.declaration(node).map(|d| d.value)
+        };
+        if let Some(value) = value.filter(|v| contains(v.range)) {
+            return !value.descendants().iter().any(|v| {
+                matches!(&v.kind,
+                ValueKind::Function { name, .. } if name.eq_ignore_ascii_case("url"))
+                    && contains(v.range)
+            });
+        }
+        if parse
+            .call(node)
+            .is_some_and(|c| c.arguments.iter().any(|v| contains(v.range)))
+        {
+            return true;
+        }
+        if parse.injection(node).is_some_and(|i| {
+            i.parameters.iter().any(|p| {
+                p.default.is_some_and(|v| {
+                    let start = v.as_ptr() as usize - parse.source.text().as_ptr() as usize;
+                    contains(TextRange::new(start, start + v.len()))
+                })
+            })
+        }) {
+            return true;
+        }
+        if node.kind == NodeKind::AtRule {
+            let keyword = parse
+                .slice(node.header)
+                .split(|c: char| c.is_whitespace() || c == '(')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(keyword.as_str(), "@media" | "@supports" | "@container") {
+                return true;
+            }
+        }
+    }
+    false
 }
 fn analyze_compositions(
     db: &mut Database,

@@ -2,6 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Compiler, inspect } from '../index.js'
 function compile(source) { const compiler=new Compiler(); compiler.setFile('a.xcss',1,source); return compiler.compile('a.xcss') }
+
+test('substitutes immutable typed constants and retains runtime CSS math', () => {
+ const result = compile('$base = 56px; $height: length = $base + --my-height / 2; .a { height: $height; }')
+ assert.equal(result.success, true)
+ assert.match(result.artifacts[0].css, /height: calc\(56px \+ var\(--my-height\) \/ 2\)/)
+ assert.doesNotMatch(result.artifacts[0].css, /\$|@property/)
+ const invalid = compile('$base = 56px; .a { $base = 8px; height: $base; }')
+ assert.equal(invalid.success, false)
+ assert.deepEqual(invalid.artifacts, [])
+ assert(invalid.diagnostics.some(d => d.code === 'binding.constant-redeclaration'))
+})
 test('returns scoped CSS, exports and original source maps',()=>{
  const result=compile('.a { width: --size * 2; }'); assert.equal(result.success,true); const artifact=result.artifacts[0];
  assert.match(artifact.css,/calc\(var\(--size\) \* 2\)/); assert.ok(artifact.classes.a.startsWith('xcss_')); assert.ok(JSON.parse(artifact.sourceMap).sources.includes('a.xcss')); assert.deepEqual(result.diagnostics,[])

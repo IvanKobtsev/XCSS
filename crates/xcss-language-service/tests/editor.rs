@@ -7,6 +7,45 @@ fn at(source: &str, needle: &str) -> Position {
         .unwrap()
 }
 #[test]
+fn constants_have_types_navigation_tokens_and_revisioned_values() {
+    let mut host = LanguageService::new();
+    let file = FileId("a.xcss".into());
+    let source = "$size: length = 56px; .a { width: $size; }";
+    host.set_file(file.clone(), 1, source.into()).unwrap();
+    let old = host.snapshot();
+    let position = at(source, "$size;");
+    let hover = old.hover(&file, position).unwrap();
+    assert!(
+        hover.text.contains("Constant $size: length"),
+        "{}",
+        hover.text
+    );
+    assert!(hover.text.contains("56px"));
+    assert_eq!(old.definition(&file, position).len(), 1);
+    assert_eq!(old.references(&file, position, true).len(), 2);
+    let tokens = old.semantic_tokens(&file);
+    assert_eq!(
+        tokens
+            .iter()
+            .filter(|t| TOKEN_TYPES[t.token_type] == "variable")
+            .count(),
+        2
+    );
+    assert!(tokens.iter().any(|t| TOKEN_TYPES[t.token_type] == "type"));
+    let declarations = old.css_declarations(&file);
+    assert!(declarations.declarations[0].checkable);
+    assert!(
+        declarations.declarations[0]
+            .parts
+            .iter()
+            .any(|p| p.value_type.as_deref() == Some("length"))
+    );
+    host.set_file(file.clone(), 2, source.replace("56px", "red"))
+        .unwrap();
+    assert!(!host.snapshot().diagnostics(&file).is_empty());
+    assert!(old.diagnostics(&file).is_empty());
+}
+#[test]
 fn multifile_queries_and_immutable_results() {
     let mut host = LanguageService::new();
     let lib = FileId("file:///lib.xcss".into());

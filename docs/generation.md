@@ -22,6 +22,13 @@ declaration/value-token origins. Serialization may normalize equivalent values
 
 ## Lowering
 
+Compile-time constant declarations are removed. References substitute initializer
+values using definition-site bindings and source spans; parameter-dependent
+constants resolve separately for each injection expansion. Substituted arithmetic
+retains grouping, URLs retain definition-file origins, and runtime CSS expressions
+remain dynamic. Constant expansion is limited to 128 nested substitutions and
+100,000 substitutions per entry.
+
 Bare custom-property values become var() calls; names remain names in declarations,
 registrations and transition property positions. Arithmetic emits calc() while
 respecting CSS slash separators and existing math functions. Parentheses resolve

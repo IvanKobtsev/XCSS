@@ -13,7 +13,7 @@ Source owns immutable revisions, file identity, original byte ranges, line index
 UTF-16 conversion, and diagnostics. Syntax owns trivia-preserving tokens,
 recovering trees, typed AST views, arithmetic precedence, and selector inspection.
 Raffia stays private to syntax. Analysis owns scopes, symbols, bindings, types,
-injection targets/bodies, registrations, compositions, keyframes, and dependencies.
+injection targets/bodies, constant initializers, registrations, compositions, keyframes, and dependencies.
 Code generation consumes those facts, expands injections into an origin-aware IR,
 lowers extensions, then uses pinned Lightning CSS privately for scoping/printing.
 The independent `xcss-language-service` consumes source, syntax, and analysis only.
@@ -63,5 +63,5 @@ project synchronization commits files and resolutions together after asynchronou
 loading so stale reads cannot overwrite a newer project version.
 
 See [generation](generation.md) for lowering and registration rules. Future work
-adds compile-time language features, lint policy/fixes, completion/rename, migration
+adds further compile-time language features, lint policy/fixes, completion/rename, migration
 adapters, and compatibility for external CSS Modules composition.

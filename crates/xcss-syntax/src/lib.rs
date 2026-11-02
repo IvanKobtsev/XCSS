@@ -30,6 +30,7 @@ pub enum NodeKind {
     Declaration,
     Vars,
     Variable,
+    Constant,
     Injection,
     Call,
     Import,
@@ -319,6 +320,21 @@ impl Parser<'_> {
                 }
                 // Recover a missing semicolon at the next declaration on another line.
                 if self.cursor > first
+                    && parens == 0
+                    && brackets == 0
+                    && value == "$"
+                    && self
+                        .tokens
+                        .get(self.cursor + 2)
+                        .is_some_and(|_| matches!(self.token(self.cursor + 2), ":" | "="))
+                {
+                    let gap = &self.source.text()[self.tokens[self.cursor - 1].range.end
+                        ..self.tokens[self.cursor].range.start];
+                    if gap.contains('\n') {
+                        break;
+                    }
+                }
+                if self.cursor > first
                     && self.tokens[self.cursor].kind == TokenKind::Word
                     && self.tokens.get(self.cursor + 1).is_some()
                     && self.token(self.cursor + 1) == ":"
@@ -358,6 +374,7 @@ impl Parser<'_> {
                 "import" => NodeKind::Import,
                 "content" => NodeKind::Content,
                 _ if raw.starts_with('@') => NodeKind::AtRule,
+                _ if raw.starts_with('$') => NodeKind::Constant,
                 _ if vars => NodeKind::Variable,
                 _ if has_block => NodeKind::Rule,
                 _ if raw.contains(':') => NodeKind::Declaration,
@@ -385,8 +402,7 @@ impl Parser<'_> {
                 raw.strip_prefix(s).is_some_and(|tail| {
                     tail.is_empty() || tail.starts_with(|c: char| !c.is_alphanumeric() && c != '-')
                 })
-            }) || raw.starts_with('$')
-                || raw.contains("#{")
+            }) || raw.contains("#{")
             {
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.sass",
@@ -480,6 +496,7 @@ fn validate_fragments(result: &mut ParseResult) {
         }
         let raw = node.header_text(&result.source);
         let invalid_shape = match node.kind {
+            NodeKind::Constant => node.block.is_some() || result.constant(node).is_none(),
             NodeKind::Injection => {
                 node.block.is_none()
                     || result.injection(node).is_none_or(|i| {

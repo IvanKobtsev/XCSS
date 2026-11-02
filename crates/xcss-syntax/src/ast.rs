@@ -135,6 +135,13 @@ pub struct Variable<'a> {
     pub initial: Option<&'a str>,
 }
 #[derive(Clone, Debug)]
+pub struct Constant<'a> {
+    pub name: &'a str,
+    pub range: TextRange,
+    pub annotation: Option<&'a str>,
+    pub initial: Value,
+}
+#[derive(Clone, Debug)]
 pub struct Call<'a> {
     pub name: &'a str,
     pub name_range: TextRange,
@@ -168,6 +175,40 @@ pub struct Keyframes<'a> {
 }
 
 impl ParseResult {
+    pub fn constant<'a>(&'a self, node: &Node) -> Option<Constant<'a>> {
+        if node.kind != NodeKind::Constant {
+            return None;
+        }
+        let tokens = self.significant(node.header);
+        if self.token_text(tokens.first()?) != "$"
+            || tokens.get(1)?.kind != TokenKind::Word
+            || tokens[0].range.end != tokens[1].range.start
+        {
+            return None;
+        }
+        let range = TextRange::new(tokens[0].range.start, tokens[1].range.end);
+        let mut cursor = 2;
+        let annotation = if self.token_text(tokens.get(cursor)?) == ":" {
+            cursor += 1;
+            let token = tokens.get(cursor)?;
+            if token.kind != TokenKind::Word {
+                return None;
+            }
+            cursor += 1;
+            Some(self.token_text(token))
+        } else {
+            None
+        };
+        if self.token_text(tokens.get(cursor)?) != "=" || tokens.len() <= cursor + 1 {
+            return None;
+        }
+        Some(Constant {
+            name: self.slice(range),
+            range,
+            annotation,
+            initial: self.value(TextRange::new(tokens[cursor].range.end, node.header.end)),
+        })
+    }
     pub fn keyframes<'a>(&'a self, node: &Node) -> Option<Keyframes<'a>> {
         if node.kind != NodeKind::AtRule {
             return None;

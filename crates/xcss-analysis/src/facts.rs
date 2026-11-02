@@ -11,6 +11,7 @@ pub enum SymbolKind {
     Variable,
     Injection,
     Parameter,
+    Constant,
     Class,
 }
 

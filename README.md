@@ -1,6 +1,6 @@
 # XCSS (CrossCSS)
 
-XCSS compiles modern CSS with shorthand values, typed custom properties, and
+XCSS compiles modern CSS with shorthand values, typed constants, typed custom properties, and
 injections into **scoped CSS and class-export mappings**. It preserves native
 CSS nesting and runs without Sass.
 
@@ -72,10 +72,31 @@ library's unrelated selectors. Local definitions win; otherwise globally unique
 injections can be called without imports. Expansion-generated classes belong to
 the caller. Definition-owned variables and asset URLs retain their origins.
 
+Compile-time constants use `$name = value;` or `$name: type = value;`. They are
+immutable, visible after declaration, and scoped to their source block and its
+descendants. Redeclaration and shadowing are errors. Values are substituted into
+CSS; runtime expressions such as `var()` remain dynamic:
+
+```xcss
+$header-height = 56px;
+$height: length = $header-height + --my-height / 2;
+$gradient = linear-gradient(to right, #000 --start, #fff (--end + --offset));
+
+.header {
+  height: $height;
+  background: $gradient;
+}
+```
+
+Types are inferred from values and typed references. Supply an annotation when
+the type is unknown. Constants work in values, injection arguments/defaults,
+and media/supports/container conditions. Injection-local constants may depend on
+parameters. Constants are file-local and have no import/export syntax.
+
 Classes, IDs, and animation names are scoped. Functional and nonfunctional
 `:local`/`:global` switches are supported. Class composition supports project
 XCSS modules and global names. External CSS Modules composition needs a future
-adapter. XCSS does not yet support Sass variables, loops, interpolation, custom
+adapter. XCSS does not support mutable Sass variables, loops, interpolation, custom
 compile-time functions, or ICSS value import/export syntax.
 
 ## CLI and Rust/Node APIs

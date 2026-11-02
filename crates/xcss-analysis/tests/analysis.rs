@@ -4,6 +4,121 @@ use xcss_source::FileId;
 fn id(name: &str) -> FileId {
     FileId(name.into())
 }
+#[test]
+fn constants_infer_through_references_and_dimensional_arithmetic() {
+    let mut h = host(&[(
+        "a.xcss",
+        "@vars { --height: length = 4px; } $base = 56px; $height = $base + --height / 2; $gradient = linear-gradient(to right, #000 --start, #fff (--end + --offset)); .a { $local = $height; height: $local; }",
+    )]);
+    let s = h.snapshot();
+    assert!(s.diagnostics().is_empty(), "{:#?}", s.diagnostics());
+    for (name, ty) in [
+        ("$base", "length"),
+        ("$height", "length"),
+        ("$gradient", "image"),
+        ("$local", "length"),
+    ] {
+        let symbol = s.symbols().iter().find(|s| s.name == name).unwrap();
+        assert_eq!(symbol.kind, SymbolKind::Constant);
+        assert_eq!(symbol.value_type, ValueType::named(ty));
+        assert!(s.constant_initializer(symbol.id).is_some());
+    }
+}
+
+#[test]
+fn constants_enforce_visibility_immutability_and_types() {
+    for source in [
+        "$x = 1px; $x = 1px;",
+        "$x = 1px; .a { $x = 2px; }",
+        "$x = $x;",
+        "$x = $later; $later = 1px;",
+        ".a { $x = 1px; } .b { width: $x; }",
+        ".a { $x = 1px; } .a { width: $x; }",
+        "$x: color = 1px;",
+        "$x = var(--unknown);",
+        "$x = 1px; @injection f($x: length) {}",
+        "@injection f($x: length) { $x = 1px; }",
+        "$x = 1px; @injection f($p: color) {} .a { @:f($x); }",
+        "$x = 1px; .$x { color: red; }",
+        "$x = 1px; @keyframes $x { to { opacity: 1; } }",
+        "$x = 1px; @import $x;",
+        "$x = 1px; .a { background: url($x); }",
+        "$x: length = red + 1px;",
+        "$x: color = red + blue;",
+        "$x: length = 1px * 2px;",
+    ] {
+        let mut h = host(&[("a.xcss", source)]);
+        assert!(
+            !h.snapshot().diagnostics().is_empty(),
+            "Expected error: {source}"
+        );
+    }
+    let mut h = host(&[(
+        "a.xcss",
+        "$x: length = var(--unknown); .a { $local = 2px; &:hover { width: $local; } } .b { $local = 3px; width: $local; }",
+    )]);
+    assert!(
+        h.snapshot().diagnostics().is_empty(),
+        "{:#?}",
+        h.snapshot().diagnostics()
+    );
+}
+#[test]
+fn constants_are_block_scoped_and_file_local() {
+    let mut h = host(&[
+        (
+            "a.xcss",
+            "@media (width > 1px) { $size = 2px; .a { width: $size; } } .b { width: $size; }",
+        ),
+        ("b.xcss", "$size = 3px; .c { width: $size; }"),
+    ]);
+    let snapshot = h.snapshot();
+    assert_eq!(
+        snapshot
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code == "binding.parameter-scope")
+            .count(),
+        1
+    );
+    assert!(
+        snapshot
+            .diagnostics()
+            .iter()
+            .all(|d| d.location.file == id("a.xcss"))
+    );
+}
+#[test]
+fn constant_dependent_defaults_are_inferred_and_checked() {
+    let mut h = host(&[(
+        "a.xcss",
+        "$size = 3px; @injection f($p = $size) { $local = $p * 2; width: $local; } .a { @:f(); }",
+    )]);
+    let snapshot = h.snapshot();
+    assert!(
+        snapshot.diagnostics().is_empty(),
+        "{:#?}",
+        snapshot.diagnostics()
+    );
+    for name in ["$p", "$local"] {
+        assert_eq!(
+            snapshot
+                .symbols()
+                .iter()
+                .find(|s| s.name == name)
+                .unwrap()
+                .value_type,
+            ValueType::named("length")
+        );
+    }
+    let mut h = host(&[("a.xcss", "$size = 3px; @injection f($p: color = $size) {}")]);
+    assert!(
+        h.snapshot()
+            .diagnostics()
+            .iter()
+            .any(|d| d.code == "type.mismatch")
+    );
+}
 fn host(files: &[(&str, &str)]) -> AnalysisHost {
     let mut host = AnalysisHost::new();
     for (name, text) in files {
