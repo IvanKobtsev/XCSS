@@ -218,7 +218,9 @@ jobs:
           cd "$verification_directory"
           npm init -y
           for attempt in $(seq 1 12); do
-            if npm install --ignore-scripts --prefer-online "@cross-css/native@${GITHUB_REF_NAME#v}"; then
+            # Require the host binary explicitly: npm can silently omit an optional
+            # dependency while newly published registry metadata is propagating.
+            if npm install --ignore-scripts --prefer-online "@cross-css/native@${GITHUB_REF_NAME#v}" "@cross-css/native-linux-x64-gnu@${GITHUB_REF_NAME#v}"; then
               break
             fi
             test "$attempt" -lt 12
