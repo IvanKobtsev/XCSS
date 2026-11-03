@@ -96,6 +96,20 @@ and selectors in injection definitions whose call-site context is unknown have
 no exact score. Other valid selector-list members remain queryable. This API does
 not expand injection calls or provide lint thresholds or editor hover UI.
 
+## CSS value contexts
+
+`LanguageService.cssValues(uri)` returns `{ revision, values }` in original-source
+order. Each value has `text`, a UTF-16 `range`, an optional CSS `property`,
+validation `parts` and `checkable` status, and function names with their exact
+source ranges. Values include declarations, constant and variable initializers,
+and parameter defaults. Raw bodies are excluded; strings and URL contents do not
+produce function occurrences. Typed representatives describe only XCSS symbols
+and arithmetic subexpressions, preserving surrounding CSS for host validation.
+
+The semantic legend appends `cssFunction`, `cssKeyword`, and `cssColor`. Editor
+adapters classify CSS values using their CSS grammar and merge those tokens with
+the native symbol tokens, which take precedence. All earlier indices are stable.
+
 ## Shared utilities
 
 `Compiler.compile(entry)` returns an optional `utilities` artifact alongside

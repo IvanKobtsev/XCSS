@@ -56,6 +56,25 @@ revision: number
 declarations: Array<CssDeclaration>
 }
 
+export interface CssFunction {
+name: string
+range: EditorRange
+}
+
+export interface CssValue {
+property?: string
+text: string
+range: EditorRange
+parts: Array<CssValuePart>
+checkable: boolean
+functions: Array<CssFunction>
+}
+
+export interface CssValues {
+revision: number
+values: Array<CssValue>
+}
+
 export interface Specificity {
 ids: number
 classes: number
@@ -173,6 +192,7 @@ export declare function formatSource(source: string, options?: SourceFormatOptio
 
 export declare class LanguageService {
 
+ cssValues(uri: string): CssValues
  selectors(uri: string): Selectors
  cssDeclarations(uri: string): CssDeclarations
  constructor()

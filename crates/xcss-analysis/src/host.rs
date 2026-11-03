@@ -81,6 +81,14 @@ impl AnalysisHost {
 #[derive(Clone)]
 pub struct AnalysisSnapshot(Arc<Database>);
 impl AnalysisSnapshot {
+    /// Infer an original-source subexpression using this snapshot's resolved symbols.
+    pub fn value_type(&self, file: &FileId, value: &Value) -> ValueType {
+        if self.0.files.contains_key(file) {
+            expression_type(&self.0, file, value)
+        } else {
+            ValueType::Unknown
+        }
+    }
     pub fn constant_initializer(&self, id: SymbolId) -> Option<(&ParseResult, Value)> {
         let symbol = self.symbol(id)?;
         if symbol.kind != SymbolKind::Constant {

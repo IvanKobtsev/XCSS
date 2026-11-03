@@ -19,6 +19,8 @@ assert.equal(service.definition('file:///test.xcss', { line: 0, character: sourc
 assert.equal(service.cssDeclarations('file:///test.xcss').declarations.length, 0)
 service.setFile('file:///css.xcss', 1, '.a { display: flex; }')
 assert.equal(service.cssDeclarations('file:///css.xcss').declarations[0].property, 'display')
+assert.equal(service.cssValues('file:///css.xcss').values[0].property, 'display')
+assert.deepEqual(languageServiceCapabilities().tokenTypes.slice(-3), ['cssFunction', 'cssKeyword', 'cssColor'])
 
 service.setFile('file:///selectors.xcss', 1, '#root, .parent { a.button[data-kind="hello"]:where(.disabled)::after { & > * {} } }')
 const selectors = service.selectors('file:///selectors.xcss')
