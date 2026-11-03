@@ -9,7 +9,9 @@ mod selectors;
 pub use selectors::{Selector, SelectorPart, Selectors};
 pub use xcss_syntax::Specificity;
 mod css;
+mod values;
 pub use css::{CssDeclaration, CssDeclarations, CssValuePart};
+pub use values::{CssFunction, CssValue, CssValues};
 /// Stable order shared by adapters; append new entries rather than reordering.
 pub const TOKEN_TYPES: &[&str] = &[
     "function",
@@ -29,6 +31,9 @@ pub const TOKEN_TYPES: &[&str] = &[
     "selectorNesting",
     "selectorCombinator",
     "selectorNamespace",
+    "cssFunction",
+    "cssKeyword",
+    "cssColor",
 ];
 
 #[derive(Clone, Debug, Eq, PartialEq)]

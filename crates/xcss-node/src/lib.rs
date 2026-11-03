@@ -279,3 +279,5 @@ fn convert_diagnostic(d: Diagnostic, snapshot: &xcss_core::AnalysisSnapshot) -> 
             .collect(),
     }
 }
+
+pub mod formatting;

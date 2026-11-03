@@ -1,9 +1,9 @@
 [workspace]
-members = ["crates/xcss-core", "crates/xcss-cli", "crates/xcss-node", "crates/xcss-source", "crates/xcss-syntax", "crates/xcss-analysis", "crates/xcss-codegen", "crates/xcss-language-service"]
+members = ["crates/xcss-format", "crates/xcss-core", "crates/xcss-cli", "crates/xcss-node", "crates/xcss-source", "crates/xcss-syntax", "crates/xcss-analysis", "crates/xcss-codegen", "crates/xcss-language-service"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.0"
+version = "0.6.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/IvanKobtsev/XCSS"

@@ -1,6 +1,6 @@
 {
   "name": "@cross-css/native",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "description": "Native Node.js bindings for the XCSS compiler",
   "license": "MIT",
   "author": "Ivan Kobtsev",
@@ -15,7 +15,12 @@
   },
   "main": "index.js",
   "types": "index.d.ts",
-  "files": ["index.js", "index.d.ts", "README.md", "LICENSE"],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
@@ -25,14 +30,14 @@
     "prepack": "node ../../npm/verify-release.mjs"
   },
   "optionalDependencies": {
-    "@cross-css/native-darwin-arm64": "0.4.0",
-    "@cross-css/native-darwin-x64": "0.4.0",
-    "@cross-css/native-linux-arm64-gnu": "0.4.0",
-    "@cross-css/native-linux-arm64-musl": "0.4.0",
-    "@cross-css/native-linux-x64-gnu": "0.4.0",
-    "@cross-css/native-linux-x64-musl": "0.4.0",
-    "@cross-css/native-win32-arm64-msvc": "0.4.0",
-    "@cross-css/native-win32-x64-msvc": "0.4.0"
+    "@cross-css/native-darwin-arm64": "0.6.0",
+    "@cross-css/native-darwin-x64": "0.6.0",
+    "@cross-css/native-linux-arm64-gnu": "0.6.0",
+    "@cross-css/native-linux-arm64-musl": "0.6.0",
+    "@cross-css/native-linux-x64-gnu": "0.6.0",
+    "@cross-css/native-linux-x64-musl": "0.6.0",
+    "@cross-css/native-win32-arm64-msvc": "0.6.0",
+    "@cross-css/native-win32-x64-msvc": "0.6.0"
   },
   "publishConfig": {
     "access": "public"

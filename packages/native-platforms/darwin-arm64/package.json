@@ -1,6 +1,8 @@
 {
   "name": "@cross-css/native-darwin-arm64",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "private": true,
-  "scripts": { "prepublishOnly": "node ../../../npm/refuse-platform-stub-publish.mjs" }
+  "scripts": {
+    "prepublishOnly": "node ../../../npm/refuse-platform-stub-publish.mjs"
+  }
 }

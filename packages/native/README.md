@@ -96,6 +96,20 @@ and selectors in injection definitions whose call-site context is unknown have
 no exact score. Other valid selector-list members remain queryable. This API does
 not expand injection calls or provide lint thresholds or editor hover UI.
 
+## CSS value contexts
+
+`LanguageService.cssValues(uri)` returns `{ revision, values }` in original-source
+order. Each value has `text`, a UTF-16 `range`, an optional CSS `property`,
+validation `parts` and `checkable` status, and function names with their exact
+source ranges. Values include declarations, constant and variable initializers,
+and parameter defaults. Raw bodies are excluded; strings and URL contents do not
+produce function occurrences. Typed representatives describe only XCSS symbols
+and arithmetic subexpressions, preserving surrounding CSS for host validation.
+
+The semantic legend appends `cssFunction`, `cssKeyword`, and `cssColor`. Editor
+adapters classify CSS values using their CSS grammar and merge those tokens with
+the native symbol tokens, which take precedence. All earlier indices are stable.
+
 ## Shared utilities
 
 `Compiler.compile(entry)` returns an optional `utilities` artifact alongside
@@ -104,3 +118,24 @@ module artifacts. It contains `css`, `sourceMap`, `sourceDependencies`, and mapp
 `Compiler.compileUtilities(entries)` returns the deduplicated utility union for
 several entry modules. Recompute the union after source updates or removals.
 Bundled compilation includes utility CSS directly in the module artifact.
+
+## Source formatting
+
+`formatSource(source, options?)` formats XCSS without compiling CSS, resolving
+imports, or reading files. It returns `{ text, diagnostics }`: `text` is absent
+when syntax is invalid, and the original source must be left unchanged. Semantic
+errors such as unresolved references do not prevent formatting. Diagnostic ranges
+are zero-based UTF-16 positions in the original input.
+
+Options are `tabWidth` (1–16, default 2), `useTabs` (default false),
+`printWidth` (1–1000, default 80), and `endOfLine` (`lf` or `crlf`, default
+`lf`). Formatting adds a final newline to nonempty output. `@raw` bodies and
+nodes preceded by `/* prettier-ignore */` remain verbatim, even when their line
+endings differ from the requested layout. Unknown at-rules remain opaque.
+
+The Rust API is `xcss_format::format(source, &FormatOptions)`. The formatter
+uses Malva's Raffia-based CSS printer and an XCSS document printer. CSS golden
+fixtures are pinned to Prettier 3.6.2; exhaustive Prettier equivalence is not
+guaranteed. XCSS headers and expressions use compatible layout conventions.
+Opaque fragments deliberately retain their original spelling; comments are
+preserved byte-for-byte. There is no CLI formatting command in this release.

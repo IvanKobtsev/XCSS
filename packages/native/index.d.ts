@@ -56,6 +56,25 @@ revision: number
 declarations: Array<CssDeclaration>
 }
 
+export interface CssFunction {
+name: string
+range: EditorRange
+}
+
+export interface CssValue {
+property?: string
+text: string
+range: EditorRange
+parts: Array<CssValuePart>
+checkable: boolean
+functions: Array<CssFunction>
+}
+
+export interface CssValues {
+revision: number
+values: Array<CssValue>
+}
+
 export interface Specificity {
 ids: number
 classes: number
@@ -150,8 +169,30 @@ imports: Array<string>
 
 export declare function inspect(source: string): NativeInspection
 
+export interface SourceFormatOptions {
+tabWidth?: number
+useTabs?: boolean
+printWidth?: number
+endOfLine?: string
+}
+
+export interface FormatDiagnostic {
+code: string
+message: string
+/** UTF-16 positions in the original source, not Rust byte offsets. */
+range: EditorRange
+}
+
+export interface SourceFormatResult {
+text?: string
+diagnostics: Array<FormatDiagnostic>
+}
+
+export declare function formatSource(source: string, options?: SourceFormatOptions | undefined | null): SourceFormatResult
+
 export declare class LanguageService {
 
+ cssValues(uri: string): CssValues
  selectors(uri: string): Selectors
  cssDeclarations(uri: string): CssDeclarations
  constructor()

@@ -60,6 +60,25 @@ pub struct CssDeclarations {
     pub declarations: Vec<CssDeclaration>,
 }
 #[napi(object)]
+pub struct CssFunction {
+    pub name: String,
+    pub range: EditorRange,
+}
+#[napi(object)]
+pub struct CssValue {
+    pub property: Option<String>,
+    pub text: String,
+    pub range: EditorRange,
+    pub parts: Vec<CssValuePart>,
+    pub checkable: bool,
+    pub functions: Vec<CssFunction>,
+}
+#[napi(object)]
+pub struct CssValues {
+    pub revision: f64,
+    pub values: Vec<CssValue>,
+}
+#[napi(object)]
 pub struct Specificity {
     pub ids: u32,
     pub classes: u32,
@@ -131,6 +150,40 @@ pub struct LanguageService {
 }
 #[napi]
 impl LanguageService {
+    #[napi]
+    pub fn css_values(&mut self, uri: String) -> CssValues {
+        let result = self.inner.snapshot().css_values(&FileId(uri));
+        CssValues {
+            revision: result.revision as f64,
+            values: result
+                .values
+                .into_iter()
+                .map(|v| CssValue {
+                    property: v.property,
+                    text: v.text,
+                    range: range(v.range),
+                    checkable: v.checkable,
+                    parts: v
+                        .parts
+                        .into_iter()
+                        .map(|p| CssValuePart {
+                            text: p.text,
+                            value_type: p.value_type,
+                            range: range(p.range),
+                        })
+                        .collect(),
+                    functions: v
+                        .functions
+                        .into_iter()
+                        .map(|f| CssFunction {
+                            name: f.name,
+                            range: range(f.range),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
     #[napi]
     pub fn selectors(&mut self, uri: String) -> Selectors {
         let result = self.inner.snapshot().selectors(&FileId(uri));

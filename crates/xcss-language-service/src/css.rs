@@ -44,7 +44,7 @@ impl ServiceSnapshot {
         result
     }
 
-    fn css_range(&self, file: &FileId, range: TextRange) -> Range {
+    pub(super) fn css_range(&self, file: &FileId, range: TextRange) -> Range {
         self.location(&Location {
             file: file.clone(),
             range,
@@ -106,9 +106,12 @@ impl ServiceSnapshot {
                 self.0.expressions().iter().find(|e| {
                     e.location.file == *file && e.location.range == declaration.value.range
                 });
-            if let Some(expression) =
-                expression.filter(|e| e.kind == xcss_analysis::ExpressionKind::Arithmetic)
-            {
+            if let Some(expression) = expression.filter(|e| {
+                e.kind == xcss_analysis::ExpressionKind::Arithmetic
+                    && declaration.value.arithmetic().is_some_and(|a| {
+                        !matches!(a.kind, xcss_syntax::ast::ArithmeticKind::Operand(_))
+                    })
+            }) {
                 if let ValueType::Named(name) = &expression.value_type {
                     parts.push(CssValuePart {
                         text: None,
@@ -173,7 +176,7 @@ impl ServiceSnapshot {
         }
     }
 
-    fn css_parts(
+    pub(super) fn css_parts(
         &self,
         file: &FileId,
         parse: &ParseResult,
@@ -205,12 +208,7 @@ impl ServiceSnapshot {
                     .iter()
                     .any(|p| matches!(p.kind, ValueKind::Operator(op) if op != '/')) =>
             {
-                return self
-                    .0
-                    .expressions()
-                    .iter()
-                    .find(|e| e.location.file == *file && e.location.range == value.range)
-                    .is_some_and(|e| typed(&e.value_type, out));
+                return typed(&self.0.value_type(file, value), out);
             }
             ValueKind::Group(_) => return false,
             ValueKind::Sequence(children)
