@@ -76,6 +76,8 @@ pub fn analyze_selectors(
     offset: usize,
     parent: Option<Option<Specificity>>,
 ) -> Vec<SelectorAnalysis> {
+    let cleaned = super::mask_line_comments(text);
+    let text = cleaned.as_str();
     let mut result = vec![];
     let mut start = 0;
     let mut depth = 0usize;

@@ -55,3 +55,15 @@ test('returns composition artifacts and supports bundled inline output',()=>{
 })
 
 test('class dictionaries retain JavaScript prototype-shaped names as data',()=>{const result=compile('.__proto__ { color: red; } .constructor { color: blue; }');const classes=result.artifacts[0].classes;assert.equal(Object.hasOwn(classes,'__proto__'),true);assert.equal(typeof classes.__proto__,'string');assert.equal(typeof classes.constructor,'string')})
+
+
+test('infers zero as length and compiles silent line comments', () => {
+ const c = new Compiler()
+ c.setFile('a.xcss', 1, '// 😀 lead\n@vars { --gap = 0; --count: integer = 0; }\n@injection f($n: number = 0) { opacity: $n; }\n.a // selector\n{ @:f(0); margin: --gap; width: calc(1px + // inline\n2px); }')
+ for (const minify of [false, true]) {
+  const result = c.compile('a.xcss', minify)
+  assert.equal(result.success, true, JSON.stringify(result.diagnostics))
+  assert.match(result.artifacts[0].css, /<length>/)
+  assert.doesNotMatch(result.artifacts[0].css, /\/\//)
+ }
+})

@@ -23,7 +23,8 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                             parameter.range,
                             "Cannot infer parameter default type",
                         );
-                    } else if !expected.accepts(&actual) {
+                    } else if !expected.accepts(&actual) && !types::numeric_zero(&expected, default)
+                    {
                         db.error(
                             "type.mismatch",
                             file,
@@ -87,7 +88,9 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                     constant.range,
                     "Specify a type when the constant value cannot be inferred",
                 );
-            } else if !expected.accepts(&actual) {
+            } else if !expected.accepts(&actual)
+                && !types::numeric_zero(&expected, parse.slice(constant.initial.range))
+            {
                 db.error(
                     "type.mismatch",
                     file,

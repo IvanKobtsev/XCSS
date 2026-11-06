@@ -246,6 +246,27 @@ impl LanguageService {
         }
     }
     #[napi]
+    pub fn set_typescript_project(&mut self, config: Option<String>) {
+        self.inner.set_typescript_project(config);
+    }
+    #[napi]
+    pub fn set_typescript_file(
+        &mut self,
+        path: String,
+        revision: u32,
+        source: String,
+    ) -> napi::Result<()> {
+        self.inner
+            .set_typescript_file(FileId(path), revision.into(), source)
+            .map_err(|e| napi::Error::from_reason(format!("{e:?}")))
+    }
+    #[napi]
+    pub fn remove_typescript_file(&mut self, path: String, revision: u32) -> napi::Result<()> {
+        self.inner
+            .remove_typescript_file(&FileId(path), revision.into())
+            .map_err(|e| napi::Error::from_reason(format!("{e:?}")))
+    }
+    #[napi]
     pub fn set_file(&mut self, uri: String, revision: u32, source: String) -> napi::Result<()> {
         self.inner
             .set_file(FileId(uri), revision.into(), source)

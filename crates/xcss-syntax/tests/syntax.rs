@@ -224,3 +224,40 @@ fn malformed_input_and_typed_queries_never_panic() {
         }
     }
 }
+
+#[test]
+fn line_comments_are_trivia_and_urls_are_opaque() {
+    for eol in ["\n", "\r\n", "\r"] {
+        let source = format!(
+            "// 😀 {{ ; ignored{eol}.a // selector{eol}{{ color: // value{eol}red; background: url(https://example.com/a//b); content: \"//literal\"; }} // eof"
+        );
+        let p = parsed(&source);
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+        let comments: Vec<_> = p
+            .tokens
+            .iter()
+            .filter(|t| t.kind == xcss_syntax::TokenKind::Comment)
+            .map(|t| p.slice(t.range))
+            .collect();
+        assert_eq!(
+            comments,
+            ["// 😀 { ; ignored", "// selector", "// value", "// eof"]
+        );
+        assert_eq!(p.tree.children.len(), 1);
+    }
+    assert!(
+        parsed(".a { background: url(//cdn.example.com/a); }")
+            .diagnostics
+            .is_empty()
+    );
+}
+
+#[test]
+fn line_comments_do_not_change_raw_or_semicolon_rules() {
+    let body = "\n// raw CSS bytes\n.a { content: \"//raw\"; }\n";
+    let p = parsed(&format!("@raw {{{body}}}"));
+    assert!(p.diagnostics.is_empty());
+    assert_eq!(p.slice(p.tree.children[0].raw_body().unwrap()), body);
+    let p = parsed(".a { color: red // no semicolon\n width: 1px; }");
+    assert!(!p.diagnostics.is_empty());
+}

@@ -5,6 +5,37 @@ fn id(name: &str) -> FileId {
     FileId(name.into())
 }
 #[test]
+fn variants_are_erased_and_static_exports_match_generation() {
+    let mut host = AnalysisHost::new();
+    host.set_file(id("a.xcss"), 1, "@variants Button: .primary; @injection used() { &.primary { color: red; } @content; } @injection ignored() { @content; } .button { @:used() { &.secondary { color: blue; } } @:ignored() { &.third { color: green; } } } :global(.outside) {}" ).unwrap();
+    let snapshot = host.snapshot();
+    let result = generate(&snapshot, &id("a.xcss"), &GenerateOptions::default()).unwrap();
+    let module = &result.modules[0];
+    assert!(!module.css.contains("@variants"));
+    assert_eq!(
+        module
+            .classes
+            .keys()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>(),
+        snapshot.module_interface(&id("a.xcss")).unwrap().classes
+    );
+}
+
+#[test]
+fn repeated_injection_in_caller_content_keeps_its_class_exports() {
+    let mut host = AnalysisHost::new();
+    host.set_file(id("a.xcss"), 1, "@variants V: .inner; @injection wrap() { @content; } .outer { @:wrap() { @:wrap() { &.inner { color: red; } } } }").unwrap();
+    let snapshot = host.snapshot();
+    assert!(
+        snapshot.diagnostics().is_empty(),
+        "{:?}",
+        snapshot.diagnostics()
+    );
+    let result = generate(&snapshot, &id("a.xcss"), &GenerateOptions::default()).unwrap();
+    assert!(result.modules[0].classes.contains_key("inner"));
+}
+#[test]
 fn raw_css_bypasses_all_transformations_and_bundling_import_hoisting() {
     let body = "\r\n/* ordinary 😀 */ .untouched#id::before { x: $missing + --unknown; content: '}' }\r\n@import './missing.xcss'; @raw { @include literal; }\r\n";
     let mut host = AnalysisHost::new();
@@ -791,4 +822,41 @@ fn minified_output_keeps_exports_and_original_maps() {
     assert!(!minified.modules[0].css.contains("__xcss_global"));
     let map: serde_json::Value = serde_json::from_str(&minified.modules[0].source_map).unwrap();
     assert!(!map["mappings"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn zero_registration_and_silent_line_comments() {
+    let mut host = AnalysisHost::new();
+    host.set_file(id("a.xcss"), 1, "// leading\n@vars { --gap = 0 // zero 😀\n; } @injection f($n: integer = 0) { z-index: $n; } .a // selector\n{ @:f(0 // argument\n); margin: --gap; color: // color\nred; width: calc(1px + // inside\n2px); background: url(//cdn.example.com/a); content: \"//literal\"; }").unwrap();
+    let snapshot = host.snapshot();
+    assert!(
+        snapshot.diagnostics().is_empty(),
+        "{:?}",
+        snapshot.diagnostics()
+    );
+    for minify in [false, true] {
+        let result = generate(
+            &snapshot,
+            &id("a.xcss"),
+            &GenerateOptions {
+                minify,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let css = &result.modules[0].css;
+        assert!(css.contains("<length>"), "{css}");
+        assert!(css.contains("//literal"), "{css}");
+        assert!(css.contains("//cdn.example.com/a"), "{css}");
+        for comment in [
+            "// leading",
+            "// zero",
+            "// selector",
+            "// argument",
+            "// color",
+            "// inside",
+        ] {
+            assert!(!css.contains(comment), "{css}");
+        }
+    }
 }

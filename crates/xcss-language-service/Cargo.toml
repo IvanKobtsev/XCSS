@@ -9,3 +9,4 @@ repository.workspace = true
 xcss-source = { path = "../xcss-source" }
 xcss-syntax = { path = "../xcss-syntax" }
 xcss-analysis = { path = "../xcss-analysis" }
+xcss-typescript = { path = "../xcss-typescript" }

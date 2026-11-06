@@ -276,16 +276,10 @@ pub fn generate(
         diagnostics.extend(lower.diagnostics);
         let (css, source_map, exports) = backend(snapshot, file, &mapped, options, &lower.globals)?;
         let mut classes = BTreeMap::new();
-        // Parse the expanded module so classes introduced by injections belong to the caller.
-        let expanded = xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
-            file.clone(),
-            0,
-            mapped.text.clone(),
-        )));
-        let class_names = xcss_syntax::local_class_names(&expanded);
-        for name in class_names {
-            if let Some(compiled) = exports.get(&name) {
-                classes.insert(name, compiled.clone());
+        // Share the static export contract with TS checking, including expanded injections.
+        for name in &snapshot.module_interface(file).unwrap().classes {
+            if let Some(compiled) = exports.get(name) {
+                classes.insert(name.clone(), compiled.clone());
             }
         }
         for (owner, utilities) in &lower.utility_classes {
@@ -589,6 +583,9 @@ fn backend(
         css_modules::{Config, Pattern},
         stylesheet::{ParserOptions, PrinterOptions, StyleSheet},
     };
+    let mut cleaned = input.clone();
+    cleaned.text = without_line_comments(&cleaned.text);
+    let input = &cleaned;
     let css_modules = Config {
         pattern: Pattern::parse("xcss_[hash]_[local]").unwrap(),
         dashed_idents: false,
@@ -701,4 +698,23 @@ fn backend(
         .collect();
     let (css, source_map) = raw::restore(snapshot, result.code, source_map, input);
     Ok((css, source_map, exports))
+}
+
+// Preserve byte offsets so backend diagnostics and mappings still refer to the source.
+fn without_line_comments(text: &str) -> String {
+    if !text.contains("//") {
+        return text.to_owned();
+    }
+    let parsed = xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
+        FileId("lowered-comments".into()),
+        0,
+        text.to_owned(),
+    )));
+    let mut bytes = text.as_bytes().to_vec();
+    for token in parsed.tokens.iter().filter(|t| {
+        t.kind == xcss_syntax::TokenKind::Comment && parsed.slice(t.range).starts_with("//")
+    }) {
+        bytes[token.range.start..token.range.end].fill(b' ');
+    }
+    String::from_utf8(bytes).unwrap()
 }

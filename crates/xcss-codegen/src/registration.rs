@@ -41,6 +41,8 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
     } else {
         kind
     };
+    let cleaned_initial = initial.map(without_line_comments);
+    let initial = cleaned_initial.as_deref();
     if let Some(initial) = initial {
         let valid =
             lightningcss::values::syntax::SyntaxString::parse_string(&format!("<{browser_kind}>"))

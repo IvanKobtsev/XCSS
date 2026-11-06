@@ -196,6 +196,9 @@ export declare class LanguageService {
  selectors(uri: string): Selectors
  cssDeclarations(uri: string): CssDeclarations
  constructor()
+ setTypescriptProject(config?: string | undefined | null): void
+ setTypescriptFile(path: string, revision: number, source: string): void
+ removeTypescriptFile(path: string, revision: number): void
  setFile(uri: string, revision: number, source: string): void
  removeFile(uri: string, revision: number): void
  setResolution(importer: string, specifier: string, target?: string | undefined | null): void

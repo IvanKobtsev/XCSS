@@ -26,6 +26,22 @@ fn css_layout() {
     );
 }
 #[test]
+fn variant_groups() {
+    assert_eq!(
+        formatted(
+            "@variants Button:.primary,.secondary;",
+            &FormatOptions::default()
+        ),
+        "@variants Button: .primary, .secondary;\n"
+    );
+    let comments = formatted(
+        "@variants /* group */ Button: .primary, /* member */ .secondary;",
+        &FormatOptions::default(),
+    );
+    assert!(comments.contains("/* group */"));
+    assert!(comments.contains("/* member */"));
+}
+#[test]
 fn xcss_constructs() {
     let input = "@vars{--size:length=1px;local --color:color;} $gap:length=2px; @injection paint($color:color=red,$width:length=1px){color:$color;width:$width;} @util spaced($n:length=1px){margin:$n;} .a{@:paint(red,2px);width:--size * 2;@content;}";
     let text = formatted(input, &FormatOptions::default());
@@ -118,4 +134,26 @@ fn invalid_options() {
         .text
         .is_none()
     );
+}
+
+#[test]
+fn line_comments_are_preserved_and_force_line_breaks() {
+    formatted(
+        "@vars { --gap = 0 // zero\n; } @injection f($n: number = 0 // default\n) {} .a { @:f(0 // arg\n); }",
+        &FormatOptions::default(),
+    );
+    for eol in ["\n", "\r\n", "\r"] {
+        let source = format!(
+            "// lead 😀{eol}.a // selector{eol}{{color: // value{eol}red; // trailing{eol}width:1px;}} // eof"
+        );
+        let output = formatted(&source, &FormatOptions::default());
+        assert!(output.contains("// value\n"), "{output}");
+        assert!(output.contains("// selector\n"), "{output}");
+        assert!(output.contains("// trailing\n"), "{output}");
+    }
+    let output = formatted(
+        "// prettier-ignore\n.a   {color:   red;}\n",
+        &FormatOptions::default(),
+    );
+    assert!(output.contains(".a   {color:   red;}"), "{output}");
 }

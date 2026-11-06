@@ -3,6 +3,14 @@
 Native Node.js bindings for XCSS parsing, analysis, and scoped CSS generation.
 Consumers do not need Rust or Sass installed; platform packages provide binaries.
 
+The language service can also check TypeScript consumers against XCSS classes
+and variant groups. Enable it with `setTypescriptProject('tsconfig.json')` and
+supply project-relative TS/config/dependency sources with `setTypescriptFile`.
+Read diagnostics with `document(path)`. See the
+[project input contract](../../docs/language-service.md#typescript-projects-api-v4).
+The embedded tsrs checker and TypeScript standard libraries are covered by the
+included `TSRS-LICENSE` and `TSRS-NOTICE` files.
+
 ```js
 import { Compiler, inspect } from '@cross-css/native'
 const compiler = new Compiler()

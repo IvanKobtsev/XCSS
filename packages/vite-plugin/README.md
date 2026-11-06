@@ -22,6 +22,35 @@ Compositions use XCSS's own class-export dictionary. Inline/URL stylesheets
 include composition dependencies. Unsupported or conflicting query modes fail
 explicitly. Aliases are resolved by Vite.
 
+## TypeScript and variant groups
+
+Add `"@cross-css/vite-plugin/client"` to your tsconfig's `compilerOptions.types`,
+or add `/// <reference types="@cross-css/vite-plugin/client" />` to an environment
+declaration file. This declaration entry is included in this package.
+It lets ordinary TypeScript accept XCSS imports and the `Variants` type:
+
+```xcss
+@variants Button: .primary, .secondary;
+.button { color: black; }
+.primary { color: blue; }
+.secondary { color: gray; }
+```
+
+```ts
+import styles, { type Variants } from './Button.xcss'
+interface ButtonProps { variant: Variants<'Button'> }
+```
+
+Run `xcss check --project tsconfig.json` using the Rust CLI to validate exact
+class keys and variant values. XCSS embeds tsrs for this checking; your project's
+TypeScript setup remains permissive. Groups belong to their XCSS module and list
+exported local classes, without requiring a corresponding base selector.
+Vite compilation does not automatically run TS project checking.
+
+Variant values are literal names such as `primary`. This feature checks them;
+it does not translate them to scoped classes or implement an `xClass` attribute.
+Use `styles.primary` when applying the existing scoped class at runtime.
+
 A project maintains one native analysis host. Edits update source revisions;
 additions/removals rebuild the global injection index. Active XCSS wrappers and
 stylesheets are invalidated together because unimported global injection calls

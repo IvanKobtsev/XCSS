@@ -474,3 +474,49 @@ fn invalid_updates_are_atomic_and_snapshots_are_cached() {
     assert_eq!(pointer, h.snapshot().symbols().as_ptr());
     assert_eq!(first.syntax(&id("a")).unwrap().source.text(), ".a {}");
 }
+
+#[test]
+fn zero_defaults_to_length_with_contextual_numeric_support() {
+    for (literal, kind) in [
+        ("0", "length"),
+        (" 0 /* x */", "length"),
+        ("0 // x\n", "length"),
+        ("-0", "integer"),
+        ("+0", "integer"),
+        ("0.0", "number"),
+        ("0e0", "number"),
+        ("1", "integer"),
+    ] {
+        assert_eq!(
+            xcss_analysis::infer_type(literal),
+            ValueType::named(kind),
+            "{literal}"
+        );
+    }
+    let mut h = host(&[(
+        "a",
+        "@vars { --zero = 0; --n: number = 0; --i: integer = 0; } $count: integer = 0; $product = 0 * 2; @injection f($i: integer = 0, $n: number = 0, $l: length = 0) { width: $l; } .a { @:f(0, 0, 0); }",
+    )]);
+    let s = h.snapshot();
+    assert!(s.diagnostics().is_empty(), "{:?}", s.diagnostics());
+    assert_eq!(
+        s.symbols()
+            .iter()
+            .find(|s| s.name == "--zero")
+            .unwrap()
+            .value_type,
+        ValueType::named("length")
+    );
+    let mut h = host(&[(
+        "a",
+        "@vars { --zero = 0; } @injection f($i: integer, $l: length) {} .a { @:f(0px, 2); @:f(--zero, 0); }",
+    )]);
+    assert_eq!(
+        h.snapshot()
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code == "type.argument-mismatch")
+            .count(),
+        3
+    );
+}

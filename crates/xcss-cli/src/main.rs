@@ -5,6 +5,8 @@ use std::{
     process,
 };
 use xcss_core::{AnalysisHost, FileId, GenerateOptions, Severity};
+mod check;
+use check::check_project;
 fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");
@@ -13,6 +15,9 @@ fn main() {
 }
 fn run() -> Result<(), String> {
     let args: Vec<_> = env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "check") {
+        return check_project(&args[1..]);
+    }
     if !matches!(args.len(), 4 | 6)
         || args[0] != "compile"
         || !matches!(args[2].as_str(), "--output" | "-o")
@@ -235,6 +240,7 @@ fn scan(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
             if [
                 "node_modules",
                 ".git",
+                ".cache",
                 "dist",
                 "target",
                 "coverage",

@@ -1,5 +1,31 @@
 # Language service
 
+## TypeScript projects (API v4)
+
+Call `setTypescriptProject("tsconfig.json")` to enable XCSS-specific TS checking.
+Supply TS/TSX sources, tsconfig files (including extended configs), package.json
+files and dependency sources/declarations with `setTypescriptFile(path, revision,
+source)`. Call `removeTypescriptFile(path, revision)` for deletion. Revisions must
+increase, including across deletion and recreation. Pass `null` to
+`setTypescriptProject` to disable checking. Config and dependency updates use the
+same revisioned source API.
+
+When enabled, use consistent project-relative forward-slash paths for both XCSS
+and TS inputs. TS module resolution follows the supplied tsconfig, including
+paths aliases. Host inputs must include all required dependencies; the engine
+never reads the filesystem. Existing `setResolution` continues to resolve XCSS
+injection and composition imports.
+
+`document(path)` returns original-source diagnostics with code `typescript.xcss`
+and the tsrs diagnostic number in the message. It filters ordinary TS errors
+unrelated to exact XCSS contracts, but includes project configuration and required
+dependency-resolution failures. Literal bracket access is checked even when the
+project disables `noImplicitAny`; normal TS escape hatches remain available.
+The service caches checking within an immutable project snapshot. Changes to
+either language or project configuration invalidate it; retained snapshots keep
+their previous diagnostics. TS checking currently rebuilds the checker after an
+edit rather than reusing tsrs programs incrementally.
+
 `xcss-language-service` provides editor queries without generation, filesystem
 access, or a protocol dependency. Hosts provide normalized file identities, text,
 monotonically increasing revisions, and explicit import resolutions.
@@ -11,7 +37,7 @@ the parser and analyzer continue using original UTF-8 byte ranges.
 
 The published `@cross-css/native` package exposes `LanguageService` with `setFile`,
 `removeFile`, `setResolution`, `document`, `definition`, `references`, and `hover`.
-`languageServiceCapabilities()` supplies API version 3 and the ordered token legend.
+`languageServiceCapabilities()` supplies API version 4 and the ordered token legend.
 `document()` returns a project revision, structured diagnostics, and absolute token
 positions; adapters encode tokens for their protocol. Hover text is plain text.
 

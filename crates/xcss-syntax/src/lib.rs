@@ -30,6 +30,7 @@ pub enum NodeKind {
     Rule,
     Declaration,
     Vars,
+    Variants,
     Variable,
     Constant,
     Injection,
@@ -124,6 +125,7 @@ fn lex(source: &SourceFile) -> (Vec<Token>, Vec<Diagnostic>) {
     let mut out = Vec::new();
     let mut diagnostics = Vec::new();
     let mut i = 0;
+    let mut in_url = false;
     while i < text.len() {
         let start = i;
         let c = text[i..].chars().next().unwrap();
@@ -131,7 +133,10 @@ fn lex(source: &SourceFile) -> (Vec<Token>, Vec<Diagnostic>) {
         if c == '{' && raw_header(&out, text) {
             kind = TokenKind::Raw;
             i = raw_end(text, start).0;
-        } else if text[i..].starts_with("/*") {
+        } else if !in_url && text[i..].starts_with("//") {
+            kind = TokenKind::Comment;
+            i += text[i..].find(['\r', '\n']).unwrap_or(text.len() - i);
+        } else if !in_url && text[i..].starts_with("/*") {
             kind = TokenKind::Comment;
             if let Some(end) = text[i + 2..].find("*/") {
                 i += end + 4;
@@ -247,12 +252,48 @@ fn lex(source: &SourceFile) -> (Vec<Token>, Vec<Diagnostic>) {
             kind = TokenKind::Punctuation;
             i += c.len_utf8();
         }
+        if kind == TokenKind::Punctuation {
+            if c == '('
+                && out.last().is_some_and(|t| {
+                    t.kind == TokenKind::Word
+                        && text[t.range.start..t.range.end].eq_ignore_ascii_case("url")
+                })
+            {
+                in_url = true;
+            } else if c == ')' {
+                in_url = false;
+            }
+        }
         out.push(Token {
             kind,
             range: TextRange::new(start, i),
         });
     }
     (out, diagnostics)
+}
+
+/// Mask comments without changing byte offsets or line endings.
+pub(crate) fn mask_line_comments(text: &str) -> String {
+    if !text.contains("//") {
+        return text.to_owned();
+    }
+    let source = SourceFile::new(
+        xcss_source::FileId("comment-fragment".into()),
+        0,
+        text.to_owned(),
+    );
+    let (tokens, _) = lex(&source);
+    let mut bytes = text.as_bytes().to_vec();
+    for token in tokens {
+        if token.kind == TokenKind::Comment && text[token.range.start..].starts_with("//") {
+            for byte in &mut bytes[token.range.start..token.range.end] {
+                if !matches!(*byte, b'\r' | b'\n') {
+                    *byte = b' ';
+                }
+            }
+        }
+    }
+    String::from_utf8(bytes).unwrap()
 }
 
 fn raw_header(tokens: &[Token], text: &str) -> bool {
@@ -456,6 +497,7 @@ impl Parser<'_> {
             let kind = match at_name {
                 "raw" => NodeKind::Raw,
                 "vars" => NodeKind::Vars,
+                "variants" => NodeKind::Variants,
                 "injection" => NodeKind::Injection,
                 "util" => NodeKind::Util,
                 ":" => NodeKind::Call,
@@ -580,6 +622,8 @@ impl Parser<'_> {
 
 /// Parse a bounded standard CSS value with Raffia, without exposing its AST.
 pub fn valid_css_value(value: &str) -> bool {
+    let cleaned = mask_line_comments(value);
+    let value = cleaned.as_str();
     let mut parser = raffia::ParserBuilder::new(value)
         .syntax(raffia::Syntax::Css)
         .build();
@@ -594,6 +638,7 @@ fn validate_fragments(result: &mut ParseResult) {
         }
         let raw = node.header_text(&result.source);
         let invalid_shape = match node.kind {
+            NodeKind::Variants => node.block.is_some() || result.variants(node).is_none(),
             NodeKind::Constant => node.block.is_some() || result.constant(node).is_none(),
             NodeKind::Injection | NodeKind::Util => {
                 node.block.is_none()
@@ -630,7 +675,8 @@ fn validate_fragments(result: &mut ParseResult) {
             ));
             continue;
         }
-        let mut parser = raffia::ParserBuilder::new(raw)
+        let cleaned = mask_line_comments(raw);
+        let mut parser = raffia::ParserBuilder::new(&cleaned)
             .syntax(raffia::Syntax::Css)
             .build();
         let error = match node.kind {

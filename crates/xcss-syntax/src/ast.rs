@@ -2,6 +2,73 @@
 use crate::{Node, NodeKind, ParseResult, Token, TokenKind};
 use xcss_source::TextRange;
 
+#[derive(Clone, Debug)]
+pub struct Variants<'a> {
+    pub name: &'a str,
+    pub name_range: TextRange,
+    pub members: Vec<(&'a str, TextRange)>,
+}
+
+impl ParseResult {
+    pub fn variants(&self, node: &Node) -> Option<Variants<'_>> {
+        if node.kind != NodeKind::Variants || node.block.is_some() {
+            return None;
+        }
+        let tokens: Vec<_> = self
+            .tokens
+            .iter()
+            .filter(|t| {
+                t.range.start >= node.header.start
+                    && t.range.end <= node.header.end
+                    && !matches!(t.kind, TokenKind::Whitespace | TokenKind::Comment)
+            })
+            .collect();
+        let text = |i: usize| tokens.get(i).map(|t| self.slice(t.range));
+        let identifier = |raw: &str| {
+            raffia::ParserBuilder::new(raw)
+                .syntax(raffia::Syntax::Css)
+                .build()
+                .parse::<raffia::ast::Ident>()
+                .is_ok()
+        };
+        if text(0)? != "@"
+            || text(1)? != "variants"
+            || tokens.get(2)?.kind != TokenKind::Word
+            || text(3)? != ":"
+            || !identifier(text(2)?)
+        {
+            return None;
+        }
+        let mut members = Vec::new();
+        let mut i = 4;
+        loop {
+            if text(i)? != "." || tokens.get(i + 1)?.kind != TokenKind::Word {
+                return None;
+            }
+            if tokens[i].range.end != tokens[i + 1].range.start {
+                return None;
+            }
+            if !identifier(text(i + 1)?) {
+                return None;
+            }
+            members.push((text(i + 1)?, tokens[i + 1].range));
+            i += 2;
+            if i == tokens.len() {
+                break;
+            }
+            if text(i)? != "," {
+                return None;
+            }
+            i += 1;
+        }
+        Some(Variants {
+            name: text(2)?,
+            name_range: tokens[2].range,
+            members,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Value {
     pub range: TextRange,

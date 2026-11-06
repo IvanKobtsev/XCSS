@@ -203,7 +203,7 @@ impl<'a> Lowerer<'a> {
                         }
                     }
                 }
-                NodeKind::Injection | NodeKind::Util | NodeKind::Constant => {}
+                NodeKind::Injection | NodeKind::Util | NodeKind::Constant | NodeKind::Variants => {}
                 NodeKind::Import if parse.injection_import(node).is_some() => {}
                 NodeKind::Call => {
                     let Some(target) = self.snapshot.resolved_call(file, node) else {
@@ -465,7 +465,8 @@ impl<'a> Lowerer<'a> {
                 }
                 _ => {
                     let mut header = Mapped::default();
-                    let raw = parse.slice(node.header).trim();
+                    let cleaned_header = without_line_comments(parse.slice(node.header));
+                    let raw = cleaned_header.trim();
                     if node.kind == NodeKind::Rule {
                         header.push(&normalize_selector(raw), &origin);
                     } else if let Some(keyframes) = parse.keyframes(node).filter(|k| k.scope_switch)

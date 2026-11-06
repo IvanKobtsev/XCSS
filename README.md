@@ -101,6 +101,12 @@ compile-time functions, or ICSS value import/export syntax.
 
 ## CLI and Rust/Node APIs
 
+TypeScript consumers can enable the bundled declarations with
+`"types": ["@cross-css/vite-plugin/client"]` in `compilerOptions`. Use
+`cargo run -p xcss-cli -- check --project tsconfig.json` to check XCSS class
+references and `Variants<"Group">` values with the embedded tsrs checker.
+See the [Vite package guide](packages/vite-plugin/README.md#typescript-and-variant-groups).
+
 ```console
 cargo run -p xcss-cli -- compile styles/button.xcss --output dist/button.css --root .
 ```

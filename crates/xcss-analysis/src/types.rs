@@ -36,7 +36,7 @@ pub(super) fn checked_type(
             return ValueType::Unknown;
         }
         let expected = ValueType::named(annotation);
-        if !expected.accepts(&actual) {
+        if !expected.accepts(&actual) && !initial.is_some_and(|v| numeric_zero(&expected, v)) {
             db.error(
                 "type.mismatch",
                 file,
@@ -102,6 +102,9 @@ pub fn infer_type(value: &str) -> ValueType {
     if value.contains("gradient(") {
         return ValueType::named("image");
     }
+    if value == "0" {
+        return ValueType::named("length");
+    }
     if value.parse::<i64>().is_ok() {
         return ValueType::named("integer");
     }
@@ -152,35 +155,24 @@ pub fn infer_type(value: &str) -> ValueType {
     ValueType::Unknown
 }
 
+pub(super) fn numeric_zero(expected: &ValueType, value: &str) -> bool {
+    matches!(expected, ValueType::Named(n) if n == "integer" || n == "number")
+        && without_comments(value).trim() == "0"
+}
+
 fn without_comments(value: &str) -> String {
-    let mut out = String::new();
-    let mut chars = value.chars().peekable();
-    let mut quote = None;
-    while let Some(c) = chars.next() {
-        if let Some(q) = quote {
-            out.push(c);
-            if c == '\\' {
-                if let Some(next) = chars.next() {
-                    out.push(next);
-                }
-            } else if c == q {
-                quote = None;
-            }
-        } else if matches!(c, '\'' | '"') {
-            quote = Some(c);
-            out.push(c);
-        } else if c == '/' && chars.peek() == Some(&'*') {
-            chars.next();
-            while let Some(next) = chars.next() {
-                if next == '*' && chars.peek() == Some(&'/') {
-                    chars.next();
-                    break;
-                }
-            }
-            out.push(' ');
-        } else {
-            out.push(c);
-        }
+    if !value.contains("/*") && !value.contains("//") {
+        return value.to_owned();
     }
-    out
+    let source = SourceFile::new(FileId("value".into()), 0, value.to_owned());
+    let parsed = xcss_syntax::parse(std::sync::Arc::new(source));
+    let mut bytes = value.as_bytes().to_vec();
+    for token in parsed
+        .tokens
+        .iter()
+        .filter(|t| t.kind == TokenKind::Comment)
+    {
+        bytes[token.range.start..token.range.end].fill(b' ');
+    }
+    String::from_utf8(bytes).unwrap()
 }

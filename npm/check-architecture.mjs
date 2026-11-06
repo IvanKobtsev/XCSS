@@ -11,7 +11,8 @@ const allowed = new Map([
   ['xcss-source', new Set()],
   ['xcss-syntax', new Set(['xcss-source', 'raffia'])],
   ['xcss-analysis', new Set(['xcss-source', 'xcss-syntax'])],
-  ['xcss-language-service', new Set(['xcss-source', 'xcss-syntax', 'xcss-analysis'])],
+  ['xcss-language-service', new Set(['xcss-source', 'xcss-syntax', 'xcss-analysis', 'xcss-typescript'])],
+  ['xcss-typescript', new Set(['xcss-source', 'xcss-analysis', 'serde_json', 'tsrs_compiler', 'tsrs_core', 'tsrs_ast', 'tsrs_tsoptions', 'tsrs_vfs'])],
   ['xcss-codegen', new Set(['xcss-source', 'xcss-syntax', 'xcss-analysis', 'lightningcss', 'parcel_sourcemap', 'serde_json'])],
   ['xcss-core', new Set(['xcss-source', 'xcss-syntax', 'xcss-analysis', 'xcss-codegen'])],
 ])

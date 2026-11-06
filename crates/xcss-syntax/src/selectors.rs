@@ -3,6 +3,8 @@ use crate::{Node, NodeKind, ParseResult, TokenKind};
 use raffia::{ParserBuilder, ast::*};
 use xcss_source::TextRange;
 pub fn selector_needs_content(text: &str) -> bool {
+    let cleaned = crate::mask_line_comments(text);
+    let text = cleaned.as_str();
     let mut parser = ParserBuilder::new(text).syntax(raffia::Syntax::Css).build();
     parser
         .parse::<SelectorList>()

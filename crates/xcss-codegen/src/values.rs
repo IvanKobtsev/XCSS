@@ -114,7 +114,7 @@ pub(super) fn render(
             for part in parts {
                 if part.range.start >= cursor {
                     out.push(
-                        &parse.source.text()[cursor..part.range.start],
+                        &without_line_comments(&parse.source.text()[cursor..part.range.start]),
                         &Location {
                             file: origin.file.clone(),
                             range: TextRange::new(cursor, part.range.start),
@@ -136,7 +136,7 @@ pub(super) fn render(
             let end = value.range.end.saturating_sub(usize::from(group));
             if end >= cursor {
                 out.push(
-                    &parse.source.text()[cursor..end],
+                    &without_line_comments(&parse.source.text()[cursor..end]),
                     &Location {
                         file: origin.file.clone(),
                         range: TextRange::new(cursor, end),

@@ -81,6 +81,9 @@ impl AnalysisHost {
 #[derive(Clone)]
 pub struct AnalysisSnapshot(Arc<Database>);
 impl AnalysisSnapshot {
+    pub fn module_interface(&self, file: &FileId) -> Option<&ModuleInterface> {
+        self.0.interfaces.get(file)
+    }
     /// Infer an original-source subexpression using this snapshot's resolved symbols.
     pub fn value_type(&self, file: &FileId, value: &Value) -> ValueType {
         if self.0.files.contains_key(file) {

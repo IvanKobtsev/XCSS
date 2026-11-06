@@ -4,7 +4,19 @@ use xcss_source::{Diagnostic, FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind};
 
 pub use xcss_analysis::UpdateError;
-pub const API_VERSION: u32 = 3;
+pub const API_VERSION: u32 = 4;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, OnceLock},
+};
+
+#[derive(Clone, Default)]
+struct TypescriptState {
+    generation: u64,
+    config: Option<String>,
+    files: BTreeMap<FileId, Arc<xcss_source::SourceFile>>,
+    revisions: BTreeMap<FileId, u64>,
+}
 mod selectors;
 pub use selectors::{Selector, SelectorPart, Selectors};
 pub use xcss_syntax::Specificity;
@@ -69,8 +81,63 @@ pub struct SemanticToken {
 #[derive(Default)]
 pub struct LanguageService {
     host: AnalysisHost,
+    typescript: TypescriptState,
+    cached: Option<ServiceSnapshot>,
 }
 impl LanguageService {
+    /// Enable TS checking using a project-relative tsconfig path; None disables it.
+    pub fn set_typescript_project(&mut self, config: Option<String>) {
+        self.typescript.config = config;
+        self.typescript.generation += 1;
+    }
+    /// Supply TS sources, configs, package metadata, and dependency declarations.
+    pub fn set_typescript_file(
+        &mut self,
+        file: FileId,
+        revision: u64,
+        text: String,
+    ) -> Result<(), UpdateError> {
+        if file.0.is_empty()
+            || file.0.starts_with('/')
+            || file.0.contains('\\')
+            || file.0.split('/').any(|part| part == "..")
+        {
+            return Err(UpdateError::InvalidModuleId);
+        }
+        if self
+            .typescript
+            .revisions
+            .get(&file)
+            .is_some_and(|&old| revision <= old)
+        {
+            return Err(UpdateError::StaleRevision);
+        }
+        self.typescript.revisions.insert(file.clone(), revision);
+        self.typescript.files.insert(
+            file.clone(),
+            Arc::new(xcss_source::SourceFile::new(file, revision, text)),
+        );
+        self.typescript.generation += 1;
+        Ok(())
+    }
+    pub fn remove_typescript_file(
+        &mut self,
+        file: &FileId,
+        revision: u64,
+    ) -> Result<(), UpdateError> {
+        if self
+            .typescript
+            .revisions
+            .get(file)
+            .is_some_and(|&old| revision <= old)
+        {
+            return Err(UpdateError::StaleRevision);
+        }
+        self.typescript.revisions.insert(file.clone(), revision);
+        self.typescript.files.remove(file);
+        self.typescript.generation += 1;
+        Ok(())
+    }
     pub fn new() -> Self {
         Self::default()
     }
@@ -89,17 +156,56 @@ impl LanguageService {
         self.host.set_resolution(file, specifier, target);
     }
     pub fn snapshot(&mut self) -> ServiceSnapshot {
-        ServiceSnapshot(self.host.snapshot())
+        let analysis = self.host.snapshot();
+        let revision = analysis.revision() + self.typescript.generation;
+        if let Some(cached) = &self.cached
+            && cached.revision() == revision
+        {
+            return cached.clone();
+        }
+        let snapshot = ServiceSnapshot(
+            analysis,
+            Arc::new(self.typescript.clone()),
+            Arc::new(OnceLock::new()),
+        );
+        self.cached = Some(snapshot.clone());
+        snapshot
     }
 }
 #[derive(Clone)]
-pub struct ServiceSnapshot(AnalysisSnapshot);
+pub struct ServiceSnapshot(
+    AnalysisSnapshot,
+    Arc<TypescriptState>,
+    Arc<OnceLock<Vec<Diagnostic>>>,
+);
 impl ServiceSnapshot {
     pub fn revision(&self) -> u64 {
-        self.0.revision()
+        self.0.revision() + self.1.generation
     }
     fn location(&self, location: &Location) -> Option<EditorLocation> {
-        let source = &self.0.syntax(&location.file)?.source;
+        if self.1.config.as_ref() == Some(&location.file.0)
+            && !self.1.files.contains_key(&location.file)
+        {
+            return Some(EditorLocation {
+                file: location.file.clone(),
+                range: Range {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                },
+            });
+        }
+        let source = self
+            .1
+            .files
+            .get(&location.file)
+            .map(Arc::as_ref)
+            .or_else(|| self.0.syntax(&location.file).map(|p| p.source.as_ref()))?;
         Some(EditorLocation {
             file: location.file.clone(),
             range: Range {
@@ -115,6 +221,25 @@ impl ServiceSnapshot {
         self.0
             .diagnostics()
             .iter()
+            .chain(
+                self.2
+                    .get_or_init(|| {
+                        self.1
+                            .config
+                            .as_ref()
+                            .map(|config| {
+                                xcss_typescript::check(
+                                    &xcss_typescript::Project {
+                                        config: config.clone(),
+                                        files: self.1.files.clone(),
+                                    },
+                                    &self.0,
+                                )
+                            })
+                            .unwrap_or_default()
+                    })
+                    .iter(),
+            )
             .filter(|d| &d.location.file == file)
             .filter_map(|d| {
                 Some(EditorDiagnostic {

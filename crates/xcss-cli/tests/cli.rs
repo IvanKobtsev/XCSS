@@ -5,6 +5,40 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+#[test]
+fn checks_typescript_without_emitting_and_reports_original_locations() {
+    let root = sandbox();
+    fs::write(
+        root.join("tsconfig.json"),
+        r#"{"compilerOptions":{"strict":true},"files":["index.ts"]}"#,
+    )
+    .unwrap();
+    fs::write(root.join("a.xcss"), "@variants V: .one; .one {}").unwrap();
+    fs::write(root.join("index.ts"), "import styles, { type Variants } from './a.xcss'; const v: Variants<'V'> = 'wrong'; styles.missing;").unwrap();
+    let check = || {
+        Command::new(env!("CARGO_BIN_EXE_xcss"))
+            .current_dir(&root)
+            .args(["check", "--project", "tsconfig.json"])
+            .output()
+            .unwrap()
+    };
+    let output = check();
+    assert!(!output.status.success());
+    let message = String::from_utf8_lossy(&output.stderr);
+    assert!(message.contains("index.ts:1:"), "{message}");
+    assert!(
+        message.contains("wrong") && message.contains("missing"),
+        "{message}"
+    );
+    assert!(!root.join("a.css").exists());
+    fs::write(root.join("index.ts"), "import styles, { type Variants } from './a.xcss'; const v: Variants<'V'> = 'one'; styles.one;").unwrap();
+    let output = check();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 fn sandbox() -> PathBuf {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
         "../../target/cli-tests/{}-{}",

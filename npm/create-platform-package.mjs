@@ -27,7 +27,7 @@ const manifest = {
     url: 'git+https://github.com/IvanKobtsev/XCSS.git',
   },
   main: 'xcss.node',
-  files: ['xcss.node', 'README.md', 'LICENSE'],
+  files: ['xcss.node', 'README.md', 'LICENSE', 'TSRS-LICENSE', 'TSRS-NOTICE'],
   os: [os],
   cpu: [cpu],
   engines: { node: '^20.19.0 || >=22.12.0' },
@@ -38,3 +38,5 @@ if (libc) manifest.libc = [libc === 'gnu' ? 'glibc' : libc]
 await writeFile(join(outputDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 await copyFile(join(root, 'packages', 'native', 'README.md'), join(outputDir, 'README.md'))
 await copyFile(join(root, 'LICENSE'), join(outputDir, 'LICENSE'))
+await copyFile(join(root, 'packages', 'native', 'TSRS-LICENSE'), join(outputDir, 'TSRS-LICENSE'))
+await copyFile(join(root, 'packages', 'native', 'TSRS-NOTICE'), join(outputDir, 'TSRS-NOTICE'))

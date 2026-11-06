@@ -16,8 +16,17 @@ Raffia stays private to syntax. Analysis owns scopes, symbols, bindings, types,
 injection targets/bodies, constant initializers, registrations, compositions, keyframes, and dependencies.
 Code generation consumes those facts, expands injections into an origin-aware IR,
 lowers extensions, then uses pinned Lightning CSS privately for scoping/printing.
-The independent `xcss-language-service` consumes source, syntax, and analysis only.
+The independent `xcss-language-service` consumes source, syntax, analysis, and
+the isolated `xcss-typescript` integration.
 It returns owned editor facts and UTF-16 ranges without invoking generation.
+
+Analysis exposes module interfaces (exported local class names and variant
+groups), shared with generation. `xcss-typescript` embeds a pinned tsrs revision
+behind a host-supplied in-memory filesystem. Per-module synthetic declarations
+replace permissive XCSS types only inside that checker. Comparing precise and
+permissive checks filters unrelated TS errors. Project configuration and required
+resolution failures remain visible. No synthetic declarations are written to disk.
+The workspace pins Rust 1.99 for this integration.
 
 The facade contains no language implementation. Filesystem discovery, alias
 resolution, output writes, CSS delivery, and asset loading belong to adapters.

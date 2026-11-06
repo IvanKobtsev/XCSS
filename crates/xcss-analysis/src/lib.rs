@@ -13,6 +13,7 @@ mod facts;
 mod host;
 mod registration;
 mod types;
+mod variants;
 use collect::collect;
 use constants::analyze_constants;
 pub use facts::*;
@@ -20,6 +21,7 @@ pub use host::{AnalysisHost, AnalysisSnapshot, UpdateError};
 pub use registration::registration_initial_is_independent;
 use types::checked_type;
 pub use types::infer_type;
+pub use variants::ModuleInterface;
 
 #[derive(Default)]
 struct Database {
@@ -35,6 +37,7 @@ struct Database {
     compositions: Vec<ResolvedComposition>,
     imports: Vec<ImportBinding>,
     constants: BTreeMap<SymbolId, Value>,
+    interfaces: BTreeMap<FileId, ModuleInterface>,
 }
 #[derive(Clone)]
 struct Import {
@@ -397,6 +400,7 @@ fn analyze(
     check_cycles(&mut db, &edges, "binding.injection-cycle");
     validate_utils(&mut db);
     analyze_compositions(&mut db, &collected.compositions, resolutions);
+    variants::analyze(&mut db);
     for i in 0..db.expressions.len() {
         let expression = &db.expressions[i];
         let value_type = expression_type(&db, &expression.location.file, &expression.syntax);
@@ -599,7 +603,16 @@ fn expression_type(db: &Database, file: &FileId, value: &Value) -> ValueType {
             ) -> ValueType {
                 use xcss_syntax::ast::ArithmeticKind;
                 match &tree.kind {
-                    ArithmeticKind::Operand(v) => expression_type(db, file, v),
+                    ArithmeticKind::Operand(v) => {
+                        if types::numeric_zero(
+                            &ValueType::named("integer"),
+                            db.files[file].slice(v.range),
+                        ) {
+                            ValueType::named("integer")
+                        } else {
+                            expression_type(db, file, v)
+                        }
+                    }
                     ArithmeticKind::Unary { operand, .. } => arithmetic_type(db, file, operand),
                     ArithmeticKind::Binary {
                         operator,
@@ -786,7 +799,9 @@ fn validate_call(db: &mut Database, call: &Call, target: SymbolId) {
     }
     for (value, param) in args.iter().zip(&signature.parameters) {
         let actual = expression_type(db, &call.file, value);
-        if !param.value_type.accepts(&actual) {
+        if !param.value_type.accepts(&actual)
+            && !types::numeric_zero(&param.value_type, parse.slice(value.range))
+        {
             db.error(
                 "type.argument-mismatch",
                 &call.file,

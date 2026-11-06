@@ -87,6 +87,7 @@ try {
      if (plugin.name !== 'cross-css' || plugin.enforce !== 'pre') throw new Error('packed Vite plugin did not load correctly');`,
     testRoot,
   ], testRoot)
+  run(process.execPath, [join(root, 'npm', 'test-published-language-service.mjs')], testRoot)
   console.log(`packed release smoke test passed on ${platformKey}`)
 } finally {
   await rm(testRoot, { recursive: true, force: true })

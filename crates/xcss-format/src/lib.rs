@@ -251,9 +251,13 @@ impl Printer<'_> {
             out.push_str(comment);
             *ignored = comment
                 .trim_start_matches("/*")
+                .trim_start_matches("//")
                 .trim_end_matches("*/")
                 .trim()
                 == "prettier-ignore";
+            if comment.starts_with("//") {
+                out.push_str(self.eol());
+            }
             cursor = token.range.end;
         }
         let gap = self.slice(cursor, end);
@@ -345,8 +349,32 @@ impl Printer<'_> {
         header
     }
     fn header(&self, node: &Node, depth: usize) -> String {
+        if let Some(variants) = self.parse.variants(node)
+            && !self
+                .parse
+                .tokens
+                .iter()
+                .any(|t| node.header.contains(t.range.start) && t.kind == TokenKind::Comment)
+        {
+            return format!(
+                "{}@variants {}: {}",
+                self.indent(depth),
+                variants.name,
+                variants
+                    .members
+                    .iter()
+                    .map(|(name, _)| format!(".{name}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         let text = self.slice(node.header.start, node.header.end).trim();
-        if matches!(node.kind, NodeKind::Rule | NodeKind::AtRule)
+        if !self
+            .parse
+            .tokens
+            .iter()
+            .any(|t| node.header.contains(t.range.start) && t.kind == TokenKind::Comment)
+            && matches!(node.kind, NodeKind::Rule | NodeKind::AtRule)
             && let Ok(formatted) = format_text(
                 &format!("{text} {{}}"),
                 Syntax::Css,
@@ -385,6 +413,16 @@ impl Printer<'_> {
         while index < tokens.len() {
             let token = tokens[index];
             let text = self.slice(token.range.start, token.range.end);
+            if token.kind == TokenKind::Comment && text.starts_with("//") {
+                if previous.is_some() {
+                    docs.push(Doc::Text(" ".into()));
+                }
+                docs.push(Doc::Text(text.into()));
+                docs.push(Doc::Hard);
+                previous = None;
+                index += 1;
+                continue;
+            }
             if Some(text) == end {
                 break;
             }

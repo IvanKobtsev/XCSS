@@ -7,7 +7,7 @@ const require = createRequire(resolve(process.cwd(), 'package.json'))
 const { LanguageService, languageServiceCapabilities } = require('@cross-css/native')
 const expectedVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 assert.equal(require('@cross-css/native/package.json').version, expectedVersion)
-assert.equal(languageServiceCapabilities().apiVersion, 3)
+assert.equal(languageServiceCapabilities().apiVersion, 4)
 const service = new LanguageService()
 const source = '@injection paint {} .a { @:paint; }'
 service.setFile('file:///test.xcss', 1, source)
@@ -31,4 +31,12 @@ const tokens = service.document('file:///selectors.xcss').tokens
 for (const kind of ['class', 'selectorId', 'selectorTag', 'selectorAttribute', 'pseudoClass', 'pseudoElement', 'selectorUniversal', 'selectorNesting', 'selectorCombinator']) {
   assert(tokens.some(token => legend[token.tokenType] === kind), kind)
 }
-console.log('Published XCSS language-service API v3 and selector specificity verified')
+const tsService = new LanguageService()
+tsService.setFile('button.xcss', 1, '@variants Button: .primary; .button {} .primary {}')
+tsService.setTypescriptProject('tsconfig.json')
+tsService.setTypescriptFile('tsconfig.json', 1, JSON.stringify({ compilerOptions: { strict: true }, files: ['index.ts'] }))
+tsService.setTypescriptFile('index.ts', 1, "import styles, { type Variants } from './button.xcss'; const value: Variants<'Button'> = 'wrong'; styles.missing;")
+assert.equal(tsService.document('index.ts').diagnostics.length, 2)
+tsService.setTypescriptFile('index.ts', 2, "import styles, { type Variants } from './button.xcss'; const value: Variants<'Button'> = 'primary'; styles.button;")
+assert.deepEqual(tsService.document('index.ts').diagnostics, [])
+console.log('Published XCSS language-service API v4, selectors, and TypeScript variants verified')

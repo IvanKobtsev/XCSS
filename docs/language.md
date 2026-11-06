@@ -1,5 +1,26 @@
 # XCSS language engine
 
+## Variant groups
+
+`@variants Button: .primary, .secondary;` declares a top-level, module-local,
+case-sensitive group. The name is independent of selectors. Members must be
+unique exported local classes; forward references are allowed. Empty lists,
+duplicate groups, missing classes and nested declarations are errors.
+Classes introduced by called injections belong to the calling module. Unused
+injection definitions and `:global` classes are not module exports.
+
+The directive emits no CSS. TS consumers import `type Variants` from the same
+XCSS module and write `Variants<"Button">`. XCSS analysis checks it as the exact
+union `"primary" | "secondary"`, including assignments and JSX props across
+files. Other exported classes remain accessible through the default styles map
+without becoming variants. Arbitrary strings fail union assignment; ordinary TS
+assertions and `any` retain their usual behavior.
+
+The project's own TS checker sees a permissive string type through
+`@cross-css/vite-plugin/client`. Exact checking runs in the native language service
+or `xcss check --project tsconfig.json`. This does not add runtime conversion of
+variant strings or an `xClass` transform.
+
 XCSS extends modern CSS and CSS Modules, not Sass. Native nesting, unknown CSS
 properties and extensible at-rules are accepted. Native CSS imports are distinct
 from `@import namespace from "file"` and `@import { name } from "file"`.
@@ -16,6 +37,33 @@ property groups. `content: preserve` is a generator directive. Undeclared custom
 properties remain global. Dynamic values have unknown types, not type errors.
 Mutable Sass variables, interpolation, module directives, mixins and control
 flow are rejected. CSS Modules classes are local unless marked `:global`.
+
+## Zero inference and comments
+
+An unannotated literal `0` defaults to `length`, so `@vars { --gap = 0; }`
+registers a length variable. Explicit `number` and `integer` annotations and
+parameters still accept literal zero. Other spellings, such as `0.0`, `-0`,
+`+0`, and `0e0`, retain their numeric inference. Zero used as an arithmetic
+operand retains its numeric role.
+
+XCSS supports block comments (`/* ... */`) and single-line comments (`// ...`).
+A line comment ends at the next LF, CRLF, CR, or end of file. Comments do not
+replace required semicolons. The formatter preserves line comments; generated
+CSS omits them. Both `// prettier-ignore` and `/* prettier-ignore */` preserve
+the next statement's formatting.
+
+```xcss
+// Default to a length without writing 0px
+@vars { --gap = 0; }
+.card {
+  margin: --gap; // This comment is omitted from generated CSS
+}
+```
+
+Comment markers inside quoted strings and unquoted `url(...)` values remain
+literal, including `url(https://example.com/image.png)` and
+`url(//cdn.example.com/image.png)`. Raw CSS blocks retain their existing
+verbatim behavior; `//` is not interpreted as an XCSS comment inside them.
 
 ## Raw CSS
 
