@@ -123,6 +123,7 @@ jobs:
         uses: houseabsolute/actions-rust-cross@v1
         with:
           command: build
+          toolchain: "1.99.0"
           target: ${{ matrix.target }}
           args: "--locked --release --package xcss-node"
           strip: true
@@ -133,6 +134,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=-crt-static"
         with:
           command: build
+          toolchain: "1.99.0"
           target: ${{ matrix.target }}
           args: "--locked --release --package xcss-node"
           strip: true

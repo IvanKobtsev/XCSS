@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.7.0
+## 0.7.1
+
+Version 0.7.0 was not published because native target setup failed. This release
+also aligns the cross-platform build action with the pinned Rust toolchain.
 
 - Add module-local `@variants` groups with validation and formatting support.
 - Embed tsrs to check exact XCSS class exports and variant values across TypeScript and JSX files.
