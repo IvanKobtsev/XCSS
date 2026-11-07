@@ -4,9 +4,18 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Version tag to recover, for example v0.7.2
+        required: true
+        type: string
 
 permissions:
   contents: read
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 jobs:
   quality:
@@ -29,7 +38,7 @@ jobs:
         shell: bash
         run: |
           corepack pnpm verify-release
-          test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
@@ -117,7 +126,7 @@ jobs:
         shell: bash
         run: |
           node npm/verify-release.mjs
-          test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
       - name: Build native binding and CLI
         if: matrix.libc != 'musl'
         uses: houseabsolute/actions-rust-cross@v1
@@ -127,7 +136,7 @@ jobs:
           target: ${{ matrix.target }}
           args: "--locked --release --package xcss-node --package xcss-cli"
           strip: true
-      - name: Build native binding and CLI with dynamic musl CRT
+      - name: Build native binding with dynamic musl CRT
         if: matrix.libc == 'musl'
         uses: houseabsolute/actions-rust-cross@v1
         env:
@@ -136,7 +145,16 @@ jobs:
           command: build
           toolchain: "1.99.0"
           target: ${{ matrix.target }}
-          args: "--locked --release --package xcss-node --package xcss-cli"
+          args: "--locked --release --package xcss-node"
+          strip: true
+      - name: Build standalone CLI with static musl CRT
+        if: matrix.libc == 'musl'
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          command: build
+          toolchain: "1.99.0"
+          target: ${{ matrix.target }}
+          args: "--locked --release --package xcss-cli"
           strip: true
       - name: Create npm platform package
         shell: bash
@@ -226,7 +244,7 @@ jobs:
           for attempt in $(seq 1 12); do
             # Require the host binary explicitly: npm can silently omit an optional
             # dependency while newly published registry metadata is propagating.
-            if npm install --ignore-scripts --prefer-online "@cross-css/native@${GITHUB_REF_NAME#v}" "@cross-css/native-linux-x64-gnu@${GITHUB_REF_NAME#v}"; then
+            if npm install --ignore-scripts --prefer-online "@cross-css/native@${RELEASE_TAG#v}" "@cross-css/native-linux-x64-gnu@${RELEASE_TAG#v}"; then
               break
             fi
             test "$attempt" -lt 12
@@ -235,7 +253,7 @@ jobs:
           node "$GITHUB_WORKSPACE/npm/test-published-language-service.mjs"
 
       - name: Upload Vite package after verifying its published dependencies
-        if: github.ref_name == 'v0.7.2'
+        if: env.RELEASE_TAG == 'v0.7.2'
         uses: actions/upload-artifact@v4
         with:
           name: cross-css-vite-v0.7.2

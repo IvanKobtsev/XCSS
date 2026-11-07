@@ -51,3 +51,7 @@ Complete the first trusted publish within npm's validation window, then delete t
 6. Create and push a matching tag, for example `v0.2.0`.
 
 The workflow rejects a tag whose version does not exactly match the manifests. Publishing is restart-safe: package versions already present on npm are skipped when a partially completed workflow is rerun.
+
+If a release needs a workflow fix after the tag has been pushed, run **Release**
+manually from the branch containing the fix and enter the original version tag.
+The workflow checks that the branch manifests match the requested release.
