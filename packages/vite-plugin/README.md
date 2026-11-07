@@ -1,10 +1,10 @@
-# @cross-css/vite-plugin
+# @cross-css/vite
 
 Compile `.xcss` into scoped CSS and JavaScript class exports with Vite 8.
 
 ```ts
 import { defineConfig } from 'vite'
-import xcss from '@cross-css/vite-plugin'
+import xcss from '@cross-css/vite'
 export default defineConfig({ plugins: [xcss()] })
 ```
 
@@ -24,8 +24,8 @@ explicitly. Aliases are resolved by Vite.
 
 ## TypeScript and variant groups
 
-Add `"@cross-css/vite-plugin/client"` to your tsconfig's `compilerOptions.types`,
-or add `/// <reference types="@cross-css/vite-plugin/client" />` to an environment
+Add `"@cross-css/vite/client"` to your tsconfig's `compilerOptions.types`,
+or add `/// <reference types="@cross-css/vite/client" />` to an environment
 declaration file. This declaration entry is included in this package.
 It lets ordinary TypeScript accept XCSS imports and the `Variants` type:
 
@@ -41,9 +41,21 @@ import styles, { type Variants } from './Button.xcss'
 interface ButtonProps { variant: Variants<'Button'> }
 ```
 
-Run `xcss check --project tsconfig.json` using the Rust CLI to validate exact
-class keys and variant values. XCSS embeds tsrs for this checking; your project's
-TypeScript setup remains permissive. Groups belong to their XCSS module and list
+The package provides the `xcss` command. Add a script to validate exact class
+keys and variant values:
+
+```json
+{
+  "scripts": {
+    "check:xcss": "xcss check --project tsconfig.app.json"
+  }
+}
+```
+
+Use the config that includes your application's TypeScript files, then run
+`yarn check:xcss` (or `npm run check:xcss`). CI can run the same script after
+installing dependencies. XCSS uses tsrs for this check while your project's
+TypeScript checker uses the permissive declarations. Groups belong to their XCSS module and list
 exported local classes, without requiring a corresponding base selector.
 Vite compilation does not automatically run TS project checking.
 

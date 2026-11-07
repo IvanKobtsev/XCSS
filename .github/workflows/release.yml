@@ -118,16 +118,16 @@ jobs:
         run: |
           node npm/verify-release.mjs
           test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
-      - name: Build native binding
+      - name: Build native binding and CLI
         if: matrix.libc != 'musl'
         uses: houseabsolute/actions-rust-cross@v1
         with:
           command: build
           toolchain: "1.99.0"
           target: ${{ matrix.target }}
-          args: "--locked --release --package xcss-node"
+          args: "--locked --release --package xcss-node --package xcss-cli"
           strip: true
-      - name: Build native binding with dynamic musl CRT
+      - name: Build native binding and CLI with dynamic musl CRT
         if: matrix.libc == 'musl'
         uses: houseabsolute/actions-rust-cross@v1
         env:
@@ -136,13 +136,14 @@ jobs:
           command: build
           toolchain: "1.99.0"
           target: ${{ matrix.target }}
-          args: "--locked --release --package xcss-node"
+          args: "--locked --release --package xcss-node --package xcss-cli"
           strip: true
       - name: Create npm platform package
         shell: bash
         run: |
           node npm/create-platform-package.mjs \
             "target/${{ matrix.target }}/release/${{ matrix.library }}" \
+            "target/${{ matrix.target }}/release/xcss${{ matrix.os == 'win32' && '.exe' || '' }}" \
             "dist/${{ matrix.package }}" \
             "${{ matrix.package_name }}" \
             "${{ matrix.os }}" \
@@ -164,8 +165,7 @@ jobs:
       contents: read
       id-token: write
     env:
-      # Used only for the first release, before trusted publishing can be
-      # configured for the newly created npm packages.
+      # Optional fallback for packages that still publish with a token.
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v6
@@ -178,7 +178,7 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: corepack pnpm install --frozen-lockfile
-      - run: corepack pnpm --filter @cross-css/vite-plugin build
+      - run: corepack pnpm --filter @cross-css/vite build
       - run: corepack pnpm pack:release
       - uses: actions/download-artifact@v5
         with:
@@ -199,13 +199,17 @@ jobs:
             npm publish "$package_file" --access public --provenance
           done
 
-      - name: Publish loader and Vite plugin
+      - name: Publish loader and Vite package
         shell: bash
         run: |
           set -euo pipefail
           for package_file in dist/main-packages/*.tgz; do
             package_name=$(tar -xOf "$package_file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).name")
             package_version=$(tar -xOf "$package_file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+            if [[ "$package_name" == '@cross-css/vite' && "$package_version" == '0.7.2' ]]; then
+              echo 'The first @cross-css/vite release is published manually from the verified artifact.'
+              continue
+            fi
             if npm view "$package_name@$package_version" version >/dev/null 2>&1; then
               echo "Skipping $package_name@$package_version because it is already published"
               continue
@@ -229,3 +233,11 @@ jobs:
             sleep 15
           done
           node "$GITHUB_WORKSPACE/npm/test-published-language-service.mjs"
+
+      - name: Upload Vite package after verifying its published dependencies
+        if: github.ref_name == 'v0.7.2'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-css-vite-v0.7.2
+          path: dist/main-packages/cross-css-vite-0.7.2.tgz
+          if-no-files-found: error

@@ -9,7 +9,7 @@ const typeFolder = join(workspaceDir, 'target', 'napi-types')
 await mkdir(typeFolder, { recursive: true })
 const cargo = spawnSync(
   'cargo',
-  ['build', '--manifest-path', join(workspaceDir, 'Cargo.toml'), '--package', 'xcss-node'],
+  ['build', '--manifest-path', join(workspaceDir, 'Cargo.toml'), '--package', 'xcss-node', '--package', 'xcss-cli'],
   { cwd: workspaceDir, encoding: 'utf8', env: { ...process.env, NAPI_TYPE_DEF_TMP_FOLDER: typeFolder }, shell: process.platform === 'win32' },
 )
 
@@ -40,3 +40,6 @@ const libraryName = process.platform === 'win32'
     : 'libxcss_node.so'
 
 await copyFile(join(workspaceDir, 'target', 'debug', libraryName), join(packageDir, 'xcss.node'))
+const executableName = process.platform === 'win32' ? 'xcss.exe' : 'xcss'
+await mkdir(join(packageDir, 'bin'), { recursive: true })
+await copyFile(join(workspaceDir, 'target', 'debug', executableName), join(packageDir, 'bin', executableName))

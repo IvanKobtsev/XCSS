@@ -31,7 +31,19 @@ fn checks_typescript_without_emitting_and_reports_original_locations() {
         "{message}"
     );
     assert!(!root.join("a.css").exists());
-    fs::write(root.join("index.ts"), "import styles, { type Variants } from './a.xcss'; const v: Variants<'V'> = 'one'; styles.one;").unwrap();
+    let dependency = root.join("node_modules/example");
+    fs::create_dir_all(dependency.join("dist")).unwrap();
+    fs::write(
+        dependency.join("package.json"),
+        r#"{"types":"dist/index.d.ts"}"#,
+    )
+    .unwrap();
+    fs::write(
+        dependency.join("dist/index.d.ts"),
+        "export type Variant = 'one';",
+    )
+    .unwrap();
+    fs::write(root.join("index.ts"), "import styles, { type Variants } from './a.xcss'; import type { Variant } from 'example'; const v: Variants<'V'> = 'one' as Variant; styles.one;").unwrap();
     let output = check();
     assert!(
         output.status.success(),

@@ -9,7 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const destination = join(root, 'dist', 'main-packages')
 await mkdir(destination, { recursive: true })
 
-for (const packageName of ['@cross-css/native', '@cross-css/vite-plugin']) {
+for (const packageName of ['@cross-css/native', '@cross-css/vite']) {
   const packed = spawnSync(
     'corepack',
     ['pnpm', '--filter', packageName, 'pack', '--pack-destination', destination],

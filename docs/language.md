@@ -17,7 +17,7 @@ without becoming variants. Arbitrary strings fail union assignment; ordinary TS
 assertions and `any` retain their usual behavior.
 
 The project's own TS checker sees a permissive string type through
-`@cross-css/vite-plugin/client`. Exact checking runs in the native language service
+`@cross-css/vite/client`. Exact checking runs in the native language service
 or `xcss check --project tsconfig.json`. This does not add runtime conversion of
 variant strings or an `xClass` transform.
 

@@ -79,6 +79,16 @@ fn copy_issue(d: P<tsrs_ast::Diagnostic>, config: &str) -> Issue {
     }
 }
 
+fn memory_fs(files: &BTreeMap<String, String>) -> Result<Arc<dyn FS>, String> {
+    // The pinned tsrs bulk loader can panic while sorting mixed file and
+    // directory prefixes. Incremental writes also create parent directories.
+    let fs = vfstest::from_map(std::iter::empty::<(&str, &str)>(), true);
+    for (path, text) in files {
+        fs.write_file(path, text)?;
+    }
+    Ok(Arc::new(bundled::wrap_fs(fs)))
+}
+
 fn run(project: &Project, snapshot: &AnalysisSnapshot, precise: bool) -> (Vec<Issue>, Vec<Issue>) {
     // Config parsing and main-thread allocations also need a bounded lifetime in
     // the long-lived language service. Only owned Issue values leave this scope.
@@ -91,9 +101,23 @@ fn run(project: &Project, snapshot: &AnalysisSnapshot, precise: bool) -> (Vec<Is
         .collect();
     // Discover root files from the real project inputs. Virtual declarations are
     // dependencies only and must not turn an otherwise empty project into a valid one.
-    let host = Host {
-        fs: Arc::new(bundled::wrap_fs(vfstest::from_map(files.iter(), true))),
+    let input_error = |message| {
+        (
+            vec![Issue {
+                file: format!("/{}", project.config),
+                start: 0,
+                end: 0,
+                code: 5083,
+                message,
+            }],
+            Vec::new(),
+        )
     };
+    let fs = match memory_fs(&files) {
+        Ok(fs) => fs,
+        Err(message) => return input_error(message),
+    };
+    let host = Host { fs };
     for file in snapshot.files() {
         if let Some(interface) = snapshot.module_interface(file) {
             let stem = file.0.strip_suffix(".xcss").unwrap_or(&file.0);
@@ -103,7 +127,10 @@ fn run(project: &Project, snapshot: &AnalysisSnapshot, precise: bool) -> (Vec<Is
             );
         }
     }
-    let fs: Arc<dyn FS> = Arc::new(bundled::wrap_fs(vfstest::from_map(files, true)));
+    let fs = match memory_fs(&files) {
+        Ok(fs) => fs,
+        Err(message) => return input_error(message),
+    };
     let overrides = tsrs_core::CompilerOptions {
         no_emit: Tristate::True,
         no_check: Tristate::False,

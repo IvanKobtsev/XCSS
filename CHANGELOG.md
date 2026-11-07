@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.2
+
+- Rename the Vite package to `@cross-css/vite`. Update the Vite config import and any declaration references to `@cross-css/vite/client`.
+- Include the `xcss` command with the Vite package. The platform dependency supplies the precompiled checker, so CI can run `xcss check --project tsconfig.app.json` from a package script after installing dependencies.
+- Load declarations from dependency build directories and avoid a tsrs file-loading crash on large projects.
+
 ## 0.7.1
 
 Version 0.7.0 was not published because native target setup failed. This release

@@ -7,7 +7,7 @@
     "test:browser": "playwright test"
   },
   "dependencies": {
-    "@cross-css/vite-plugin": "workspace:*"
+    "@cross-css/vite": "workspace:*"
   },
   "devDependencies": {
     "vite": "^8.0.0",

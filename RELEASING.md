@@ -1,12 +1,24 @@
 # Releasing XCSS
 
-XCSS follows the same tag-driven release model as StyleContract. A `v*` tag starts `.github/workflows/release.yml`, which validates the repository, builds eight native targets, publishes their platform packages, and then publishes the native loader and Vite plugin.
+A `v*` tag starts `.github/workflows/release.yml`. It validates the repository, builds eight native targets with the CLI, and publishes the platform packages and native loader. It also publishes the Vite package after its initial manual release.
+
+## First release of `@cross-css/vite`
+
+1. Push the release commit and the `v0.7.2` tag. Wait for the **Release** workflow to succeed and publish the nine native packages at `0.7.2`.
+2. Download and extract the **cross-css-vite-v0.7.2** artifact from that run. Sign in to npm with an account authorized to publish under `@cross-css`, then publish the tarball.
+
+   ```sh
+   npm publish ./cross-css-vite-0.7.2.tgz --access public
+   npm view @cross-css/vite@0.7.2 version bin
+   ```
+
+3. Configure trusted publishing for `@cross-css/vite` using the settings below. Test a fresh install of `@cross-css/vite@0.7.2` by running the project's `check:xcss` script.
 
 ## One-time npm setup
 
 All packages are public under the `@cross-css` organization:
 
-- `@cross-css/vite-plugin`
+- `@cross-css/vite`
 - `@cross-css/native`
 - `@cross-css/native-darwin-arm64`
 - `@cross-css/native-darwin-x64`
@@ -19,9 +31,7 @@ All packages are public under the `@cross-css` organization:
 
 Do not run `npm publish` from `packages/native-platforms`. Those directories are private dependency-resolution stubs and do not contain native binaries.
 
-For the first release, create a granular npm access token that can publish public packages under the `@cross-css` organization and add it to the GitHub repository as the `NPM_TOKEN` Actions secret. Push the first matching `v*` tag; the workflow will build and publish the real platform tarballs with public access.
-
-After the first release, configure each package's npm trusted publisher with:
+After a package's first publish, configure its npm trusted publisher with the following settings.
 
 - Provider: GitHub Actions
 - Organization or user: `IvanKobtsev`

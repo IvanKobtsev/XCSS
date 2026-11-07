@@ -78,9 +78,18 @@ fn load(
     for entry in fs::read_dir(directory).map_err(|e| e.to_string())? {
         let path = entry.map_err(|e| e.to_string())?.path();
         if path.is_dir() {
-            if [".git", ".cache", "target", "dist", "coverage", ".pnpm"]
+            let dependency = path.strip_prefix(root).is_ok_and(|relative| {
+                relative
+                    .components()
+                    .any(|part| part.as_os_str() == "node_modules")
+            });
+            if [".git", ".cache", ".pnpm"]
                 .iter()
                 .any(|s| path.file_name().is_some_and(|n| n == *s))
+                || !dependency
+                    && ["target", "dist", "coverage"]
+                        .iter()
+                        .any(|s| path.file_name().is_some_and(|n| n == *s))
             {
                 continue;
             }

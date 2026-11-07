@@ -15,10 +15,14 @@ const cargoVersion = cargoToml.match(/\[workspace\.package\][\s\S]*?\nversion\s*
 const nodeLockVersion = cargoLock.match(/\[\[package\]\]\s+name = "xcss-node"\s+version = "([^"]+)"/)?.[1]
 const version = rootPackage.version
 
+if (vitePackage.name !== '@cross-css/vite' || vitePackage.bin?.xcss !== './bin/xcss.cjs') {
+  throw new Error('Expected @cross-css/vite to expose the bundled xcss command')
+}
+
 const versions = {
   'root package': version,
   '@cross-css/native': nativePackage.version,
-  '@cross-css/vite-plugin': vitePackage.version,
+  '@cross-css/vite': vitePackage.version,
   'Cargo workspace': cargoVersion,
   'Cargo.lock xcss-node': nodeLockVersion,
 }
@@ -56,7 +60,7 @@ for (const name of Object.keys(optionalDependencies)) {
   }
 }
 if (vitePackage.dependencies?.['@cross-css/native'] !== version) {
-  throw new Error('@cross-css/vite-plugin must depend on the matching @cross-css/native version')
+  throw new Error('@cross-css/vite must depend on the matching @cross-css/native version')
 }
 
 console.log(`release metadata is consistent for ${version}`)

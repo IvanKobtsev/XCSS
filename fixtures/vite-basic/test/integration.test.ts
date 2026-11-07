@@ -3,7 +3,7 @@ import { join, relative, isAbsolute } from 'node:path'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { build, createServer, type Rollup } from 'vite'
 import { describe, expect, it } from 'vitest'
-import xcss from '@cross-css/vite-plugin'
+import xcss from '@cross-css/vite'
 const root=fileURLToPath(new URL('..',import.meta.url))
 describe('Vite integration',()=>{
  it('emits one shared utility asset across eager and lazy modules',async()=>{

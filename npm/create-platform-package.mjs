@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const [source, output, packageName, os, cpu, libc = ''] = process.argv.slice(2)
-if (!source || !output || !packageName || !os || !cpu) {
-  console.error('usage: create-platform-package <binding> <output> <package-name> <os> <cpu> [libc]')
+const [source, cli, output, packageName, os, cpu, libc = ''] = process.argv.slice(2)
+if (!source || !cli || !output || !packageName || !os || !cpu) {
+  console.error('usage: create-platform-package <binding> <cli> <output> <package-name> <os> <cpu> [libc]')
   process.exit(2)
 }
 
@@ -15,11 +15,15 @@ const rootPackage = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'
 const outputDir = resolve(output)
 await mkdir(outputDir, { recursive: true })
 await copyFile(resolve(source), join(outputDir, 'xcss.node'))
+const cliFile = os === 'win32' ? 'bin/xcss.exe' : 'bin/xcss'
+await mkdir(join(outputDir, 'bin'), { recursive: true })
+await copyFile(resolve(cli), join(outputDir, cliFile))
+if (os !== 'win32') await chmod(join(outputDir, cliFile), 0o755)
 
 const manifest = {
   name: packageName,
   version: rootPackage.version,
-  description: `Precompiled XCSS native binding for ${os}/${cpu}${libc ? `/${libc}` : ''}`,
+  description: `Precompiled XCSS native binding and CLI for ${os}/${cpu}${libc ? `/${libc}` : ''}`,
   license: 'MIT',
   author: 'Ivan Kobtsev',
   repository: {
@@ -27,7 +31,7 @@ const manifest = {
     url: 'git+https://github.com/IvanKobtsev/XCSS.git',
   },
   main: 'xcss.node',
-  files: ['xcss.node', 'README.md', 'LICENSE', 'TSRS-LICENSE', 'TSRS-NOTICE'],
+  files: ['xcss.node', cliFile, 'README.md', 'LICENSE', 'TSRS-LICENSE', 'TSRS-NOTICE'],
   os: [os],
   cpu: [cpu],
   engines: { node: '^20.19.0 || >=22.12.0' },

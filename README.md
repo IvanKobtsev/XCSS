@@ -36,12 +36,12 @@ specified. Eligible `::before`/`::after` rules receive empty content; use
 ## Vite
 
 ```console
-pnpm add -D @cross-css/vite-plugin
+pnpm add -D @cross-css/vite
 ```
 
 ```ts
 import { defineConfig } from 'vite'
-import xcss from '@cross-css/vite-plugin'
+import xcss from '@cross-css/vite'
 export default defineConfig({ plugins: [xcss()] })
 ```
 
@@ -102,8 +102,8 @@ compile-time functions, or ICSS value import/export syntax.
 ## CLI and Rust/Node APIs
 
 TypeScript consumers can enable the bundled declarations with
-`"types": ["@cross-css/vite-plugin/client"]` in `compilerOptions`. Use
-`cargo run -p xcss-cli -- check --project tsconfig.json` to check XCSS class
+`"types": ["@cross-css/vite/client"]` in `compilerOptions`. Use
+`xcss check --project tsconfig.json` in a package script to check XCSS class
 references and `Variants<"Group">` values with the embedded tsrs checker.
 See the [Vite package guide](packages/vite-plugin/README.md#typescript-and-variant-groups).
 

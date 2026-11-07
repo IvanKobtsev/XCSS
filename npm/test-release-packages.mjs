@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -30,7 +30,7 @@ const platformDir = join(testRoot, 'platform')
 const tarballDir = join(testRoot, 'tarballs')
 await mkdir(tarballDir, { recursive: true })
 
-function run(command, args, cwd = root) {
+function run(command, args, cwd = root, expectedStatus = 0) {
   const useShell = process.platform === 'win32' && command === 'npm'
   const env = { ...process.env }
   delete env.npm_config_verify_deps_before_run
@@ -44,13 +44,17 @@ function run(command, args, cwd = root) {
   if (result.stdout) process.stdout.write(result.stdout)
   if (result.stderr) process.stderr.write(result.stderr)
   if (result.error) throw result.error
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  if (result.status !== expectedStatus) {
+    throw new Error(`${command} exited with status ${result.status}, expected ${expectedStatus}`)
+  }
+  return result
 }
 
 try {
   run(process.execPath, [
     join(root, 'npm', 'create-platform-package.mjs'),
     join(root, 'packages', 'native', 'xcss.node'),
+    join(root, 'packages', 'native', 'bin', process.platform === 'win32' ? 'xcss.exe' : 'xcss'),
     platformDir,
     packageName,
     process.platform,
@@ -62,17 +66,34 @@ try {
   const platformTarName = packageName.replace('@cross-css/', 'cross-css-').replaceAll('/', '-')
   const tarballs = [
     join(root, 'dist', 'main-packages', `cross-css-native-${version}.tgz`),
-    join(root, 'dist', 'main-packages', `cross-css-vite-plugin-${version}.tgz`),
+    join(root, 'dist', 'main-packages', `cross-css-vite-${version}.tgz`),
     join(tarballDir, `${platformTarName}-${version}.tgz`),
   ]
   run('npm', ['install', '--ignore-scripts', '--no-package-lock', ...tarballs], testRoot)
+
+  const manifestPath = join(testRoot, 'package.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  manifest.scripts = { 'check:xcss': 'xcss check --project tsconfig.app.json' }
+  await writeFile(manifestPath, JSON.stringify(manifest))
+  await writeFile(join(testRoot, 'tsconfig.app.json'), JSON.stringify({
+    compilerOptions: { module: 'esnext', moduleResolution: 'bundler', types: ['@cross-css/vite/client'] },
+    files: ['app.ts'],
+  }))
+  await writeFile(join(testRoot, 'button.xcss'), '.button {}')
+  const appPath = join(testRoot, 'app.ts')
+  await writeFile(appPath, "import styles from './button.xcss'; styles.button;\n")
+  run('npm', ['run', 'check:xcss'], testRoot)
+  await writeFile(appPath, "import styles from './button.xcss'; styles.missing;\n")
+  const failure = run('npm', ['run', 'check:xcss'], testRoot, 1)
+  if (!failure.stderr.includes("Property 'missing' does not exist")) {
+    throw new Error('The packaged XCSS CLI did not report the missing class')
+  }
 
   run(process.execPath, [
     '--input-type=module',
     '--eval',
     `import { createRequire } from 'node:module';
      import { join } from 'node:path';
-     import { pathToFileURL } from 'node:url';
      const root = process.argv[1];
      const requireFromTest = createRequire(join(root, 'entry.js'));
      const source = 'a { width: --size * 2; }';
@@ -82,8 +103,7 @@ try {
      compiler.setFile('a.xcss', 1, source);
      const result = compiler.compile('a.xcss');
      if (!result.success || !result.artifacts[0].css.includes('calc(var(--size) * 2)')) throw new Error(JSON.stringify(result));
-     const pluginUrl = pathToFileURL(join(root, 'node_modules', '@cross-css', 'vite-plugin', 'dist', 'index.js'));
-     const plugin = (await import(pluginUrl.href)).default();
+     const plugin = (await import('@cross-css/vite')).default();
      if (plugin.name !== 'cross-css' || plugin.enforce !== 'pre') throw new Error('packed Vite plugin did not load correctly');`,
     testRoot,
   ], testRoot)
