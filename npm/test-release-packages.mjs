@@ -76,6 +76,10 @@ try {
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
   manifest.scripts = { 'check:xcss': 'xcss check --project tsconfig.app.json', 'check:stylesheets': 'xcss check' }
   await writeFile(manifestPath, JSON.stringify(manifest))
+  // pnpm injects npm_config_* settings that npm may warn about. Keep the
+  // script's stderr intact so the assertions only see XCSS output.
+  const runCheck = (script, expectedStatus = 0) =>
+    run('npm', ['--loglevel=error', 'run', script], testRoot, expectedStatus)
   await writeFile(join(testRoot, 'tsconfig.app.json'), JSON.stringify({
     compilerOptions: { module: 'esnext', moduleResolution: 'bundler', types: ['@cross-css/vite/client'] },
     files: ['app.ts'],
@@ -84,23 +88,23 @@ try {
   const appPath = join(testRoot, 'app.ts')
   const source = "import styles from './button.xcss'; import './unrelated'; const count: number = 'bad';\n"
   await writeFile(appPath, source + "styles.button;\n")
-  const success = run('npm', ['run', 'check:xcss'], testRoot)
-  if (success.stderr.trim()) throw new Error('The packaged XCSS CLI reported unrelated errors')
+  const success = runCheck('check:xcss')
+  if (success.stderr.trim()) throw new Error(`Unexpected stderr from the packaged XCSS CLI:\n${success.stderr}`)
   await writeFile(appPath, source + "styles.missing;\n")
-  const failure = run('npm', ['run', 'check:xcss'], testRoot, 1)
+  const failure = runCheck('check:xcss', 1)
   if (!failure.stderr.includes("XC-001 Unknown XCSS class — Class 'missing' can't be found in 'button.xcss'.")
       || failure.stderr.includes('unrelated') || /\bTS\d+\b/.test(failure.stderr)) {
     throw new Error('The packaged XCSS CLI did not isolate the missing class')
   }
   await writeFile(join(testRoot, 'tsconfig.app.json'), '{ invalid:')
-  const warning = run('npm', ['run', 'check:xcss'], testRoot)
+  const warning = runCheck('check:xcss')
   if (!warning.stderr.startsWith("Warning: Couldn't analyze XCSS TypeScript integration: ")
       || warning.stderr.trim().split('\n').length !== 1) {
     throw new Error('The packaged XCSS CLI did not report a standalone setup warning')
   }
   await writeFile(join(testRoot, 'button.xcss'), 'bogus;')
   for (const [script, expectsWarning] of [['check:stylesheets', false], ['check:xcss', true]]) {
-    const stylesheetFailure = run('npm', ['run', script], testRoot, 1)
+    const stylesheetFailure = runCheck(script, 1)
     if (!stylesheetFailure.stderr.includes('XC-105 Invalid XCSS statement')
         || stylesheetFailure.stderr.includes('Warning:') !== expectsWarning) {
       throw new Error('The packaged XCSS CLI did not check stylesheets independently')
