@@ -223,7 +223,7 @@ jobs:
               echo "Skipping $package_name@$package_version because it is already published"
               continue
             fi
-            npm publish "$package_file" --access public --provenance
+            node npm/publish-package.mjs "$package_file" "$package_name@$package_version"
           done
 
       - name: Publish loader and Vite package
@@ -241,7 +241,7 @@ jobs:
               echo "Skipping $package_name@$package_version because it is already published"
               continue
             fi
-            npm publish "$package_file" --access public --provenance
+            node npm/publish-package.mjs "$package_file" "$package_name@$package_version"
           done
 
       - name: Verify published language service
