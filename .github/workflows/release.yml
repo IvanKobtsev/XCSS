@@ -147,6 +147,13 @@ jobs:
           target: ${{ matrix.target }}
           args: "--locked --release --package xcss-node"
           strip: true
+      - name: Stage musl binding before the CLI build
+        if: matrix.libc == 'musl'
+        shell: bash
+        run: |
+          # The next cross action can restore its cache over the target directory.
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.library }}" dist/musl-binding.node
       - name: Build standalone CLI with static musl CRT
         if: matrix.libc == 'musl'
         uses: houseabsolute/actions-rust-cross@v1
@@ -158,9 +165,11 @@ jobs:
           strip: true
       - name: Create npm platform package
         shell: bash
+        env:
+          BINDING_PATH: ${{ matrix.libc == 'musl' && 'dist/musl-binding.node' || format('target/{0}/release/{1}', matrix.target, matrix.library) }}
         run: |
           node npm/create-platform-package.mjs \
-            "target/${{ matrix.target }}/release/${{ matrix.library }}" \
+            "$BINDING_PATH" \
             "target/${{ matrix.target }}/release/xcss${{ matrix.os == 'win32' && '.exe' || '' }}" \
             "dist/${{ matrix.package }}" \
             "${{ matrix.package_name }}" \
