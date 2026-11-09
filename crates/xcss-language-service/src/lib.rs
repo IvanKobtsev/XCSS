@@ -21,6 +21,7 @@ mod selectors;
 pub use selectors::{Selector, SelectorPart, Selectors};
 pub use xcss_syntax::Specificity;
 mod css;
+mod diagnostic_catalog;
 mod values;
 pub use css::{CssDeclaration, CssDeclarations, CssValuePart};
 pub use values::{CssFunction, CssValue, CssValues};
@@ -61,6 +62,8 @@ pub struct EditorLocation {
 #[derive(Clone, Debug)]
 pub struct EditorDiagnostic {
     pub diagnostic: Diagnostic,
+    pub label: &'static str,
+    pub legacy_code: Option<&'static str>,
     pub location: EditorLocation,
     pub related: Vec<EditorLocation>,
 }
@@ -176,36 +179,24 @@ impl LanguageService {
 pub struct ServiceSnapshot(
     AnalysisSnapshot,
     Arc<TypescriptState>,
-    Arc<OnceLock<Vec<Diagnostic>>>,
+    Arc<OnceLock<Result<Vec<Diagnostic>, String>>>,
 );
+
+pub fn typescript_warning(reason: &str) -> String {
+    let reason = reason.lines().map(str::trim).collect::<Vec<_>>().join(" ");
+    format!("Couldn't analyze XCSS TypeScript integration: {reason}")
+}
+
 impl ServiceSnapshot {
     pub fn revision(&self) -> u64 {
         self.0.revision() + self.1.generation
     }
     fn location(&self, location: &Location) -> Option<EditorLocation> {
-        if self.1.config.as_ref() == Some(&location.file.0)
-            && !self.1.files.contains_key(&location.file)
-        {
-            return Some(EditorLocation {
-                file: location.file.clone(),
-                range: Range {
-                    start: Position {
-                        line: 0,
-                        character: 0,
-                    },
-                    end: Position {
-                        line: 0,
-                        character: 0,
-                    },
-                },
-            });
-        }
         let source = self
-            .1
-            .files
-            .get(&location.file)
-            .map(Arc::as_ref)
-            .or_else(|| self.0.syntax(&location.file).map(|p| p.source.as_ref()))?;
+            .0
+            .syntax(&location.file)
+            .map(|p| p.source.as_ref())
+            .or_else(|| self.1.files.get(&location.file).map(Arc::as_ref))?;
         Some(EditorLocation {
             file: location.file.clone(),
             range: Range {
@@ -217,33 +208,48 @@ impl ServiceSnapshot {
     fn offset(&self, file: &FileId, position: Position) -> Option<usize> {
         self.0.syntax(file)?.source.utf16_to_byte(position)
     }
+
+    fn typescript_check(&self) -> &Result<Vec<Diagnostic>, String> {
+        self.2.get_or_init(|| {
+            let Some(config) = &self.1.config else {
+                return Ok(Vec::new());
+            };
+            xcss_typescript::check(
+                &xcss_typescript::Project {
+                    config: config.clone(),
+                    files: self.1.files.clone(),
+                },
+                &self.0,
+            )
+        })
+    }
+
+    pub fn typescript_project_warning(&self) -> Option<String> {
+        self.typescript_check()
+            .as_ref()
+            .err()
+            .map(|reason| typescript_warning(reason))
+    }
+
     pub fn diagnostics(&self, file: &FileId) -> Vec<EditorDiagnostic> {
+        let typescript = if self.0.syntax(file).is_none() && self.1.files.contains_key(file) {
+            self.typescript_check().as_deref().unwrap_or_default()
+        } else {
+            &[]
+        };
         self.0
             .diagnostics()
             .iter()
-            .chain(
-                self.2
-                    .get_or_init(|| {
-                        self.1
-                            .config
-                            .as_ref()
-                            .map(|config| {
-                                xcss_typescript::check(
-                                    &xcss_typescript::Project {
-                                        config: config.clone(),
-                                        files: self.1.files.clone(),
-                                    },
-                                    &self.0,
-                                )
-                            })
-                            .unwrap_or_default()
-                    })
-                    .iter(),
-            )
+            .chain(typescript)
             .filter(|d| &d.location.file == file)
             .filter_map(|d| {
+                let (code, label, legacy_code) = diagnostic_catalog::metadata(d.code);
+                let mut diagnostic = d.clone();
+                diagnostic.code = code;
                 Some(EditorDiagnostic {
-                    diagnostic: d.clone(),
+                    diagnostic,
+                    label,
+                    legacy_code,
                     location: self.location(&d.location)?,
                     related: d.related.iter().filter_map(|l| self.location(l)).collect(),
                 })

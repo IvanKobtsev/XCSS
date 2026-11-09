@@ -16,11 +16,24 @@ paths aliases. Host inputs must include all required dependencies; the engine
 never reads the filesystem. Existing `setResolution` continues to resolve XCSS
 injection and composition imports.
 
-`document(path)` returns original-source diagnostics with code `typescript.xcss`
-and the tsrs diagnostic number in the message. It filters ordinary TS errors
-unrelated to exact XCSS contracts, but includes project configuration and required
-dependency-resolution failures. Literal bracket access is checked even when the
-project disables `noImplicitAny`; normal TS escape hatches remain available.
+`document(path)` and `xcss check` report XCSS diagnostics at their original source
+locations. TypeScript diagnostics for other imports and type errors are omitted.
+
+| Code | Error |
+| --- | --- |
+| `XC-001` | Unknown class on an XCSS styles export |
+| `XC-002` | Invalid group argument to an XCSS `Variants` type |
+| `XC-003` | Invalid value for an XCSS variant group |
+| `XC-004` | Unresolved XCSS module import |
+
+An unusable TypeScript project produces a standalone warning with the setup
+error. Hosts can read it with `typescriptProjectWarning()`, which returns
+`null` when TypeScript checking is disabled or setup succeeds. The CLI prints
+it once and a warning alone does not fail the command. Run `xcss check` without
+`--project` to check stylesheets alone.
+
+Literal bracket access is checked even when the project disables
+`noImplicitAny`. Normal TypeScript escape hatches remain available.
 The service caches checking within an immutable project snapshot. Changes to
 either language or project configuration invalidate it; retained snapshots keep
 their previous diagnostics. TS checking currently rebuilds the checker after an
@@ -38,8 +51,17 @@ the parser and analyzer continue using original UTF-8 byte ranges.
 The published `@cross-css/native` package exposes `LanguageService` with `setFile`,
 `removeFile`, `setResolution`, `document`, `definition`, `references`, and `hover`.
 `languageServiceCapabilities()` supplies API version 4 and the ordered token legend.
-`document()` returns a project revision, structured diagnostics, and absolute token
-positions; adapters encode tokens for their protocol. Hover text is plain text.
+`document()` returns a project revision, structured diagnostics, and absolute
+token positions. Adapters encode tokens for their protocol. Hover text is plain
+text.
+
+Diagnostics include a stable numeric `code`, a readable `label`, and the
+specific `message`. Stylesheet codes use `XC-1xx` for syntax, `XC-2xx` for
+binding, `XC-3xx` for types, and `XC-4xx` for variants. For example, `XC-105`
+has the label “Invalid XCSS statement”. Hosts that previously matched
+`syntax.invalid-statement` or another stylesheet identifier can use
+`legacyCode` during migration. The complete mapping is in the
+[diagnostic catalog](../crates/xcss-language-service/src/diagnostic_catalog.rs).
 
 The service reports syntax and language diagnostics. Backend-specific emission
 errors still belong to compilation. Lint policy, completion, rename, and code fixes

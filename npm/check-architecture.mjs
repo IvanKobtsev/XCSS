@@ -12,7 +12,7 @@ const allowed = new Map([
   ['xcss-syntax', new Set(['xcss-source', 'raffia'])],
   ['xcss-analysis', new Set(['xcss-source', 'xcss-syntax'])],
   ['xcss-language-service', new Set(['xcss-source', 'xcss-syntax', 'xcss-analysis', 'xcss-typescript'])],
-  ['xcss-typescript', new Set(['xcss-source', 'xcss-analysis', 'serde_json', 'tsrs_compiler', 'tsrs_core', 'tsrs_ast', 'tsrs_tsoptions', 'tsrs_vfs'])],
+  ['xcss-typescript', new Set(['xcss-source', 'xcss-analysis', 'serde_json', 'tsrs_compiler', 'tsrs_core', 'tsrs_ast', 'tsrs_checker', 'tsrs_scanner', 'tsrs_tsoptions', 'tsrs_vfs'])],
   ['xcss-codegen', new Set(['xcss-source', 'xcss-syntax', 'xcss-analysis', 'lightningcss', 'parcel_sourcemap', 'serde_json'])],
   ['xcss-core', new Set(['xcss-source', 'xcss-syntax', 'xcss-analysis', 'xcss-codegen'])],
 ])
@@ -38,6 +38,7 @@ assert.throws(() => checkSource('use std::{sync::Arc, fs as disk};', 'negative c
 assert.throws(() => checkSource('std::fs::read("file")', 'negative control'))
 
 const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], { cwd: root, encoding: 'utf8' }))
+const stylesheetCodes = new Set()
 for (const [name] of allowed) {
   const pkg = metadata.packages.find(pkg => pkg.name === name)
   assert(pkg, `missing language crate ${name}`)
@@ -46,9 +47,18 @@ for (const [name] of allowed) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name)
       if (entry.isDirectory()) visit(path)
-      else if (path.endsWith('.rs')) checkSource(readFileSync(path, 'utf8'), path)
+      else if (path.endsWith('.rs')) {
+        const source = readFileSync(path, 'utf8')
+        checkSource(source, path)
+        if (name === 'xcss-syntax' || name === 'xcss-analysis') {
+          for (const [, code] of source.matchAll(/"((?:syntax|binding|type|variants)\.[a-z-]+)"/g)) stylesheetCodes.add(code)
+        }
+      }
     }
   }
   visit(join(dirname(pkg.manifest_path), 'src'))
 }
+const catalog = readFileSync(join(root, 'crates/xcss-language-service/src/diagnostic_catalog.rs'), 'utf8')
+const catalogCodes = new Set([...catalog.matchAll(/"((?:syntax|binding|type|variants)\.[a-z-]+)"/g)].map(([, code]) => code))
+assert.deepEqual(catalogCodes, stylesheetCodes, 'stylesheet diagnostic catalog must match the engine codes')
 console.log('language-engine dependency and host-I/O boundaries verified')

@@ -101,10 +101,13 @@ compile-time functions, or ICSS value import/export syntax.
 
 ## CLI and Rust/Node APIs
 
-TypeScript consumers can enable the bundled declarations with
+Run `xcss check` from the project directory to check stylesheets. TypeScript
+consumers can enable the bundled declarations with
 `"types": ["@cross-css/vite/client"]` in `compilerOptions`. Use
 `xcss check --project tsconfig.json` in a package script to check XCSS class
 references and `Variants<"Group">` values with the embedded tsrs checker.
+If TypeScript setup fails, the command prints a warning and still checks the
+stylesheets.
 See the [Vite package guide](packages/vite-plugin/README.md#typescript-and-variant-groups).
 
 ```console

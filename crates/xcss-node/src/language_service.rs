@@ -20,6 +20,8 @@ pub struct EditorLocation {
 #[napi(object)]
 pub struct EditorDiagnostic {
     pub code: String,
+    pub label: String,
+    pub legacy_code: Option<String>,
     pub message: String,
     pub severity: String,
     pub location: EditorLocation,
@@ -249,6 +251,11 @@ impl LanguageService {
     pub fn set_typescript_project(&mut self, config: Option<String>) {
         self.inner.set_typescript_project(config);
     }
+
+    #[napi]
+    pub fn typescript_project_warning(&mut self) -> Option<String> {
+        self.inner.snapshot().typescript_project_warning()
+    }
     #[napi]
     pub fn set_typescript_file(
         &mut self,
@@ -294,6 +301,8 @@ impl LanguageService {
                 .into_iter()
                 .map(|d| EditorDiagnostic {
                     code: d.diagnostic.code.into(),
+                    label: d.label.into(),
+                    legacy_code: d.legacy_code.map(Into::into),
                     message: d.diagnostic.message,
                     severity: match d.diagnostic.severity {
                         xcss_source::Severity::Error => "error",

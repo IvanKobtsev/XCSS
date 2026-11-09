@@ -1803,8 +1803,10 @@ version = "0.7.2"
 dependencies = [
  "serde_json",
  "tsrs_ast",
+ "tsrs_checker",
  "tsrs_compiler",
  "tsrs_core",
+ "tsrs_scanner",
  "tsrs_tsoptions",
  "tsrs_vfs",
  "xcss-analysis",

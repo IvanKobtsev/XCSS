@@ -14,22 +14,38 @@ fn checks_typescript_without_emitting_and_reports_original_locations() {
     )
     .unwrap();
     fs::write(root.join("a.xcss"), "@variants V: .one; .one {}").unwrap();
-    fs::write(root.join("index.ts"), "import styles, { type Variants } from './a.xcss'; const v: Variants<'V'> = 'wrong'; styles.missing;").unwrap();
-    let check = || {
+    let imports = "import styles, { type Variants } from './a.xcss'; import 'app/helpers'; const n: number = 'ordinary type error';\n";
+    fs::write(
+        root.join("index.ts"),
+        format!("{imports}type Missing = Variants<'Missing'>; const v: Variants<'V'> = 'wrong'; styles.missing;"),
+    )
+    .unwrap();
+    let check = |config: &str| {
         Command::new(env!("CARGO_BIN_EXE_xcss"))
             .current_dir(&root)
-            .args(["check", "--project", "tsconfig.json"])
+            .args(["check", "--project", config])
             .output()
             .unwrap()
     };
-    let output = check();
+    let output = check("tsconfig.json");
     assert!(!output.status.success());
     let message = String::from_utf8_lossy(&output.stderr);
-    assert!(message.contains("index.ts:1:"), "{message}");
+    assert!(message.contains("index.ts:2:"), "{message}");
     assert!(
-        message.contains("wrong") && message.contains("missing"),
+        message.contains("XC-001 Unknown XCSS class — Class 'missing' can't be found in 'a.xcss'."),
         "{message}"
     );
+    assert!(
+        message.contains(
+            "XC-002 Unknown XCSS variant group — 'Missing' is not a variant group in 'a.xcss'."
+        ),
+        "{message}"
+    );
+    assert!(
+        message.contains("XC-003 Invalid XCSS variant value — Value is not valid for variant group 'V' in 'a.xcss'."),
+        "{message}"
+    );
+    assert_eq!(message.lines().count(), 4, "{message}");
     assert!(!root.join("a.css").exists());
     let dependency = root.join("node_modules/example");
     fs::create_dir_all(dependency.join("dist")).unwrap();
@@ -43,14 +59,93 @@ fn checks_typescript_without_emitting_and_reports_original_locations() {
         "export type Variant = 'one';",
     )
     .unwrap();
-    fs::write(root.join("index.ts"), "import styles, { type Variants } from './a.xcss'; import type { Variant } from 'example'; const v: Variants<'V'> = 'one' as Variant; styles.one;").unwrap();
-    let output = check();
+    fs::write(root.join("index.ts"), format!("{imports}import type {{ Variant }} from 'example'; const v: Variants<'V'> = 'one' as Variant; styles.one;")).unwrap();
+    let output = check("tsconfig.json");
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn stylesheet_checks_survive_typescript_setup_failures() {
+    let root = sandbox();
+    fs::write(root.join("index.ts"), "").unwrap();
+    fs::write(root.join("bad.ts"), [0xff]).unwrap();
+    fs::write(root.join("valid.json"), r#"{"files":["index.ts"]}"#).unwrap();
+    fs::write(root.join("malformed.json"), "{ invalid:").unwrap();
+    let check = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_xcss"))
+            .current_dir(&root)
+            .arg("check")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+
+    for (stylesheet, valid) in [(".a {}", true), ("bogus;", false)] {
+        fs::write(root.join("a.xcss"), stylesheet).unwrap();
+        for (config, reason) in [
+            (None, None),
+            (Some("missing.json"), Some("missing.json")),
+            (Some("valid.json"), Some("bad.ts")),
+        ] {
+            let output = match config {
+                Some(config) => check(&["--project", config]),
+                None => check(&[]),
+            };
+            let message = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.success(), valid, "{message}");
+            assert_eq!(
+                message.contains("XC-105 Invalid XCSS statement"),
+                !valid,
+                "{message}"
+            );
+            let warnings: Vec<_> = message
+                .lines()
+                .filter(|line| line.starts_with("Warning:"))
+                .collect();
+            if let Some(reason) = reason {
+                assert_eq!(warnings.len(), 1, "{message}");
+                assert!(
+                    warnings[0]
+                        .starts_with("Warning: Couldn't analyze XCSS TypeScript integration: ")
+                );
+                assert!(warnings[0].contains(reason), "{message}");
+            } else {
+                assert!(warnings.is_empty(), "{message}");
+            }
+        }
+    }
+    fs::write(root.join("bad.ts"), "").unwrap();
+    for (stylesheet, valid) in [(".a {}", true), ("bogus;", false)] {
+        fs::write(root.join("a.xcss"), stylesheet).unwrap();
+        for (config, warning) in [("malformed.json", true), ("valid.json", false)] {
+            let output = check(&["--project", config]);
+            let message = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.success(), valid, "{message}");
+            assert_eq!(
+                message.contains("XC-105 Invalid XCSS statement"),
+                !valid,
+                "{message}"
+            );
+            assert_eq!(
+                message
+                    .lines()
+                    .filter(|line| line.starts_with("Warning:"))
+                    .count(),
+                usize::from(warning),
+                "{message}"
+            );
+            if warning {
+                assert!(message.contains("Property value"), "{message}");
+            }
+        }
+    }
+}
+
 fn sandbox() -> PathBuf {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
         "../../target/cli-tests/{}-{}",

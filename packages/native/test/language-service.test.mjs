@@ -15,6 +15,48 @@ test('TS checking accepts unsaved project sources and updates after XCSS edits',
   assert.throws(() => service.setTypescriptFile('index.ts', 2, ''), /StaleRevision/)
 })
 
+test('stylesheet diagnostics and TypeScript setup warnings are independent', () => {
+  const service = new LanguageService()
+  const uri = 'a.xcss'
+  const source = '/* 😀 */ bogus;\n@variants V: .missing;\n@vars { --x: mystery; }\n.a { @:missing; }'
+  service.setFile(uri, 1, source)
+  service.setTypescriptFile('index.ts', 1, '')
+  assert.equal(service.typescriptProjectWarning(), null)
+  service.setTypescriptProject('tsconfig.json')
+  assert.match(service.typescriptProjectWarning(), /tsconfig\.json/)
+  service.setTypescriptFile('tsconfig.json', 1, '{ invalid:')
+  assert.match(service.typescriptProjectWarning(), /Property value/)
+  assert.deepEqual(service.document('tsconfig.json').diagnostics, [])
+  assert.deepEqual(service.document('index.ts').diagnostics, [])
+
+  const broken = service.document(uri).diagnostics
+  const statement = broken.find(diagnostic => diagnostic.code === 'XC-105')
+  assert.equal(statement.label, 'Invalid XCSS statement')
+  assert.equal(statement.legacyCode, 'syntax.invalid-statement')
+  assert.equal(statement.message, 'Expected a declaration or rule')
+  assert.deepEqual(statement.location, {
+    uri,
+    range: {
+      start: { line: 0, character: source.indexOf('bogus') },
+      end: { line: 0, character: source.indexOf(';') },
+    },
+  })
+  for (const [code, legacyCode] of [
+    ['XC-212', 'binding.unknown-injection'],
+    ['XC-311', 'type.unknown-type'],
+    ['XC-403', 'variants.unknown-class'],
+  ]) {
+    assert.equal(broken.find(diagnostic => diagnostic.code === code)?.legacyCode, legacyCode)
+  }
+  service.setTypescriptFile('tsconfig.json', 2, '{"files":["index.ts"]}')
+  assert.equal(service.typescriptProjectWarning(), null)
+  assert.deepEqual(service.document(uri).diagnostics, broken)
+  service.setTypescriptFile('tsconfig.json', 3, '{ invalid:')
+  service.setTypescriptProject(null)
+  assert.equal(service.typescriptProjectWarning(), null)
+  assert.deepEqual(service.document(uri).diagnostics, broken)
+})
+
 test('editor API returns UTF-16 facts without invoking compilation', () => {
   const service = new LanguageService()
   assert.equal(languageServiceCapabilities().apiVersion, 4)

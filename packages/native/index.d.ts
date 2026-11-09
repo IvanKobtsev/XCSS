@@ -16,6 +16,8 @@ range: EditorRange
 
 export interface EditorDiagnostic {
 code: string
+label: string
+legacyCode?: string
 message: string
 severity: string
 location: EditorLocation
@@ -197,6 +199,7 @@ export declare class LanguageService {
  cssDeclarations(uri: string): CssDeclarations
  constructor()
  setTypescriptProject(config?: string | undefined | null): void
+ typescriptProjectWarning(): string | null
  setTypescriptFile(path: string, revision: number, source: string): void
  removeTypescriptFile(path: string, revision: number): void
  setFile(uri: string, revision: number, source: string): void

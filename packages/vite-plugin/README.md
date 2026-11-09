@@ -54,7 +54,9 @@ keys and variant values:
 
 Use the config that includes your application's TypeScript files, then run
 `yarn check:xcss` (or `npm run check:xcss`). CI can run the same script after
-installing dependencies. XCSS uses tsrs for this check while your project's
+installing dependencies. Run `xcss check` for stylesheet checks alone. A
+TypeScript setup failure prints a warning while stylesheet checks continue.
+XCSS uses tsrs for this check while your project's
 TypeScript checker uses the permissive declarations. Groups belong to their XCSS module and list
 exported local classes, without requiring a corresponding base selector.
 Vite compilation does not automatically run TS project checking.

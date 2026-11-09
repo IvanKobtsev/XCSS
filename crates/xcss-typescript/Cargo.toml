@@ -14,5 +14,7 @@ serde_json.workspace = true
 tsrs_compiler = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
 tsrs_core = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
 tsrs_ast = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
+tsrs_checker = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
+tsrs_scanner = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
 tsrs_tsoptions = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
 tsrs_vfs = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }

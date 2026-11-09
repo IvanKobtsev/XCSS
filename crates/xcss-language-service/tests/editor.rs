@@ -159,7 +159,9 @@ fn classifications_recovery_escapes_and_utf16() {
         snapshot
             .diagnostics(&file)
             .iter()
-            .any(|d| d.diagnostic.code == "binding.unknown-injection")
+            .any(|d| d.diagnostic.code == "XC-212"
+                && d.label == "Unknown injection"
+                && d.legacy_code == Some("binding.unknown-injection"))
     );
     assert!(
         snapshot

@@ -23,7 +23,7 @@ fn revisions_snapshots_unsaved_edits_and_utf16() {
     assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
     let missing = diagnostics
         .iter()
-        .find(|d| d.diagnostic.message.contains("absent"))
+        .find(|d| d.diagnostic.code == "XC-001")
         .unwrap();
     assert_eq!(missing.location.range.start.character, 66);
     service
@@ -55,7 +55,9 @@ fn revisions_snapshots_unsaved_edits_and_utf16() {
     service
         .set_typescript_file(ts.clone(), 4, "import s from './a.xcss'; s.one;".into())
         .unwrap();
-    assert!(!service.snapshot().diagnostics(&ts).is_empty());
+    let diagnostics = service.snapshot().diagnostics(&ts);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0].diagnostic.code, "XC-004");
 }
 
 #[test]
