@@ -38,6 +38,7 @@ struct Database {
     imports: Vec<ImportBinding>,
     constants: BTreeMap<SymbolId, Value>,
     interfaces: BTreeMap<FileId, ModuleInterface>,
+    resolutions: BTreeMap<(FileId, String), Option<FileId>>,
 }
 #[derive(Clone)]
 struct Import {
@@ -183,6 +184,7 @@ fn analyze(
     let mut db = Database {
         generation,
         files,
+        resolutions: resolutions.clone(),
         ..Database::default()
     };
     let mut collected = Collected::default();

@@ -1,5 +1,27 @@
 # Language service
 
+## Classes and variants (API v5)
+
+`definition(uri, position)` and `references(uri, position, includeDeclaration)`
+cover exported classes, variant groups, and variant members in stylesheets and
+configured TypeScript projects. A class is keyed by stylesheet and name. A
+variant member is also keyed by its group. A contextual TypeScript string
+navigates to the member in its `@variants` list, and a member in the list
+navigates to the class selector. Contextual values shared by multiple groups
+can have multiple definitions.
+
+`completion(uri, position)` returns `{ label, kind, range, newText }` entries
+for supported stylesheet and TypeScript contexts. Apply each edit to its
+original UTF-16 range. The kinds are `class`, `variantGroup`, and
+`variantMember`. Dot access offers valid TypeScript identifiers, and bracket
+access also offers names that need quoting.
+
+Hosts with multiple TypeScript configurations can call `symbolsAt(uri, position)`
+to get the export keys and pass them to `referencesForSymbols(keys, includeDeclaration)`
+in each relevant project. Remap each key's `module` from the source snapshot's
+file identity to the receiving snapshot's file identity. Each key contains
+`module`, `kind`, `name`, and `group` for variant members.
+
 ## TypeScript projects (API v4)
 
 Call `setTypescriptProject("tsconfig.json")` to enable XCSS-specific TS checking.
@@ -50,7 +72,7 @@ the parser and analyzer continue using original UTF-8 byte ranges.
 
 The published `@cross-css/native` package exposes `LanguageService` with `setFile`,
 `removeFile`, `setResolution`, `document`, `definition`, `references`, and `hover`.
-`languageServiceCapabilities()` supplies API version 4 and the ordered token legend.
+`languageServiceCapabilities()` supplies the API version and the ordered token legend.
 `document()` returns a project revision, structured diagnostics, and absolute
 token positions. Adapters encode tokens for their protocol. Hover text is plain
 text.
@@ -64,7 +86,7 @@ has the label “Invalid XCSS statement”. Hosts that previously matched
 [diagnostic catalog](../crates/xcss-language-service/src/diagnostic_catalog.rs).
 
 The service reports syntax and language diagnostics. Backend-specific emission
-errors still belong to compilation. Lint policy, completion, rename, and code fixes
+errors still belong to compilation. Lint policy, rename, and code fixes
 are separate capabilities. Existing `Compiler` APIs remain available.
 
 

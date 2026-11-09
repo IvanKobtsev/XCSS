@@ -109,6 +109,20 @@ pub struct EditorHover {
     pub text: String,
 }
 #[napi(object)]
+pub struct EditorCompletion {
+    pub label: String,
+    pub kind: String,
+    pub range: EditorRange,
+    pub new_text: String,
+}
+#[napi(object)]
+pub struct EditorExportedSymbol {
+    pub module: String,
+    pub kind: String,
+    pub name: String,
+    pub group: Option<String>,
+}
+#[napi(object)]
 pub struct LanguageServiceCapabilities {
     pub api_version: u32,
     pub token_types: Vec<String>,
@@ -348,6 +362,78 @@ impl LanguageService {
             .references(&FileId(uri), input(position), include_declaration)
             .into_iter()
             .map(location)
+            .collect()
+    }
+    #[napi]
+    pub fn symbols_at(
+        &mut self,
+        uri: String,
+        position: EditorPosition,
+    ) -> Vec<EditorExportedSymbol> {
+        self.inner
+            .snapshot()
+            .symbols_at(&FileId(uri), input(position))
+            .into_iter()
+            .map(|symbol| {
+                let (module, kind, name, group) = match symbol {
+                    service::ExportedSymbol::Class(module, name) => (module, "class", name, None),
+                    service::ExportedSymbol::Group(module, name) => {
+                        (module, "variantGroup", name, None)
+                    }
+                    service::ExportedSymbol::Member(module, group, name) => {
+                        (module, "variantMember", name, Some(group))
+                    }
+                };
+                EditorExportedSymbol {
+                    module: module.0,
+                    kind: kind.into(),
+                    name,
+                    group,
+                }
+            })
+            .collect()
+    }
+    #[napi]
+    pub fn references_for_symbols(
+        &mut self,
+        symbols: Vec<EditorExportedSymbol>,
+        include_declaration: bool,
+    ) -> Vec<EditorLocation> {
+        let symbols: Vec<_> = symbols
+            .into_iter()
+            .filter_map(|symbol| {
+                let module = FileId(symbol.module);
+                match symbol.kind.as_str() {
+                    "class" => Some(service::ExportedSymbol::Class(module, symbol.name)),
+                    "variantGroup" => Some(service::ExportedSymbol::Group(module, symbol.name)),
+                    "variantMember" => Some(service::ExportedSymbol::Member(
+                        module,
+                        symbol.group?,
+                        symbol.name,
+                    )),
+                    _ => None,
+                }
+            })
+            .collect();
+        self.inner
+            .snapshot()
+            .exported_references(&symbols, include_declaration)
+            .into_iter()
+            .map(location)
+            .collect()
+    }
+    #[napi]
+    pub fn completion(&mut self, uri: String, position: EditorPosition) -> Vec<EditorCompletion> {
+        self.inner
+            .snapshot()
+            .completion(&FileId(uri), input(position))
+            .into_iter()
+            .map(|item| EditorCompletion {
+                label: item.label,
+                kind: item.kind.into(),
+                range: range(item.range),
+                new_text: item.new_text,
+            })
             .collect()
     }
     #[napi]

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+- Add native editor API v5 for class, variant group, and variant member navigation, references, and completion in XCSS and TypeScript.
+
 ## 0.7.2
 
 - Rename the Vite package to `@cross-css/vite`. Update the Vite config import and any declaration references to `@cross-css/vite/client`.

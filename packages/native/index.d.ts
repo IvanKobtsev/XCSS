@@ -105,6 +105,20 @@ range: EditorRange
 text: string
 }
 
+export interface EditorCompletion {
+label: string
+kind: string
+range: EditorRange
+newText: string
+}
+
+export interface EditorExportedSymbol {
+module: string
+kind: string
+name: string
+group?: string
+}
+
 export interface LanguageServiceCapabilities {
 apiVersion: number
 tokenTypes: Array<string>
@@ -208,6 +222,9 @@ export declare class LanguageService {
  document(uri: string): EditorDocument
  definition(uri: string, position: EditorPosition): Array<EditorLocation>
  references(uri: string, position: EditorPosition, includeDeclaration: boolean): Array<EditorLocation>
+ symbolsAt(uri: string, position: EditorPosition): Array<EditorExportedSymbol>
+ referencesForSymbols(symbols: Array<EditorExportedSymbol>, includeDeclaration: boolean): Array<EditorLocation>
+ completion(uri: string, position: EditorPosition): Array<EditorCompletion>
  hover(uri: string, position: EditorPosition): EditorHover | null
 }
 
