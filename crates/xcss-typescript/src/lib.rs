@@ -10,9 +10,11 @@ use xcss_analysis::{AnalysisSnapshot, ModuleInterface};
 use xcss_source::{Diagnostic, FileId, SourceFile};
 
 mod diagnostics;
+mod editor;
 use diagnostics::{
     Issues, VARIANT_GROUP_MARKER, contract_errors, missing_modules, semantic_issues, variant_errors,
 };
+pub use editor::{Completion, EditorIndex, Occurrence, Symbol, editor_index};
 
 /// Paths are project-relative forward-slash paths. Include configs, package metadata,
 /// dependencies and declarations as well as TS sources. No disk reads occur here.
@@ -68,11 +70,12 @@ fn memory_fs(files: &BTreeMap<String, String>) -> Result<Arc<dyn FS>, String> {
     Ok(Arc::new(bundled::wrap_fs(fs)))
 }
 
-fn run(
+fn with_program<T>(
     project: &Project,
     snapshot: &AnalysisSnapshot,
-    precise_issues: Option<Issues>,
-) -> Result<(Vec<Diagnostic>, Issues), String> {
+    precise: bool,
+    query: impl FnOnce(&'static tsrs_compiler::Program) -> T,
+) -> Result<T, String> {
     // Config parsing and main-thread allocations also need a bounded lifetime in
     // the long-lived language service. Only owned Issue values leave this scope.
     let region = tsrs_core::arena::Region::new(1 << 20);
@@ -91,7 +94,7 @@ fn run(
             let stem = file.0.strip_suffix(".xcss").unwrap_or(&file.0);
             files.insert(
                 format!("/{stem}.d.xcss.ts"),
-                declaration(interface, precise_issues.is_none()),
+                declaration(interface, precise),
             );
         }
     }
@@ -137,19 +140,30 @@ fn run(
     options.checker_diagnostic_regions = true;
     options.canonical_diagnostics = false;
     let program = new_program(options);
-    let issues = semantic_issues(program, project);
-    let diagnostics = if let Some(precise) = precise_issues {
-        variant_errors(program, snapshot, precise, &issues)
-    } else {
-        let mut diagnostics = missing_modules(program, project);
-        diagnostics.extend(contract_errors(program, snapshot, &issues));
-        diagnostics
-    };
+    let result = query(program);
     // SAFETY: nothing from tsrs escapes this function; all diagnostics are owned copies.
     unsafe {
         free_unshared_program(program);
     }
-    Ok((diagnostics, issues))
+    Ok(result)
+}
+
+fn run(
+    project: &Project,
+    snapshot: &AnalysisSnapshot,
+    precise_issues: Option<Issues>,
+) -> Result<(Vec<Diagnostic>, Issues), String> {
+    with_program(project, snapshot, precise_issues.is_none(), |program| {
+        let issues = semantic_issues(program, project);
+        let diagnostics = if let Some(precise) = precise_issues {
+            variant_errors(program, snapshot, precise, &issues)
+        } else {
+            let mut diagnostics = missing_modules(program, project);
+            diagnostics.extend(contract_errors(program, snapshot, &issues));
+            diagnostics
+        };
+        (diagnostics, issues)
+    })
 }
 
 /// Report XCSS contract diagnostics or return the reason TypeScript setup failed.

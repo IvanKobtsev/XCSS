@@ -4,7 +4,7 @@ use xcss_source::{Diagnostic, FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind};
 
 pub use xcss_analysis::UpdateError;
-pub const API_VERSION: u32 = 4;
+pub const API_VERSION: u32 = 5;
 use std::{
     collections::BTreeMap,
     sync::{Arc, OnceLock},
@@ -22,6 +22,8 @@ pub use selectors::{Selector, SelectorPart, Selectors};
 pub use xcss_syntax::Specificity;
 mod css;
 mod diagnostic_catalog;
+mod editor;
+pub use editor::{Completion, ExportedSymbol};
 mod values;
 pub use css::{CssDeclaration, CssDeclarations, CssValuePart};
 pub use values::{CssFunction, CssValue, CssValues};
@@ -170,6 +172,7 @@ impl LanguageService {
             analysis,
             Arc::new(self.typescript.clone()),
             Arc::new(OnceLock::new()),
+            Arc::new(OnceLock::new()),
         );
         self.cached = Some(snapshot.clone());
         snapshot
@@ -180,6 +183,7 @@ pub struct ServiceSnapshot(
     AnalysisSnapshot,
     Arc<TypescriptState>,
     Arc<OnceLock<Result<Vec<Diagnostic>, String>>>,
+    Arc<OnceLock<xcss_typescript::EditorIndex>>,
 );
 
 pub fn typescript_warning(reason: &str) -> String {
@@ -206,7 +210,11 @@ impl ServiceSnapshot {
         })
     }
     fn offset(&self, file: &FileId, position: Position) -> Option<usize> {
-        self.0.syntax(file)?.source.utf16_to_byte(position)
+        self.0
+            .syntax(file)
+            .map(|p| p.source.as_ref())
+            .or_else(|| self.1.files.get(file).map(Arc::as_ref))?
+            .utf16_to_byte(position)
     }
 
     fn typescript_check(&self) -> &Result<Vec<Diagnostic>, String> {
@@ -260,10 +268,18 @@ impl ServiceSnapshot {
         let Some(offset) = self.offset(file, position) else {
             return vec![];
         };
-        let Some(symbol) = self.0.symbol_at(file, offset) else {
-            return vec![];
-        };
-        self.location(&symbol.location).into_iter().collect()
+        if let Some(symbol) = self.0.symbol_at(file, offset) {
+            return self.location(&symbol.location).into_iter().collect();
+        }
+        let mut symbols = self.exported_symbols_at(file, offset);
+        if self.0.syntax(file).is_some() {
+            for symbol in &mut symbols {
+                if let ExportedSymbol::Member(module, _, member) = symbol {
+                    *symbol = ExportedSymbol::Class(module.clone(), member.clone());
+                }
+            }
+        }
+        self.exported_definitions(&symbols)
     }
     pub fn references(
         &self,
@@ -274,6 +290,10 @@ impl ServiceSnapshot {
         let Some(offset) = self.offset(file, position) else {
             return vec![];
         };
+        let symbols = self.exported_symbols_at(file, offset);
+        if !symbols.is_empty() {
+            return self.exported_references(&symbols, include_declaration);
+        }
         let Some(symbol) = self.0.symbol_at(file, offset) else {
             return vec![];
         };

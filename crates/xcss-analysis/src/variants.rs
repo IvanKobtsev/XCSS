@@ -5,6 +5,14 @@ use super::*;
 pub struct ModuleInterface {
     pub classes: BTreeSet<String>,
     pub variants: BTreeMap<String, Vec<String>>,
+    pub class_locations: BTreeMap<String, Vec<Location>>,
+    pub variant_locations: BTreeMap<String, VariantLocations>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VariantLocations {
+    pub group: Location,
+    pub members: BTreeMap<String, Location>,
 }
 
 #[derive(Clone)]
@@ -20,7 +28,7 @@ fn classes(
     file: &FileId,
     nodes: &[Node],
     stack: &mut Vec<SymbolId>,
-    out: &mut BTreeSet<String>,
+    out: &mut BTreeMap<String, Vec<Location>>,
     content: Option<&Content>,
     count: &mut usize,
 ) {
@@ -32,12 +40,21 @@ fn classes(
         }
         match node.kind {
             NodeKind::Injection | NodeKind::Util | NodeKind::Raw => continue,
-            NodeKind::Rule => out.extend(
-                xcss_syntax::selector_classes(parse, node)
-                    .into_iter()
-                    .filter(|(_, _, global)| !global)
-                    .map(|(name, _, _)| name),
-            ),
+            NodeKind::Rule => {
+                for (name, range, global) in xcss_syntax::selector_classes(parse, node) {
+                    if global {
+                        continue;
+                    }
+                    let locations = out.entry(name).or_default();
+                    let location = Location {
+                        file: file.clone(),
+                        range,
+                    };
+                    if !locations.contains(&location) {
+                        locations.push(location);
+                    }
+                }
+            }
             NodeKind::Call => {
                 if let Some(call) = parse.call(node)
                     && let Some(target) = db
@@ -106,10 +123,11 @@ pub(super) fn analyze(db: &mut Database) {
             &file,
             &parse.tree.children,
             &mut Vec::new(),
-            &mut interface.classes,
+            &mut interface.class_locations,
             None,
             &mut 0,
         );
+        interface.classes = interface.class_locations.keys().cloned().collect();
         let top: BTreeSet<_> = parse.tree.children.iter().map(|n| n.range.start).collect();
         for node in parse
             .tree
@@ -139,6 +157,13 @@ pub(super) fn analyze(db: &mut Database) {
                 continue;
             }
             let mut members = Vec::new();
+            let mut locations = VariantLocations {
+                group: Location {
+                    file: file.clone(),
+                    range: group.name_range,
+                },
+                members: BTreeMap::new(),
+            };
             for (member, range) in group.members {
                 let member = decode_identifier(member);
                 if members.contains(&member) {
@@ -157,8 +182,16 @@ pub(super) fn analyze(db: &mut Database) {
                         format!("Variant `{member}` is not an exported local class"),
                     );
                 }
+                locations
+                    .members
+                    .entry(member.clone())
+                    .or_insert_with(|| Location {
+                        file: file.clone(),
+                        range,
+                    });
                 members.push(member);
             }
+            interface.variant_locations.insert(name.clone(), locations);
             interface.variants.insert(name, members);
         }
         db.interfaces.insert(file, interface);

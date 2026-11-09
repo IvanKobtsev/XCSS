@@ -108,16 +108,7 @@ pub(crate) fn contract_errors(
                 if !issue.matches(range) && !issue.matches(node_range(file, node)) {
                     return None;
                 }
-                let ty = checker.get_type_at_location(receiver);
-                let ty = checker.get_non_nullable_type(ty);
-                let declaration = ty.symbol()?.declarations().iter().copied().find(|&decl| {
-                    decl.kind() == Kind::TypeLiteral
-                        && decl.parent().is_some_and(|parent| {
-                            parent.kind() == Kind::VariableDeclaration
-                                && parent.as_variable_declaration().name().text() == "styles"
-                        })
-                })?;
-                let module = stylesheet(snapshot, declaration)?;
+                let module = styles_module(checker, snapshot, receiver)?;
                 let name = key.text();
                 if snapshot.module_interface(&module)?.classes.contains(name) {
                     return None;
@@ -138,15 +129,7 @@ pub(crate) fn contract_errors(
                 if !issue.matches(range) {
                     return None;
                 }
-                let mut symbol = checker.get_symbol_at_location_exported(reference.type_name())?;
-                if symbol.flags().intersects(SymbolFlags::Alias) {
-                    symbol = checker.get_aliased_symbol(symbol);
-                }
-                let declaration = symbol.declarations().iter().copied().find(|&decl| {
-                    decl.kind() == Kind::TypeAliasDeclaration
-                        && decl.as_type_alias_declaration().name().text() == "Variants"
-                })?;
-                let module = stylesheet(snapshot, declaration)?;
+                let module = variants_module(checker, snapshot, reference.type_name())?;
                 let name =
                     string_type(argument).unwrap_or_else(|| &file.text()[range.start..range.end]);
                 Some(Diagnostic::error(
@@ -209,32 +192,7 @@ pub(crate) fn variant_errors(
             }
             _ => return None,
         };
-        let non_nullable = checker.get_non_nullable_type(expected);
-        // The marker lives in the relaxed declaration only. Its source distinguishes
-        // an actual XCSS contract from an unrelated string union with the same values.
-        let mut groups = BTreeSet::new();
-        let alternatives = if non_nullable.is_union() {
-            non_nullable.as_union_type().types()
-        } else {
-            std::slice::from_ref(&non_nullable)
-        };
-        for &alternative in alternatives {
-            let Some(marker) = checker.get_property_of_type(alternative, VARIANT_GROUP_MARKER)
-            else {
-                continue;
-            };
-            for &decl in marker.declarations() {
-                if decl.kind() == Kind::PropertySignature
-                    && let Some(module) = stylesheet(snapshot, decl)
-                    && let Some(group) = decl
-                        .as_property_signature_declaration()
-                        .type_()
-                        .and_then(string_type)
-                {
-                    groups.insert((module, group));
-                }
-            }
-        }
+        let groups = contextual_groups(checker, snapshot, expected);
         let labels = groups
             .into_iter()
             .map(|(module, group)| format!("'{group}' in '{}'", module.0))
@@ -316,7 +274,7 @@ fn find_node(
     found.or_else(|| classify(node))
 }
 
-fn node_range(file: P<SourceFile>, node: P<Node>) -> TextRange {
+pub(crate) fn node_range(file: P<SourceFile>, node: P<Node>) -> TextRange {
     TextRange::new(
         get_token_pos_of_node(node, file, false) as usize,
         node.loc().source_end().unwrap_or(0) as usize,
@@ -327,12 +285,12 @@ fn file_id(file: P<SourceFile>) -> FileId {
     FileId(file.file_name().trim_start_matches('/').to_owned())
 }
 
-fn project_file(project: &Project, file: P<SourceFile>) -> Option<FileId> {
+pub(crate) fn project_file(project: &Project, file: P<SourceFile>) -> Option<FileId> {
     let id = file_id(file);
     (!id.0.ends_with(".d.xcss.ts") && project.files.contains_key(&id)).then_some(id)
 }
 
-fn stylesheet(snapshot: &AnalysisSnapshot, declaration: P<Node>) -> Option<FileId> {
+pub(crate) fn stylesheet(snapshot: &AnalysisSnapshot, declaration: P<Node>) -> Option<FileId> {
     let file = ast::get_source_file_of_node(declaration)?;
     let stem = file
         .file_name()
@@ -342,10 +300,76 @@ fn stylesheet(snapshot: &AnalysisSnapshot, declaration: P<Node>) -> Option<FileI
     snapshot.module_interface(&id).map(|_| id)
 }
 
-fn string_type(node: P<Node>) -> Option<&'static str> {
+pub(crate) fn string_type(node: P<Node>) -> Option<&'static str> {
     if node.kind() != Kind::LiteralType {
         return None;
     }
     let literal = node.as_literal_type_node().literal();
     ast::is_string_literal_like(literal).then(|| literal.text())
+}
+
+pub(crate) fn styles_module(
+    checker: &mut Checker,
+    snapshot: &AnalysisSnapshot,
+    receiver: P<Node>,
+) -> Option<FileId> {
+    let ty = checker.get_type_at_location(receiver);
+    let ty = checker.get_non_nullable_type(ty);
+    let declaration = ty.symbol()?.declarations().iter().copied().find(|&decl| {
+        decl.kind() == Kind::TypeLiteral
+            && decl.parent().is_some_and(|parent| {
+                parent.kind() == Kind::VariableDeclaration
+                    && parent.as_variable_declaration().name().text() == "styles"
+            })
+    })?;
+    stylesheet(snapshot, declaration)
+}
+
+pub(crate) fn variants_module(
+    checker: &mut Checker,
+    snapshot: &AnalysisSnapshot,
+    type_name: P<Node>,
+) -> Option<FileId> {
+    let mut symbol = checker.get_symbol_at_location_exported(type_name)?;
+    if symbol.flags().intersects(SymbolFlags::Alias) {
+        symbol = checker.get_aliased_symbol(symbol);
+    }
+    let declaration = symbol.declarations().iter().copied().find(|&decl| {
+        decl.kind() == Kind::TypeAliasDeclaration
+            && decl.as_type_alias_declaration().name().text() == "Variants"
+    })?;
+    stylesheet(snapshot, declaration)
+}
+
+pub(crate) fn contextual_groups(
+    checker: &mut Checker,
+    snapshot: &AnalysisSnapshot,
+    expected: P<tsrs_checker::Type>,
+) -> BTreeSet<(FileId, &'static str)> {
+    let non_nullable = checker.get_non_nullable_type(expected);
+    // The marker lives in the relaxed declaration only. Its source distinguishes
+    // an actual XCSS contract from an unrelated string union with the same values.
+    let mut groups = BTreeSet::new();
+    let alternatives = if non_nullable.is_union() {
+        non_nullable.as_union_type().types()
+    } else {
+        std::slice::from_ref(&non_nullable)
+    };
+    for &alternative in alternatives {
+        let Some(marker) = checker.get_property_of_type(alternative, VARIANT_GROUP_MARKER) else {
+            continue;
+        };
+        for &decl in marker.declarations() {
+            if decl.kind() == Kind::PropertySignature
+                && let Some(module) = stylesheet(snapshot, decl)
+                && let Some(group) = decl
+                    .as_property_signature_declaration()
+                    .type_()
+                    .and_then(string_type)
+            {
+                groups.insert((module, group));
+            }
+        }
+    }
+    groups
 }
