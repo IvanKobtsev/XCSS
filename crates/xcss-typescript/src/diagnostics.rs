@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tsrs_ast::{self as ast, Kind, Node, SourceFile, SymbolFlags};
-use tsrs_checker::{Checker, ContextFlags};
+use tsrs_checker::{Checker, ContextFlags, LiteralValue, TypeFlags};
 use tsrs_compiler::{Context, Program};
 use tsrs_core::P;
 use tsrs_scanner::get_token_pos_of_node;
@@ -89,27 +89,20 @@ pub(crate) fn contract_errors(
         issues,
         |checker, file, id, node, issue| match issue.code {
             2339 | 2551 | 7053 => {
-                let (receiver, key) = match node.kind() {
-                    Kind::PropertyAccessExpression => {
-                        let access = node.as_property_access_expression();
-                        (access.expression(), access.name())
-                    }
-                    Kind::ElementAccessExpression => {
-                        let access = node.as_element_access_expression();
-                        let key = access.argument_expression();
-                        if !ast::is_string_literal_like(key) {
-                            return None;
-                        }
-                        (access.expression(), key)
-                    }
-                    _ => return None,
-                };
+                let (receiver, key) = member_access(node)?;
                 let range = node_range(file, key);
                 if !issue.matches(range) && !issue.matches(node_range(file, node)) {
                     return None;
                 }
-                let module = styles_module(checker, snapshot, receiver)?;
+                if let Some(error) = provided_member_error(checker, snapshot, file, id, node) {
+                    return Some(error);
+                }
+                if node.kind() == Kind::ElementAccessExpression && !ast::is_string_literal_like(key)
+                {
+                    return None;
+                }
                 let name = key.text();
+                let module = styles_module(checker, snapshot, receiver)?;
                 if snapshot.module_interface(&module)?.classes.contains(name) {
                     return None;
                 }
@@ -142,6 +135,59 @@ pub(crate) fn contract_errors(
             _ => None,
         },
     )
+}
+
+fn member_access(node: P<Node>) -> Option<(P<Node>, P<Node>)> {
+    match node.kind() {
+        Kind::PropertyAccessExpression => {
+            let access = node.as_property_access_expression();
+            Some((access.expression(), access.name()))
+        }
+        Kind::ElementAccessExpression => {
+            let access = node.as_element_access_expression();
+            Some((access.expression(), access.argument_expression()))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn provided_member_error(
+    checker: &mut Checker,
+    snapshot: &AnalysisSnapshot,
+    file: P<SourceFile>,
+    id: &FileId,
+    node: P<Node>,
+) -> Option<Diagnostic> {
+    let (receiver, key) = member_access(node)?;
+    let name = if node.kind() == Kind::PropertyAccessExpression || ast::is_string_literal_like(key)
+    {
+        key.text()
+    } else {
+        let ty = checker.get_type_at_location(key);
+        if !ty.flags().intersects(TypeFlags::StringLiteral) {
+            return None;
+        }
+        let LiteralValue::String(name) = ty.as_literal_type().value()? else {
+            return None;
+        };
+        name
+    };
+    let module = dictionary_module(checker, snapshot, receiver, "cssVars")?;
+    (!snapshot
+        .module_interface(&module)?
+        .provided_variables
+        .contains_key(name))
+    .then(|| {
+        Diagnostic::error(
+            "XC-006",
+            id,
+            node_range(file, key),
+            format!(
+                "Provided variable '{name}' can't be found in '{}'.",
+                module.0
+            ),
+        )
+    })
 }
 
 pub(crate) fn variant_errors(
@@ -313,13 +359,22 @@ pub(crate) fn styles_module(
     snapshot: &AnalysisSnapshot,
     receiver: P<Node>,
 ) -> Option<FileId> {
+    dictionary_module(checker, snapshot, receiver, "styles")
+}
+
+fn dictionary_module(
+    checker: &mut Checker,
+    snapshot: &AnalysisSnapshot,
+    receiver: P<Node>,
+    name: &str,
+) -> Option<FileId> {
     let ty = checker.get_type_at_location(receiver);
     let ty = checker.get_non_nullable_type(ty);
     let declaration = ty.symbol()?.declarations().iter().copied().find(|&decl| {
         decl.kind() == Kind::TypeLiteral
             && decl.parent().is_some_and(|parent| {
                 parent.kind() == Kind::VariableDeclaration
-                    && parent.as_variable_declaration().name().text() == "styles"
+                    && parent.as_variable_declaration().name().text() == name
             })
     })?;
     stylesheet(snapshot, declaration)

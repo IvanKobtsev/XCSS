@@ -520,3 +520,34 @@ fn zero_defaults_to_length_with_contextual_numeric_support() {
         3
     );
 }
+#[test]
+fn provided_variables_require_a_type_and_unique_export_names() {
+    let mut host = AnalysisHost::new();
+    host.set_file(
+        id("provided.xcss"),
+        1,
+        "
+        @provided --outside = 0px;
+        @vars {
+            @provided --no-type;
+            @provided --a-b = 0px;
+            @provided {
+                --aB = 0px;
+                @provided { --nested = 0px; }
+            }
+        }
+    ",
+    )
+    .unwrap();
+    let snapshot = host.snapshot();
+    let codes: Vec<_> = snapshot.diagnostics().iter().map(|d| d.code).collect();
+    assert!(codes.contains(&"type.provided-untyped"));
+    assert!(codes.contains(&"vars.duplicate-export"));
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|&&code| code == "syntax.provided-placement")
+            .count(),
+        2
+    );
+}

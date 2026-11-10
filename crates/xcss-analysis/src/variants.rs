@@ -7,6 +7,91 @@ pub struct ModuleInterface {
     pub variants: BTreeMap<String, Vec<String>>,
     pub class_locations: BTreeMap<String, Vec<Location>>,
     pub variant_locations: BTreeMap<String, VariantLocations>,
+    pub provided_variables: BTreeMap<String, ProvidedVariable>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProvidedVariable {
+    pub scoped_name: String,
+    pub value_type: ValueType,
+    pub location: Location,
+}
+
+fn provided_variables(
+    db: &mut Database,
+    parse: &ParseResult,
+) -> BTreeMap<String, ProvidedVariable> {
+    let file = &parse.source.id;
+    let mut exports = BTreeMap::new();
+    let vars = parse
+        .tree
+        .children
+        .iter()
+        .filter(|node| node.kind == NodeKind::Vars);
+    for node in vars.flat_map(|node| &node.children) {
+        let grouped = node.kind == NodeKind::Provided;
+        let members = if grouped {
+            &node.children
+        } else {
+            std::slice::from_ref(node)
+        };
+        for variable in members.iter().filter_map(|member| parse.variable(member)) {
+            if !grouped && !variable.provided {
+                continue;
+            }
+            let decoded = decode_identifier(variable.name);
+            let Some(name) = decoded.strip_prefix("--") else {
+                continue;
+            };
+            let Some(id) = db.local(file, &decoded, SymbolKind::Variable) else {
+                continue;
+            };
+            let symbol = &db.symbols[id.0];
+            if symbol.location.range != variable.range {
+                continue;
+            }
+            if variable.annotation.is_none() && variable.initial.is_none() {
+                db.error(
+                    "type.provided-untyped",
+                    file,
+                    variable.range,
+                    "A provided variable requires a type or an inferable initial value",
+                );
+                continue;
+            }
+            if symbol.value_type == ValueType::Unknown {
+                continue;
+            }
+            let mut parts = name.split('-').filter(|part| !part.is_empty());
+            let mut key = parts.next().unwrap_or_default().to_owned();
+            for part in parts {
+                let mut chars = part.chars();
+                key.extend(chars.next().unwrap().to_uppercase());
+                key.push_str(chars.as_str());
+            }
+            if let Some(previous) = exports.get(&key) {
+                let ProvidedVariable { location, .. } = previous;
+                let related = location.clone();
+                db.error(
+                    "vars.duplicate-export",
+                    file,
+                    variable.range,
+                    format!("Provided variables produce the same export key `{key}`"),
+                );
+                db.diagnostics.last_mut().unwrap().related.push(related);
+                continue;
+            }
+            exports.insert(
+                key,
+                ProvidedVariable {
+                    scoped_name: xcss_source::scoped_property(file, &decoded),
+                    value_type: symbol.value_type.clone(),
+                    location: symbol.location.clone(),
+                },
+            );
+        }
+    }
+    exports
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,6 +213,7 @@ pub(super) fn analyze(db: &mut Database) {
             &mut 0,
         );
         interface.classes = interface.class_locations.keys().cloned().collect();
+        interface.provided_variables = provided_variables(db, &parse);
         let top: BTreeSet<_> = parse.tree.children.iter().map(|n| n.range.start).collect();
         for node in parse
             .tree

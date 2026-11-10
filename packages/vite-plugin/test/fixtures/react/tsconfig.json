@@ -1,0 +1,9 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@cross-css/vite/react",
+    "types": []
+  },
+  "include": ["app.tsx", "../../../client.d.ts"]
+}

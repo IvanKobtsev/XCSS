@@ -4,6 +4,9 @@ const ENTRIES: &[(&str, &str, &str)] = &[
     ("XC-002", "XC-002", "Unknown XCSS variant group"),
     ("XC-003", "XC-003", "Invalid XCSS variant value"),
     ("XC-004", "XC-004", "Unresolved XCSS module"),
+    ("XC-006", "XC-006", "Unknown provided variable export"),
+    ("XC-007", "XC-007", "Unknown xVars key"),
+    ("XC-008", "XC-008", "Invalid xVars value"),
     (
         "binding.ambiguous-injection",
         "XC-200",
@@ -82,6 +85,16 @@ const ENTRIES: &[(&str, &str, &str)] = &[
         "XC-107",
         "Invalid parameter declaration",
     ),
+    (
+        "syntax.provided-member",
+        "XC-120",
+        "Invalid provided variable member",
+    ),
+    (
+        "syntax.provided-placement",
+        "XC-121",
+        "Invalid provided variable placement",
+    ),
     ("syntax.sass", "XC-108", "Unsupported Sass syntax"),
     ("syntax.unclosed-comment", "XC-109", "Unclosed comment"),
     ("syntax.unclosed-string", "XC-110", "Unclosed string"),
@@ -132,6 +145,11 @@ const ENTRIES: &[(&str, &str, &str)] = &[
         "Invalid property initial value",
     ),
     (
+        "type.provided-untyped",
+        "XC-312",
+        "Provided variable requires a type",
+    ),
+    (
         "type.transition-group",
         "XC-309",
         "Invalid transition group",
@@ -154,6 +172,11 @@ const ENTRIES: &[(&str, &str, &str)] = &[
         "Invalid variant group placement",
     ),
     ("variants.unknown-class", "XC-403", "Unknown variant class"),
+    (
+        "vars.duplicate-export",
+        "XC-404",
+        "Duplicate provided variable export",
+    ),
 ];
 
 pub(super) fn metadata(code: &'static str) -> (&'static str, &'static str, Option<&'static str>) {

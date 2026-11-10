@@ -160,7 +160,12 @@ export default function xcss(): Plugin {
         imports.push('import ' + JSON.stringify(createCssId(fileFor(moduleId))) + ';')
       }
       visit(entry)
-      return { code: imports.join('\n') + '\nexport default JSON.parse(' + JSON.stringify(JSON.stringify(artifact.classes)) + ');', map: null, moduleSideEffects: true }
+      const dictionary = (values: Record<string, string>) => 'JSON.parse(' + JSON.stringify(JSON.stringify(values)) + ')'
+      return {
+        code: [...imports, 'export default ' + dictionary(artifact.classes) + ';', 'export const cssVars = ' + dictionary(artifact.cssVars) + ';'].join('\n'),
+        map: null,
+        moduleSideEffects: true,
+      }
     },
     async renderStart() {
       if (!utilityAsset) return

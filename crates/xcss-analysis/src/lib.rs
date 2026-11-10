@@ -20,8 +20,8 @@ pub use facts::*;
 pub use host::{AnalysisHost, AnalysisSnapshot, UpdateError};
 pub use registration::registration_initial_is_independent;
 use types::checked_type;
-pub use types::infer_type;
-pub use variants::ModuleInterface;
+pub use types::{DIMENSION_UNITS, VALUE_KINDS, infer_type};
+pub use variants::{ModuleInterface, ProvidedVariable};
 
 #[derive(Default)]
 struct Database {

@@ -1,6 +1,8 @@
 //! Public compilation facade. All language semantics live in the engine crates.
 use std::sync::Arc;
-pub use xcss_analysis::{AnalysisHost, AnalysisSnapshot, ModuleInterface, UpdateError};
+pub use xcss_analysis::{
+    AnalysisHost, AnalysisSnapshot, ModuleInterface, ProvidedVariable, UpdateError,
+};
 pub use xcss_codegen::{
     GenerateOptions, GeneratedModule, GeneratedProject, GeneratedUtilities, GeneratedUtilityRule,
     generate, merge_utilities,

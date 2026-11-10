@@ -34,6 +34,8 @@ pub struct NativeArtifact {
     pub classes: StringMap,
     #[napi(ts_type = "Record<string, string>")]
     pub custom_properties: StringMap,
+    #[napi(ts_type = "Record<string, string>")]
+    pub css_vars: StringMap,
     pub stylesheet_dependencies: Vec<String>,
     pub native_imports: Vec<String>,
     pub source_dependencies: Vec<String>,
@@ -193,6 +195,7 @@ impl Compiler {
                         source_map: m.source_map,
                         classes: StringMap(m.classes),
                         custom_properties: StringMap(m.custom_properties),
+                        css_vars: StringMap(m.css_vars),
                         stylesheet_dependencies: m
                             .stylesheet_dependencies
                             .into_iter()

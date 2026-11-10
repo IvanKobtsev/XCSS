@@ -11,6 +11,7 @@ use xcss_source::{Diagnostic, FileId, SourceFile};
 
 mod diagnostics;
 mod editor;
+mod xvars;
 use diagnostics::{
     Issues, VARIANT_GROUP_MARKER, contract_errors, missing_modules, semantic_issues, variant_errors,
 };
@@ -30,7 +31,15 @@ pub fn declaration(interface: &ModuleInterface, precise: bool) -> String {
     for class in &interface.classes {
         text.push_str(&format!("  {}: string;\n", quote(class)));
     }
-    text.push_str("};\nexport default styles;\ntype Groups = {\n");
+    text.push_str("};\nexport default styles;\nexport declare const cssVars: {\n");
+    for (key, variable) in &interface.provided_variables {
+        text.push_str(&format!(
+            "  readonly {}: {};\n",
+            quote(key),
+            quote(&variable.scoped_name)
+        ));
+    }
+    text.push_str("};\ntype Groups = {\n");
     for (group, members) in &interface.variants {
         let group = quote(group);
         let values = if precise {
@@ -89,6 +98,15 @@ fn with_program<T>(
     // dependencies only and must not turn an otherwise empty project into a valid one.
     let fs = memory_fs(&files)?;
     let host = Host { fs };
+    let value_contracts = precise
+        && snapshot.files().any(|file| {
+            snapshot
+                .module_interface(file)
+                .is_some_and(|interface| !interface.provided_variables.is_empty())
+        });
+    if value_contracts {
+        files.insert(xvars::CONTRACT_PATH.into(), xvars::declaration());
+    }
     for file in snapshot.files() {
         if let Some(interface) = snapshot.module_interface(file) {
             let stem = file.0.strip_suffix(".xcss").unwrap_or(&file.0);
@@ -123,13 +141,19 @@ fn with_program<T>(
     if !reasons.is_empty() {
         return Err(reasons.join(" "));
     }
-    let config = config.ok_or_else(|| format!("Could not load '{}'.", project.config))?;
+    let mut config = config.ok_or_else(|| format!("Could not load '{}'.", project.config))?;
     if let Some(missing) = config
         .file_names()
         .iter()
         .find(|path| !host.fs.file_exists(path))
     {
         return Err(format!("File '{missing}' not found."));
+    }
+    if value_contracts {
+        config
+            .parsed_config
+            .file_names
+            .push(xvars::CONTRACT_PATH.into());
     }
     let mut options = ProgramOptions::new(
         P::new(config),
@@ -160,6 +184,7 @@ fn run(
         } else {
             let mut diagnostics = missing_modules(program, project);
             diagnostics.extend(contract_errors(program, snapshot, &issues));
+            diagnostics.extend(xvars::check(program, project, snapshot));
             diagnostics
         };
         (diagnostics, issues)

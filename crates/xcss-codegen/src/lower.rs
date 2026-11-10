@@ -186,7 +186,13 @@ impl<'a> Lowerer<'a> {
                     });
                 }
                 NodeKind::Vars => {
-                    for variable in &node.children {
+                    for variable in node.children.iter().flat_map(|child| {
+                        if child.kind == NodeKind::Provided {
+                            child.children.as_slice()
+                        } else {
+                            std::slice::from_ref(child)
+                        }
+                    }) {
                         if variable.kind == NodeKind::Raw {
                             out.extend(self.nodes(
                                 file,

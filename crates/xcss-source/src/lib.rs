@@ -1,6 +1,14 @@
 //! Source identities, immutable revisions and original-source locations.
 use std::sync::Arc;
 
+/// The stable CSS name of a declared custom property in a project-relative module.
+pub fn scoped_property(file: &FileId, name: &str) -> String {
+    let hash = file.0.bytes().fold(0xcbf29ce484222325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
+    });
+    format!("{name}-xcss-{hash:016x}")
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct FileId(pub String);
 

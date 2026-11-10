@@ -42,6 +42,21 @@ fn variant_groups() {
     assert!(comments.contains("/* member */"));
 }
 #[test]
+fn provided_variable_forms_preserve_comments() {
+    let output = formatted(
+        "@vars{@provided /* inline */ --gap=1px; @provided{/* group */ local --turn:angle=0deg;}}",
+        &FormatOptions::default(),
+    );
+    assert!(
+        output.contains("@provided /* inline */ --gap = 1px;"),
+        "{output}"
+    );
+    assert!(output.contains("@provided {"), "{output}");
+    assert!(output.contains("/* group */"), "{output}");
+    assert!(output.contains("local --turn: angle = 0deg;"), "{output}");
+}
+
+#[test]
 fn xcss_constructs() {
     let input = "@vars{--size:length=1px;local --color:color;} $gap:length=2px; @injection paint($color:color=red,$width:length=1px){color:$color;width:$width;} @util spaced($n:length=1px){margin:$n;} .a{@:paint(red,2px);width:--size * 2;@content;}";
     let text = formatted(input, &FormatOptions::default());

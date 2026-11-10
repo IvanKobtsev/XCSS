@@ -71,6 +71,55 @@ stylesheets are invalidated together because unimported global injection calls
 can be affected. Native source maps point to original XCSS, including imported
 injection definitions and caller-owned arguments/content.
 
+## Provided variables in React
+
+Keep `xcss()` in the Vite plugins and select the XCSS automatic JSX runtime in
+your app's TypeScript configuration.
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@cross-css/vite/react",
+    "types": ["@cross-css/vite/client"]
+  }
+}
+```
+
+When using `@vitejs/plugin-react`, pass
+`react({ jsxImportSource: '@cross-css/vite/react' })`. For a JavaScript Vite
+project without that plugin, set
+`oxc.jsx: { runtime: 'automatic', importSource: '@cross-css/vite/react' }`.
+
+```xcss
+@vars {
+  @provided --provided-width = 0px;
+}
+.box { width: --provided-width; }
+```
+
+```tsx
+import styles, { cssVars } from './Box.xcss'
+import { px } from '@cross-css/vite/units'
+
+export function Box({ width }: { width: number }) {
+  return <div className={styles.box} style={{ height: '200px' }}
+    xVars={{ [cssVars.providedWidth]: px(width) }} />
+}
+```
+
+The runtime merges `xVars` into `style` on intrinsic elements, including when
+`xVars` comes from a JSX spread. If both props set the same custom property,
+`xVars` takes precedence.
+
+Run `xcss check --project tsconfig.app.json` to check that each key resolves to a
+provided variable and that its value matches the XCSS type. Unit helpers such as
+`px`, `percentage`, and `vh` accept a finite number or numeric string and
+preserve the unit in the return type. Compatible literals work directly. For
+reusable maps, keep literal values narrow with `as const` or use a unit helper. Use an
+explicit `CssValue<'length'>` assertion for a dynamic CSS string whose type you
+know, such as a constructed `calc()` expression.
+
 ## Shared utilities
 
 `@util` class compositions automatically load one shared utility stylesheet.

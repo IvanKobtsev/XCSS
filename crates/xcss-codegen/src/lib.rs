@@ -1,6 +1,7 @@
 //! Scoped CSS emission from an immutable XCSS analysis snapshot.
 use std::collections::{BTreeMap, BTreeSet};
 use xcss_analysis::{AnalysisSnapshot, DependencyKind, SymbolId, SymbolKind};
+pub use xcss_source::scoped_property;
 use xcss_source::{Diagnostic, FileId, Location, Severity, TextRange};
 use xcss_syntax::{Node, NodeKind, ParseResult};
 mod lower;
@@ -27,6 +28,7 @@ pub struct GeneratedModule {
     pub source_map: String,
     pub classes: BTreeMap<String, String>,
     pub custom_properties: BTreeMap<String, String>,
+    pub css_vars: BTreeMap<String, String>,
     pub stylesheet_dependencies: Vec<FileId>,
     pub native_imports: Vec<String>,
     pub source_dependencies: Vec<FileId>,
@@ -85,6 +87,7 @@ pub fn merge_utilities(
                 source_map: rule.source_map.clone(),
                 classes: BTreeMap::new(),
                 custom_properties: BTreeMap::new(),
+                css_vars: BTreeMap::new(),
                 stylesheet_dependencies: Vec::new(),
                 native_imports: Vec::new(),
                 source_dependencies: Vec::new(),
@@ -98,6 +101,7 @@ pub fn merge_utilities(
         source_map: "{\"version\":3,\"sources\":[],\"names\":[],\"mappings\":\"\"}".into(),
         classes: BTreeMap::new(),
         custom_properties: BTreeMap::new(),
+        css_vars: BTreeMap::new(),
         stylesheet_dependencies: dependencies,
         native_imports: Vec::new(),
         source_dependencies: Vec::new(),
@@ -302,6 +306,12 @@ pub fn generate(
             source_map,
             classes,
             custom_properties: lower.properties,
+            css_vars: snapshot
+                .module_interface(file)
+                .into_iter()
+                .flat_map(|interface| &interface.provided_variables)
+                .map(|(key, variable)| (key.clone(), variable.scoped_name.clone()))
+                .collect(),
             stylesheet_dependencies: snapshot
                 .dependencies()
                 .iter()
@@ -384,6 +394,7 @@ pub fn generate(
                     source_map: shared.source_map.clone(),
                     classes: BTreeMap::new(),
                     custom_properties: BTreeMap::new(),
+                    css_vars: BTreeMap::new(),
                     stylesheet_dependencies: Vec::new(),
                     native_imports: Vec::new(),
                     source_dependencies: shared.source_dependencies.clone(),
@@ -565,12 +576,6 @@ fn compose(
             }
         }
     }
-}
-pub fn scoped_property(file: &FileId, name: &str) -> String {
-    let hash = file.0.bytes().fold(0xcbf29ce484222325u64, |h, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
-    });
-    format!("{name}-xcss-{hash:016x}")
 }
 fn backend(
     snapshot: &AnalysisSnapshot,

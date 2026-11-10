@@ -154,6 +154,7 @@ css: string
 sourceMap: string
 classes: Record<string, string>
 customProperties: Record<string, string>
+cssVars: Record<string, string>
 stylesheetDependencies: Array<string>
 nativeImports: Array<string>
 sourceDependencies: Array<string>

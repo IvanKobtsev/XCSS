@@ -1,0 +1,9 @@
+@vars {
+  @provided --provided-width = 0px;
+  @provided { --angle: angle; }
+  --private = 0px;
+}
+
+.box {
+  width: --provided-width;
+}

@@ -38,6 +38,31 @@ properties remain global. Dynamic values have unknown types, not type errors.
 Mutable Sass variables, interpolation, module directives, mixins and control
 flow are rejected. CSS Modules classes are local unless marked `:global`.
 
+## Provided custom properties
+
+Mark a variable inside `@vars` with `@provided` to expose its scoped CSS name
+to JavaScript. Both forms can appear in the same block.
+
+```xcss
+@vars {
+  @provided --provided-width = 0px;
+  @provided {
+    --rotation: angle;
+    local --item-gap = 8px;
+  }
+  --private-offset = 0px;
+}
+
+.box { width: --provided-width; rotate: --rotation; }
+```
+
+The module's `cssVars` export contains `providedWidth`, `rotation`, and
+`itemGap`. The names come from the declared custom properties with the leading
+dashes removed and hyphen-separated parts converted to camelCase. If two
+declarations produce the same key, compilation reports an error. Each provided
+variable needs a type annotation or an initializer whose type XCSS can infer.
+`local` controls inheritance in both declaration forms.
+
 ## Zero inference and comments
 
 An unannotated literal `0` defaults to `length`, so `@vars { --gap = 0; }`

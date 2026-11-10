@@ -17,6 +17,124 @@ fn project(files: &[(&str, &str)]) -> Project {
 }
 
 #[test]
+fn provided_vars_check_effective_jsx_maps() {
+    let mut host = AnalysisHost::new();
+    host.set_file(
+        FileId("a.xcss".into()),
+        1,
+        "
+        @vars {
+            @provided --width = 0px;
+            @provided --size: length-percentage;
+            --private = 0px;
+        }
+    ",
+    )
+    .unwrap();
+    host.set_file(
+        FileId("b.xcss".into()),
+        1,
+        "@vars { @provided { --angle = 0deg; --count: integer; --color: color; } }",
+    )
+    .unwrap();
+    let snapshot = host.snapshot();
+    assert!(
+        snapshot.diagnostics().is_empty(),
+        "{:?}",
+        snapshot.diagnostics()
+    );
+    let p = project(&[
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"allowJs":true,"strict":true,"jsx":"preserve","module":"esnext","moduleResolution":"bundler"},"include":["*.ts","*.tsx","*.jsx"]}"#,
+        ),
+        (
+            "props.ts",
+            r#"
+import { cssVars as a } from './a.xcss';
+import { cssVars as b } from './b.xcss';
+export declare function px(n: number): `${number}px`;
+export declare function percentage(n: number): `${number}%`;
+export const width = a.width;
+export const ok = { [width]: px(3), [b.angle]: '1rad' as const };
+export const wrong = { [width]: percentage(3) };
+export declare const maybe: typeof ok | typeof wrong;
+export declare const dynamic: string;
+export declare const optional: { xVars?: typeof ok };
+export declare const typedColor: string & { readonly __xcssCssValue__: 'color' };
+"#,
+        ),
+        (
+            "app.tsx",
+            r#"
+import { cssVars as a } from './a.xcss';
+import { cssVars as b } from './b.xcss';
+import { width, ok, wrong, maybe, px, percentage, dynamic, optional, typedColor } from './props';
+declare global { namespace JSX { interface IntrinsicElements { div: any } } }
+declare function Custom(props: { xVars: unknown }): unknown;
+const unrelated: number = 'ignore';
+const dict = a;
+dict.private;
+b['missing'];
+const misspelled = 'misspelled';
+b[misspelled];
+<div xVars={{ [width]: '2REM', [a.size]: percentage(2), [b.angle]: '1turn', [b.count]: 2, [b.color]: 'red' }} />;
+<div xVars={{ ...ok, [b.color]: typedColor }} />;
+<div {...{ xVars: { ...wrong, [width]: px(2) } }} />;
+<div xVars={wrong} {...{ xVars: ok }} />;
+<div xVars={null} />;
+<div xVars={{}} />;
+<div xVars={{ [width]: percentage(2) }} />;
+<div xVars={{ [b.count]: 2.5 }} />;
+<div xVars={maybe} />;
+<div xVars={wrong} {...optional} />;
+<div {...{ xVars: wrong }} />;
+<div xVars={{ '--private': px(2) }} />;
+<div xVars={{ [dynamic]: px(2) }} />;
+<div xVars />;
+<Custom xVars={wrong} />;
+"#,
+        ),
+        (
+            "legacy.jsx",
+            r#"
+import { cssVars as a } from './a.xcss';
+a.unknown;
+<div xVars={{ [a.width]: '2%' }} />;
+"#,
+        ),
+    ]);
+    let diagnostics = check(&p, &snapshot).unwrap();
+    let actual: Vec<_> = diagnostics
+        .iter()
+        .map(|d| {
+            let source = p.files[&d.location.file].text();
+            let range = d.location.range;
+            (d.code, &source[range.start..range.end])
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        [
+            ("XC-006", "private"),
+            ("XC-006", "'missing'"),
+            ("XC-006", "misspelled"),
+            ("XC-008", "percentage(2)"),
+            ("XC-008", "2.5"),
+            ("XC-008", "maybe"),
+            ("XC-008", "wrong"),
+            ("XC-008", "wrong"),
+            ("XC-007", "{ '--private': px(2) }"),
+            ("XC-007", "{ [dynamic]: px(2) }"),
+            ("XC-007", "xVars"),
+            ("XC-006", "unknown"),
+            ("XC-008", "'2%'"),
+        ],
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
 fn exact_classes_variants_and_cross_file_jsx() {
     let mut host = AnalysisHost::new();
     host.set_file(FileId("Button.xcss".into()), 1, "@variants Button: .primary, .secondary; .button {} .primary {} .secondary {} :global(.global) {}").unwrap();

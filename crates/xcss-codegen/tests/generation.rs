@@ -4,6 +4,39 @@ use xcss_source::FileId;
 fn id(name: &str) -> FileId {
     FileId(name.into())
 }
+
+#[test]
+fn provided_variable_exports_match_scoped_css() {
+    let result = compile(
+        &[(
+            "a.xcss",
+            "
+        @vars {
+            @provided --provided-width = 0px;
+            @provided { local --other-provided-var: angle; }
+            --private = 1px;
+        }
+        .a { width: --provided-width; rotate: --other-provided-var; margin: --private; }
+    ",
+        )],
+        "a.xcss",
+        &[],
+    )
+    .unwrap();
+    let module = &result.modules[0];
+    assert_eq!(module.css_vars.len(), 2);
+    let width = &module.css_vars["providedWidth"];
+    let angle = &module.css_vars["otherProvidedVar"];
+    assert_eq!(width, &module.custom_properties["--provided-width"]);
+    assert_eq!(angle, &module.custom_properties["--other-provided-var"]);
+    for property in [width, angle] {
+        assert!(module.css.contains(&format!("@property {property}")));
+        assert!(module.css.contains(&format!("var({property})")));
+    }
+    assert!(module.css.contains("inherits: false"));
+    assert!(!module.css.contains("@provided"));
+    assert!(!module.css_vars.contains_key("private"));
+}
 #[test]
 fn variants_are_erased_and_static_exports_match_generation() {
     let mut host = AnalysisHost::new();

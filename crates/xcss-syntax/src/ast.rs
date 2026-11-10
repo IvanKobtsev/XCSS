@@ -195,6 +195,7 @@ pub struct Parameter<'a> {
 }
 #[derive(Clone, Debug)]
 pub struct Variable<'a> {
+    pub provided: bool,
     pub name: &'a str,
     pub range: TextRange,
     pub inherits: bool,
@@ -328,7 +329,7 @@ impl ParseResult {
         };
         Some(Composition { names, source })
     }
-    fn significant(&self, range: TextRange) -> Vec<&Token> {
+    pub(super) fn significant(&self, range: TextRange) -> Vec<&Token> {
         self.tokens
             .iter()
             .filter(|t| {
@@ -401,11 +402,14 @@ impl ParseResult {
             return None;
         }
         let tokens = self.significant(node.header);
+        let provided = self.token_text(tokens.first()?) == "@";
+        let tokens = tokens.get(if provided { 2 } else { 0 }..)?;
         let inherits = self.token_text(tokens.first()?) != "local";
         let name = *tokens.get(usize::from(!inherits))?;
         let (annotation, initial) =
             self.annotation_initial(TextRange::new(name.range.end, node.header.end));
         Some(Variable {
+            provided,
             name: self.token_text(name),
             range: name.range,
             inherits,

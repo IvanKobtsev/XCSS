@@ -6,6 +6,8 @@
 default, class dictionaries, declared custom-property names, source maps, and
 native/composition/source dependencies. `GenerateOptions` supports minification,
 per-module output identities for URL rebasing, and composition-only bundling.
+The `css_vars` artifact dictionary exposes scoped names for variables marked
+`@provided`, keyed by their JavaScript export names.
 `xcss-core` re-exports these APIs and provides project inspection/compilation.
 
 `GeneratedProject.utilities` optionally contains shared composed-utility CSS,

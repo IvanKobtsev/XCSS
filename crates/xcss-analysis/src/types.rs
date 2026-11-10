@@ -1,5 +1,40 @@
 use super::*;
 
+pub const VALUE_KINDS: &[&str] = &[
+    "length",
+    "length-percentage",
+    "number",
+    "integer",
+    "percentage",
+    "angle",
+    "time",
+    "frequency",
+    "resolution",
+    "flex",
+    "color",
+    "image",
+    "url",
+    "transform-function",
+    "transform-list",
+];
+
+pub const DIMENSION_UNITS: &[(&str, &[&str])] = &[
+    ("percentage", &["%"]),
+    (
+        "length",
+        &[
+            "px", "em", "rem", "vh", "vw", "vmin", "vmax", "dvh", "dvw", "svh", "lvh", "ch", "ex",
+            "cm", "mm", "in", "pt", "pc", "q", "lh", "rlh", "cqw", "cqh", "cqi", "cqb", "rex",
+            "cap", "rcap", "rch", "ic", "ric", "vi", "vb", "svw", "lvw", "cqmin", "cqmax",
+        ],
+    ),
+    ("angle", &["deg", "rad", "grad", "turn"]),
+    ("time", &["s", "ms"]),
+    ("frequency", &["hz", "khz"]),
+    ("resolution", &["dpi", "dpcm", "dppx", "x"]),
+    ("flex", &["fr"]),
+];
+
 pub(super) fn checked_type(
     db: &mut Database,
     file: &FileId,
@@ -9,24 +44,7 @@ pub(super) fn checked_type(
 ) -> ValueType {
     let actual = initial.map(infer_type).unwrap_or(ValueType::Unknown);
     if let Some(annotation) = annotation {
-        if !matches!(
-            annotation,
-            "length"
-                | "length-percentage"
-                | "number"
-                | "integer"
-                | "percentage"
-                | "angle"
-                | "time"
-                | "frequency"
-                | "resolution"
-                | "flex"
-                | "color"
-                | "image"
-                | "url"
-                | "transform-function"
-                | "transform-list"
-        ) {
+        if !VALUE_KINDS.contains(&annotation) {
             db.error(
                 "type.unknown-type",
                 file,
@@ -119,20 +137,10 @@ pub fn infer_type(value: &str) -> ValueType {
         .unwrap_or(0);
     if boundary > 0 && value[..boundary].parse::<f64>().is_ok() {
         let unit = value[boundary..].to_ascii_lowercase();
-        let kind = match unit.as_str() {
-            "%" => "percentage",
-            "px" | "em" | "rem" | "vh" | "vw" | "vmin" | "vmax" | "dvh" | "dvw" | "svh" | "lvh"
-            | "ch" | "ex" | "cm" | "mm" | "in" | "pt" | "pc" | "q" | "lh" | "rlh" | "cqw"
-            | "cqh" | "cqi" | "cqb" | "rex" | "cap" | "rcap" | "rch" | "ic" | "ric" | "vi"
-            | "vb" | "svw" | "lvw" | "cqmin" | "cqmax" => "length",
-            "deg" | "rad" | "grad" | "turn" => "angle",
-            "s" | "ms" => "time",
-            "hz" | "khz" => "frequency",
-            "dpi" | "dpcm" | "dppx" | "x" => "resolution",
-            "fr" => "flex",
-            _ => return ValueType::Unknown,
-        };
-        return ValueType::named(kind);
+        return DIMENSION_UNITS
+            .iter()
+            .find(|(_, units)| units.contains(&unit.as_str()))
+            .map_or(ValueType::Unknown, |(kind, _)| ValueType::named(kind));
     }
     if [
         "translate(",

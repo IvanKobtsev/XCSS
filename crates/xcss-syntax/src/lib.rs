@@ -30,6 +30,7 @@ pub enum NodeKind {
     Rule,
     Declaration,
     Vars,
+    Provided,
     Variants,
     Variable,
     Constant,
@@ -101,7 +102,7 @@ pub fn parse(source: Arc<SourceFile>) -> ParseResult {
         cursor: 0,
         diagnostics: &mut diagnostics,
     };
-    let children = parser.block(false, false, 0);
+    let children = parser.block(NodeKind::Stylesheet, 0);
     let tree = Node {
         kind: NodeKind::Stylesheet,
         range: TextRange::new(0, source.text().len()),
@@ -377,7 +378,9 @@ impl Parser<'_> {
         let r = self.tokens[i].range;
         &self.source.text()[r.start..r.end]
     }
-    fn block(&mut self, nested: bool, vars: bool, depth: usize) -> Vec<Node> {
+    fn block(&mut self, parent: NodeKind, depth: usize) -> Vec<Node> {
+        let nested = depth != 0;
+        let vars = matches!(parent, NodeKind::Vars | NodeKind::Provided);
         let mut nodes = Vec::new();
         if depth > 128 {
             self.diagnostics.push(Diagnostic::error(
@@ -497,6 +500,8 @@ impl Parser<'_> {
             let kind = match at_name {
                 "raw" => NodeKind::Raw,
                 "vars" => NodeKind::Vars,
+                "provided" if !has_block => NodeKind::Variable,
+                "provided" => NodeKind::Provided,
                 "variants" => NodeKind::Variants,
                 "injection" => NodeKind::Injection,
                 "util" => NodeKind::Util,
@@ -510,6 +515,22 @@ impl Parser<'_> {
                 _ if raw.contains(':') => NodeKind::Declaration,
                 _ => NodeKind::Error,
             };
+            let provided = at_name == "provided";
+            if provided && (parent != NodeKind::Vars || depth != 1) {
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.provided-placement",
+                    &self.source.id,
+                    header,
+                    "@provided must be directly inside @vars",
+                ));
+            } else if parent == NodeKind::Provided && kind != NodeKind::Variable {
+                self.diagnostics.push(Diagnostic::error(
+                    "syntax.provided-member",
+                    &self.source.id,
+                    header,
+                    "Expected a variable declaration inside @provided",
+                ));
+            }
             let forbidden = [
                 "@mixin",
                 "@include",
@@ -568,7 +589,7 @@ impl Parser<'_> {
                 self.cursor += 1;
             } else if has_block {
                 self.cursor += 1;
-                children = self.block(true, kind == NodeKind::Vars, depth + 1);
+                children = self.block(kind, depth + 1);
                 if self.cursor < self.tokens.len() && self.token(self.cursor) == "}" {
                     node_end = self.tokens[self.cursor].range.end;
                     self.cursor += 1;
@@ -580,7 +601,9 @@ impl Parser<'_> {
                 node_end = self.tokens[self.cursor].range.end;
                 self.cursor += 1;
             } else if kind != NodeKind::Error
-                && (self.cursor < self.tokens.len() && self.token(self.cursor) != "}"
+                && (provided
+                    || parent == NodeKind::Provided
+                    || self.cursor < self.tokens.len() && self.token(self.cursor) != "}"
                     || matches!(
                         kind,
                         NodeKind::Injection | NodeKind::Util | NodeKind::Vars | NodeKind::Rule
@@ -650,6 +673,8 @@ fn validate_fragments(result: &mut ParseResult) {
                     })
             }
             NodeKind::Vars => node.block.is_none(),
+            NodeKind::Provided => result.significant(node.header).len() != 2,
+            NodeKind::Variable => node.block.is_some() || result.variable(node).is_none(),
             NodeKind::Raw => {
                 let header: Vec<_> = result
                     .tokens
