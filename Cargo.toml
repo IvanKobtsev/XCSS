@@ -3,7 +3,7 @@ members = ["crates/xcss-format", "crates/xcss-core", "crates/xcss-cli", "crates/
 resolver = "2"
 
 [workspace.package]
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT"

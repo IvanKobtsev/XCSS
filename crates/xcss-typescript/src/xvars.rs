@@ -298,7 +298,13 @@ impl Check<'_> {
         if name == "xVars" {
             self.map(checker, ty, range);
         } else {
-            let slots = self.tuple(checker, ty, expression, 0);
+            let slots = self.tuple(checker, ty, expression, 0).or_else(|| {
+                let origins = match expression {
+                    Some(expression) => self.expression_origins(checker, expression, 0),
+                    None => self.origins(checker, ty),
+                }?;
+                Some(vec![origins])
+            });
             if let Some(slots) = slots {
                 self.sites.push(ClassSite { insert: 0, slots });
             } else {
@@ -753,7 +759,7 @@ impl Check<'_> {
             "XC-009",
             self.id,
             range,
-            "xClass requires a fixed tuple of traceable XCSS classes, variants, or skipped slots.",
+            "xClass requires a traceable XCSS class, variant, or fixed tuple of slots.",
         ));
     }
 }

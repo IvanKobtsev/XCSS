@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- Accept a single class in React's `xClass` prop. `xClass={styles.button}` uses slot zero, just like `xClass={[styles.button]}`.
+
 ## 0.10.0
 
 - Add `@provided` custom properties, the named `cssVars` export, and React's `xVars` prop for inline style overrides.

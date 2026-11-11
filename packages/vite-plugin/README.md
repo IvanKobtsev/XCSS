@@ -121,7 +121,8 @@ know, such as a constructed `calc()` expression.
 ## Composing classes in React
 
 With the XCSS JSX runtime configured, use `xClass` on intrinsic elements to
-compose scoped class names. Pass an array literal or a fixed readonly tuple of
+compose scoped class names. A single class uses slot zero. For multiple slots,
+pass an array literal or a fixed readonly tuple of
 named `styles` exports, values typed as `Variants<'Group'>`, and conditional
 slots. Booleans, `null`, and `undefined` leave the slot empty. Use `className`
 for global classes.

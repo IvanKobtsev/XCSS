@@ -11,7 +11,7 @@ const style = { height: '200px', [cssVars.providedWidth]: '1px' }
 const provided = { xVars: { [cssVars.providedWidth]: px(24) }, xClass: [styles.box, false, styles.box] as const }
 
 export const element = <div {...provided} key="box" ref={ref} className="global" style={style}><b>A</b><i>B</i></div>
-export const withoutStyle = <div xVars={provided.xVars} xClass={[styles.box]}><b>C</b><i>D</i></div>
+export const withoutStyle = <div xVars={provided.xVars} xClass={styles.box}><b>C</b><i>D</i></div>
 export const empty = <div style={style} xVars={{}} xClass={[false, null, undefined]} />
 export const unchanged = <div style={style} className=" kept " xClass={[]} />
 

@@ -1715,7 +1715,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-analysis"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "xcss-source",
  "xcss-syntax",
@@ -1723,7 +1723,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-cli"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "pathdiff",
  "serde_json",
@@ -1733,7 +1733,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-codegen"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "lightningcss",
  "parcel_sourcemap",
@@ -1745,7 +1745,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-core"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "xcss-analysis",
  "xcss-codegen",
@@ -1755,7 +1755,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-format"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "malva",
  "xcss-source",
@@ -1764,7 +1764,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-language-service"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "xcss-analysis",
  "xcss-source",
@@ -1774,7 +1774,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-node"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "napi",
  "napi-build",
@@ -1787,11 +1787,11 @@ dependencies = [
 
 [[package]]
 name = "xcss-source"
-version = "0.10.0"
+version = "0.10.1"
 
 [[package]]
 name = "xcss-syntax"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "raffia 0.13.0",
  "xcss-source",
@@ -1799,7 +1799,7 @@ dependencies = [
 
 [[package]]
 name = "xcss-typescript"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "serde_json",
  "tsrs_ast",

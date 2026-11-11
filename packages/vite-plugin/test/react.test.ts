@@ -26,7 +26,7 @@ function checkFixture(app: Fixture) {
   expect(Object.keys(app.cssVars)).toEqual(['angle', 'providedWidth'])
   expect(app.emptyVars).toEqual({})
   expect(app.html).toContain(`height:200px;${width}:24px`)
-  expect(app.html).toContain(`style="${width}:24px"`)
+  expect(app.html).toContain(`style="${width}:24px" class="${app.styles.box} _xcss_position_626f782e78637373_626f78_0"`)
   expect(app.html).toContain('<b>A</b><i>B</i>')
   expect(app.html).toContain('<span>24px</span>')
   expect(app.html).not.toContain('xVars')

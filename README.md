@@ -160,7 +160,8 @@ export function Button({ tone, width }: { tone: Variants<'Tone'>; width: number 
 }
 ```
 
-Use an inline array or a fixed readonly tuple for `xClass`. Later slots boost
+Pass a single class to `xClass` to use slot zero, or use an inline array or a
+fixed readonly tuple for multiple slots. Later slots boost
 eligible stylesheet-root selectors. A conditional value such as
 `active && styles.active` keeps its slot when false. Use ordinary `className`
 for global class names.
