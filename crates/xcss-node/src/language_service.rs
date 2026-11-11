@@ -313,6 +313,11 @@ impl LanguageService {
     pub fn document(&mut self, uri: String, include_tokens: Option<bool>) -> EditorDocument {
         let snapshot = self.inner.snapshot();
         let file = FileId(uri);
+        let tokens = if include_tokens.unwrap_or(true) {
+            snapshot.semantic_tokens(&file)
+        } else {
+            Vec::new()
+        };
         EditorDocument {
             revision: snapshot.revision() as f64,
             diagnostics: snapshot
@@ -333,10 +338,7 @@ impl LanguageService {
                     related: d.related.into_iter().map(location).collect(),
                 })
                 .collect(),
-            tokens: include_tokens
-                .unwrap_or(true)
-                .then(|| snapshot.semantic_tokens(&file))
-                .unwrap_or_default()
+            tokens: tokens
                 .into_iter()
                 .map(|t| SemanticToken {
                     line: t.line as u32,
