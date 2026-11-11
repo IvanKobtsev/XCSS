@@ -1,5 +1,19 @@
 # Language service
 
+## TypeScript editor integration (API v6)
+
+The editor resolves named XCSS imports through the TypeScript project.
+`definitionDetails(uri, position)` returns the original UTF-16 `origin`
+range and all `targets`. `definition` continues to return just the targets.
+Class accesses return every source selector that contributes to the export.
+`cssVars` accesses resolve to their provided declaration, and the named
+exports themselves navigate to the module or its corresponding directives.
+
+`document(uri)` also returns TypeScript tokens for XCSS imports, class members,
+and provided variable members. Their kinds are `xcssImport`,
+`xcssClassMember`, and `xcssProvidedVariable`. Pass `false` as the optional
+second argument when requesting diagnostics without tokens.
+
 ## Classes and variants (API v5)
 
 `definition(uri, position)` and `references(uri, position, includeDeclaration)`

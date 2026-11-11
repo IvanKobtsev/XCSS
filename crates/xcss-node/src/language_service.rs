@@ -109,6 +109,11 @@ pub struct EditorHover {
     pub text: String,
 }
 #[napi(object)]
+pub struct EditorDefinitionDetails {
+    pub origin: EditorRange,
+    pub targets: Vec<EditorLocation>,
+}
+#[napi(object)]
 pub struct EditorCompletion {
     pub label: String,
     pub kind: String,
@@ -305,7 +310,7 @@ impl LanguageService {
             .set_resolution(FileId(importer), specifier, target.map(FileId));
     }
     #[napi]
-    pub fn document(&mut self, uri: String) -> EditorDocument {
+    pub fn document(&mut self, uri: String, include_tokens: Option<bool>) -> EditorDocument {
         let snapshot = self.inner.snapshot();
         let file = FileId(uri);
         EditorDocument {
@@ -328,8 +333,10 @@ impl LanguageService {
                     related: d.related.into_iter().map(location).collect(),
                 })
                 .collect(),
-            tokens: snapshot
-                .semantic_tokens(&file)
+            tokens: include_tokens
+                .unwrap_or(true)
+                .then(|| snapshot.semantic_tokens(&file))
+                .unwrap_or_default()
                 .into_iter()
                 .map(|t| SemanticToken {
                     line: t.line as u32,
@@ -349,6 +356,20 @@ impl LanguageService {
             .into_iter()
             .map(location)
             .collect()
+    }
+    #[napi]
+    pub fn definition_details(
+        &mut self,
+        uri: String,
+        position: EditorPosition,
+    ) -> Option<EditorDefinitionDetails> {
+        self.inner
+            .snapshot()
+            .definition_details(&FileId(uri), input(position))
+            .map(|details| EditorDefinitionDetails {
+                origin: range(details.origin),
+                targets: details.targets.into_iter().map(location).collect(),
+            })
     }
     #[napi]
     pub fn references(

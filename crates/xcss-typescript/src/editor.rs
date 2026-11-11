@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use tsrs_ast::{self as ast, Kind, Node, SourceFile};
+use tsrs_ast::{self as ast, Kind, Node, SourceFile, SymbolFlags};
 use tsrs_checker::{Checker, ContextFlags};
 use tsrs_compiler::{Context, Program};
 use tsrs_core::{LanguageVariant, P};
@@ -9,7 +9,10 @@ use xcss_source::{FileId, Location, TextRange};
 
 use crate::{
     Project,
-    diagnostics::{contextual_groups, node_range, project_file, styles_module, variants_module},
+    diagnostics::{
+        contextual_groups, dictionary_module, node_range, project_file, styles_module, stylesheet,
+        variants_module,
+    },
     with_program,
 };
 
@@ -35,7 +38,21 @@ pub struct Completion {
 #[derive(Default)]
 pub struct EditorIndex {
     pub occurrences: Vec<Occurrence>,
+    pub navigation: BTreeMap<FileId, Vec<Navigation>>,
     sites: BTreeMap<FileId, Vec<Site>>,
+}
+
+pub enum NavigationTarget {
+    Module(FileId),
+    Vars(FileId),
+    Variants(FileId),
+    Provided(FileId, String),
+}
+
+pub struct Navigation {
+    pub range: TextRange,
+    pub target: NavigationTarget,
+    pub token: Option<&'static str>,
 }
 
 struct Site {
@@ -251,42 +268,25 @@ struct Collector<'a> {
 impl Collector<'_> {
     fn visit(&mut self, node: P<Node>) {
         match node.kind() {
+            Kind::ImportSpecifier => self.import(node),
             Kind::PropertyAccessExpression => {
                 let access = node.as_property_access_expression();
-                if let Some(module) =
-                    styles_module(self.checker, self.snapshot, access.expression())
-                {
-                    let name = access.name();
-                    let range = node_range(self.file, name);
-                    self.site(
-                        range,
-                        Scope::Classes(module),
-                        Insertion::Identifier,
-                        Some(name.text()),
-                    );
-                }
+                self.access(access.expression(), access.name(), false);
             }
             Kind::ElementAccessExpression => {
                 let access = node.as_element_access_expression();
-                if let Some(module) =
-                    styles_module(self.checker, self.snapshot, access.expression())
-                {
-                    let key = access.argument_expression();
-                    if ast::is_string_literal_like(key) {
-                        self.string(key, Scope::Classes(module), false);
-                    } else {
-                        let range = node_range(self.file, key);
-                        if range.start == range.end {
-                            self.site(range, Scope::Classes(module), Insertion::Quoted, None);
-                        }
-                    }
-                }
+                self.access(access.expression(), access.argument_expression(), true);
             }
             Kind::TypeReference => {
                 let reference = node.as_type_reference_node();
                 if let Some(module) =
                     variants_module(self.checker, self.snapshot, reference.type_name())
                 {
+                    self.navigation(
+                        node_range(self.file, reference.type_name()),
+                        NavigationTarget::Variants(module.clone()),
+                        None,
+                    );
                     if let Some(args) = reference.type_arguments() {
                         for &argument in args.nodes() {
                             self.group_argument(argument, &module);
@@ -308,6 +308,107 @@ impl Collector<'_> {
             self.visit(child);
             false
         });
+    }
+
+    fn navigation(
+        &mut self,
+        range: TextRange,
+        target: NavigationTarget,
+        token: Option<&'static str>,
+    ) {
+        if range.start < range.end {
+            self.index
+                .navigation
+                .entry(self.id.clone())
+                .or_default()
+                .push(Navigation {
+                    range,
+                    target,
+                    token,
+                });
+        }
+    }
+
+    fn import(&mut self, node: P<Node>) {
+        let specifier = node.as_import_specifier();
+        let name = specifier.name();
+        let mut nodes = vec![name];
+        nodes.extend(specifier.property_name());
+        let Some(mut symbol) = self.checker.get_symbol_at_location_exported(name) else {
+            return;
+        };
+        if symbol.flags().intersects(SymbolFlags::Alias) {
+            symbol = self.checker.get_aliased_symbol(symbol);
+        }
+        let Some((module, export)) = symbol.declarations().iter().find_map(|&decl| {
+            let module = stylesheet(self.snapshot, decl)?;
+            let export = match decl.kind() {
+                Kind::VariableDeclaration => decl.as_variable_declaration().name().text(),
+                Kind::TypeAliasDeclaration => decl.as_type_alias_declaration().name().text(),
+                _ => return None,
+            };
+            Some((module, export))
+        }) else {
+            return;
+        };
+        for node in nodes {
+            let target = match export {
+                "styles" => NavigationTarget::Module(module.clone()),
+                "cssVars" => NavigationTarget::Vars(module.clone()),
+                "Variants" => NavigationTarget::Variants(module.clone()),
+                _ => return,
+            };
+            self.navigation(node_range(self.file, node), target, Some("xcssImport"));
+        }
+    }
+
+    fn access(&mut self, receiver: P<Node>, key: P<Node>, bracket: bool) {
+        let receiver_range = node_range(self.file, receiver);
+        if let Some(module) = styles_module(self.checker, self.snapshot, receiver) {
+            self.navigation(
+                receiver_range,
+                NavigationTarget::Module(module.clone()),
+                None,
+            );
+            if !bracket {
+                self.site(
+                    node_range(self.file, key),
+                    Scope::Classes(module),
+                    Insertion::Identifier,
+                    Some(key.text()),
+                );
+            } else if ast::is_string_literal_like(key) {
+                self.string(key, Scope::Classes(module), false);
+            } else {
+                let range = node_range(self.file, key);
+                if range.start == range.end {
+                    self.site(range, Scope::Classes(module), Insertion::Quoted, None);
+                }
+            }
+        } else if let Some(module) =
+            dictionary_module(self.checker, self.snapshot, receiver, "cssVars")
+        {
+            self.navigation(receiver_range, NavigationTarget::Vars(module.clone()), None);
+            if (!bracket || ast::is_string_literal_like(key))
+                && self
+                    .snapshot
+                    .module_interface(&module)
+                    .is_some_and(|interface| interface.provided_variables.contains_key(key.text()))
+            {
+                let range = if bracket {
+                    self.string_range(key, false).map(|(range, _)| range)
+                } else {
+                    Some(node_range(self.file, key))
+                };
+                if let Some(range) = range {
+                    self.navigation(
+                        range,
+                        NavigationTarget::Provided(module, key.text().into()),
+                        Some("xcssProvidedVariable"),
+                    );
+                }
+            }
+        }
     }
 
     fn group_argument(&mut self, node: P<Node>, module: &FileId) {
@@ -372,13 +473,11 @@ impl Collector<'_> {
         }
     }
 
-    fn string(&mut self, node: P<Node>, scope: Scope, jsx: bool) {
+    fn string_range(&self, node: P<Node>, jsx: bool) -> Option<(TextRange, char)> {
         let mut range = node_range(self.file, node);
-        let Some(raw) = self.file.text().get(range.start..range.end) else {
-            return;
-        };
+        let raw = self.file.text().get(range.start..range.end)?;
         let Some(quote @ ('"' | '\'' | '\u{60}')) = raw.chars().next() else {
-            return;
+            return None;
         };
         range.start += 1;
         if raw.len() > 1 && raw.ends_with(quote) {
@@ -391,6 +490,13 @@ impl Collector<'_> {
                 range.end -= 1;
             }
         }
+        Some((range, quote))
+    }
+
+    fn string(&mut self, node: P<Node>, scope: Scope, jsx: bool) {
+        let Some((range, quote)) = self.string_range(node, jsx) else {
+            return;
+        };
         self.site(
             range,
             scope,

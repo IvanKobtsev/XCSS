@@ -31,7 +31,7 @@ test('CSS editor values retain gradients, arithmetic, defaults and original UTF-
   assert.equal(transform.functions[0].name, 'translateY')
   assert.equal(transform.functions[0].range.start.character, source.indexOf('translateY'))
   assert.equal(transform.functions[0].range.end.character, source.indexOf('translateY') + 'translateY'.length)
-  assert.deepEqual(languageServiceCapabilities().tokenTypes.slice(-3), ['cssFunction', 'cssKeyword', 'cssColor'])
+  assert.deepEqual(languageServiceCapabilities().tokenTypes.slice(-6, -3), ['cssFunction', 'cssKeyword', 'cssColor'])
 })
 
 test('raw contents, comments, strings and URL contents never produce function occurrences', () => {

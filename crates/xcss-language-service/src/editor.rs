@@ -2,9 +2,11 @@ use std::collections::BTreeSet;
 
 use xcss_source::{FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind, ast::decode_identifier};
-use xcss_typescript::EditorIndex;
+use xcss_typescript::{EditorIndex, NavigationTarget};
 
-use super::{EditorLocation, Range, ReferenceRole, ServiceSnapshot, SymbolKind};
+use super::{
+    EditorLocation, Range, ReferenceRole, SemanticToken, ServiceSnapshot, SymbolKind, TOKEN_TYPES,
+};
 
 pub use xcss_typescript::Symbol as ExportedSymbol;
 
@@ -15,7 +17,146 @@ pub struct Completion {
     pub new_text: String,
 }
 
+pub struct DefinitionDetails {
+    pub origin: Range,
+    pub targets: Vec<EditorLocation>,
+}
+
 impl ServiceSnapshot {
+    pub fn definition_details(
+        &self,
+        file: &FileId,
+        position: Position,
+    ) -> Option<DefinitionDetails> {
+        let offset = self.offset(file, position)?;
+        if self.0.syntax(file).is_some() {
+            let targets = self.definition(file, position);
+            let origin = self
+                .hover(file, position)
+                .map(|hover| hover.range)
+                .unwrap_or(Range {
+                    start: position,
+                    end: position,
+                });
+            return (!targets.is_empty()).then_some(DefinitionDetails { origin, targets });
+        }
+        let index = self.editor_index();
+        let mut candidates = index
+            .navigation
+            .get(file)
+            .into_iter()
+            .flatten()
+            .filter(|item| item.range.contains(offset))
+            .map(|item| (item.range, self.navigation_targets(&item.target)))
+            .chain(
+                index
+                    .occurrences
+                    .iter()
+                    .filter(|item| {
+                        item.location.file == *file && item.location.range.contains(offset)
+                    })
+                    .map(|item| {
+                        (
+                            item.location.range,
+                            self.exported_definitions(&item.symbols),
+                        )
+                    }),
+            );
+        let (range, targets) = candidates
+            .by_ref()
+            .min_by_key(|(range, _)| range.end - range.start)?;
+        let origin = self
+            .location(&Location {
+                file: file.clone(),
+                range,
+            })?
+            .range;
+        (!targets.is_empty()).then_some(DefinitionDetails { origin, targets })
+    }
+
+    fn navigation_targets(&self, target: &NavigationTarget) -> Vec<EditorLocation> {
+        let (file, kind, keyword) = match target {
+            NavigationTarget::Module(file) => {
+                return self
+                    .location(&Location {
+                        file: file.clone(),
+                        range: TextRange::default(),
+                    })
+                    .into_iter()
+                    .collect();
+            }
+            NavigationTarget::Provided(file, key) => {
+                return self
+                    .0
+                    .module_interface(file)
+                    .and_then(|interface| interface.provided_variables.get(key))
+                    .and_then(|variable| self.location(&variable.location))
+                    .into_iter()
+                    .collect();
+            }
+            NavigationTarget::Vars(file) => (file, NodeKind::Vars, "@vars"),
+            NavigationTarget::Variants(file) => (file, NodeKind::Variants, "@variants"),
+        };
+        self.0
+            .syntax(file)
+            .into_iter()
+            .flat_map(|parse| &parse.tree.children)
+            .filter(|node| node.kind == kind)
+            .filter_map(|node| {
+                self.location(&Location {
+                    file: file.clone(),
+                    range: TextRange::new(node.header.start, node.header.start + keyword.len()),
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn typescript_tokens(&self, file: &FileId) -> Vec<SemanticToken> {
+        if !self.1.files.contains_key(file) {
+            return Vec::new();
+        }
+        let index = self.editor_index();
+        let members = index
+            .occurrences
+            .iter()
+            .filter(|item| {
+                item.location.file == *file
+                    && matches!(item.symbols.first(), Some(ExportedSymbol::Class(..)))
+            })
+            .map(|item| (item.location.range, "xcssClassMember"));
+        let extras = index
+            .navigation
+            .get(file)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| Some((item.range, item.token?)));
+        let mut tokens: Vec<_> = members
+            .chain(extras)
+            .filter_map(|(range, kind)| {
+                let range = self
+                    .location(&Location {
+                        file: file.clone(),
+                        range,
+                    })?
+                    .range;
+                if range.start.line != range.end.line
+                    || range.start.character >= range.end.character
+                {
+                    return None;
+                }
+                Some(SemanticToken {
+                    line: range.start.line,
+                    character: range.start.character,
+                    length: range.end.character - range.start.character,
+                    token_type: TOKEN_TYPES.iter().position(|&token| token == kind)?,
+                    declaration: kind == "xcssImport",
+                })
+            })
+            .collect();
+        tokens.sort_by_key(|token| (token.line, token.character, token.length, token.token_type));
+        tokens.dedup();
+        tokens
+    }
     fn editor_index(&self) -> &EditorIndex {
         self.3.get_or_init(|| {
             let Some(config) = &self.1.config else {

@@ -8,7 +8,7 @@ test('selector API classifies original UTF-16 source and calculates effective sp
   const text = '/* 😀 */ #parent, .parent { svg|a.café#id[data-x="hi"]:where(.off)::after > * { & + .child {} } }'
   service.setFile(uri, 1, text)
   const result = service.selectors(uri)
-  assert.equal(languageServiceCapabilities().apiVersion, 5)
+  assert.equal(languageServiceCapabilities().apiVersion, 6)
   assert.equal(result.selectors.length, 4)
   const rule = result.selectors[2]
   assert.deepEqual(rule.specificity, { ids: 2, classes: 2, types: 2 })
