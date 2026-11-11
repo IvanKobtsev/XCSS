@@ -34,7 +34,6 @@ struct Database {
     signatures: BTreeMap<SymbolId, InjectionSignature>,
     expressions: Vec<Expression>,
     dependencies: Vec<Dependency>,
-    compositions: Vec<ResolvedComposition>,
     imports: Vec<ImportBinding>,
     constants: BTreeMap<SymbolId, Value>,
     interfaces: BTreeMap<FileId, ModuleInterface>,
@@ -55,17 +54,10 @@ struct Call {
     node: Node,
     owner: Option<SymbolId>,
 }
-#[derive(Clone)]
-struct Composition {
-    file: FileId,
-    node: Node,
-    owners: Vec<SymbolId>,
-}
 #[derive(Default)]
 struct Collected {
     imports: Vec<Import>,
     calls: Vec<Call>,
-    compositions: Vec<Composition>,
     scopes: BTreeMap<(FileId, usize), ScopeId>,
 }
 
@@ -401,7 +393,6 @@ fn analyze(
     }
     check_cycles(&mut db, &edges, "binding.injection-cycle");
     validate_utils(&mut db);
-    analyze_compositions(&mut db, &collected.compositions, resolutions);
     variants::analyze(&mut db);
     for i in 0..db.expressions.len() {
         let expression = &db.expressions[i];
@@ -992,128 +983,6 @@ fn reference_value_position(parse: &ParseResult, range: TextRange) -> bool {
         }
     }
     false
-}
-fn analyze_compositions(
-    db: &mut Database,
-    compositions: &[Composition],
-    resolutions: &BTreeMap<(FileId, String), Option<FileId>>,
-) {
-    let mut edges = Vec::new();
-    let mut seen = BTreeMap::<(SymbolId, String), SymbolId>::new();
-    for composition in compositions {
-        let parse = db.files[&composition.file].clone();
-        let Some(syntax) = parse.composition(&composition.node) else {
-            continue;
-        };
-        if composition.owners.len() != 1 {
-            db.error(
-                "binding.composition-owner",
-                &composition.file,
-                composition.node.header,
-                "Composition requires a single local class",
-            );
-            continue;
-        }
-        if syntax.source == xcss_syntax::ast::CompositionSource::Global {
-            let mut members = Vec::new();
-            for (name, range) in syntax.names {
-                members.push(CompositionMember {
-                    name: decode_identifier(name),
-                    target: None,
-                    location: Location {
-                        file: composition.file.clone(),
-                        range,
-                    },
-                });
-                db.references.push(Reference {
-                    role: ReferenceRole::Read,
-                    name: decode_identifier(name),
-                    location: Location {
-                        file: composition.file.clone(),
-                        range,
-                    },
-                    target: None,
-                });
-            }
-            db.compositions.push(ResolvedComposition {
-                owner: composition.owners[0],
-                members,
-            });
-            continue;
-        }
-        let target_file = if let xcss_syntax::ast::CompositionSource::Module(from) = syntax.source {
-            resolutions
-                .get(&(composition.file.clone(), from.into()))
-                .and_then(Clone::clone)
-                .filter(|f| db.files.contains_key(f))
-        } else {
-            Some(composition.file.clone())
-        };
-        let Some(target_file) = target_file else {
-            db.error(
-                "binding.unresolved-import",
-                &composition.file,
-                composition.node.header,
-                "Cannot resolve composition source",
-            );
-            continue;
-        };
-        db.dependencies.push(Dependency {
-            from: composition.file.clone(),
-            to: target_file.clone(),
-            kind: DependencyKind::Composition,
-        });
-        let mut members = Vec::new();
-        for (raw_name, range) in syntax.names {
-            let decoded = decode_identifier(raw_name);
-            let name = decoded.as_str();
-            let target = db.local(&target_file, name, SymbolKind::Class);
-            members.push(CompositionMember {
-                name: name.into(),
-                target,
-                location: Location {
-                    file: composition.file.clone(),
-                    range,
-                },
-            });
-            db.references.push(Reference {
-                role: ReferenceRole::Read,
-                name: name.into(),
-                location: Location {
-                    file: composition.file.clone(),
-                    range,
-                },
-                target,
-            });
-            if let Some(target) = target {
-                let owner = composition.owners[0];
-                if seen
-                    .insert((owner, name.into()), target)
-                    .is_some_and(|old| old != target)
-                {
-                    db.error(
-                        "binding.composition-conflict",
-                        &composition.file,
-                        range,
-                        "Conflicting composed class",
-                    );
-                }
-                edges.push((owner, target));
-            } else {
-                db.error(
-                    "binding.missing-export",
-                    &composition.file,
-                    range,
-                    format!("Class `{name}` is not exported"),
-                );
-            }
-        }
-        db.compositions.push(ResolvedComposition {
-            owner: composition.owners[0],
-            members,
-        });
-    }
-    check_cycles(db, &edges, "binding.composition-cycle");
 }
 fn check_cycles(db: &mut Database, edges: &[(SymbolId, SymbolId)], code: &'static str) {
     for symbol in edges.iter().map(|(from, _)| *from).collect::<BTreeSet<_>>() {

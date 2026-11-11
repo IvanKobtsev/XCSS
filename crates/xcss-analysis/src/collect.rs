@@ -307,15 +307,18 @@ pub(super) fn collect(
         }
         NodeKind::Declaration => {
             if let Some(declaration) = parse.declaration(node) {
-                let normalized_property = declaration.property.to_ascii_lowercase();
+                let normalized_property =
+                    decode_identifier(declaration.property).to_ascii_lowercase();
                 let property = normalized_property.as_str();
                 let value = parse.slice(declaration.value.range);
                 if property.trim() == "composes" {
-                    state.compositions.push(Composition {
-                        file: file.clone(),
-                        node: node.clone(),
-                        owners: classes.to_vec(),
-                    });
+                    db.error(
+                        "syntax.unsupported-composes",
+                        file,
+                        node.header,
+                        "XCSS does not support composes declarations",
+                    );
+                    return;
                 }
                 let slash = !matches!(
                     property.trim(),

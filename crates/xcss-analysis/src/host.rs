@@ -131,9 +131,6 @@ impl AnalysisSnapshot {
     pub fn files(&self) -> impl Iterator<Item = &FileId> {
         self.0.files.keys()
     }
-    pub fn compositions(&self) -> &[ResolvedComposition] {
-        &self.0.compositions
-    }
     pub fn resolved_call(&self, file: &FileId, node: &Node) -> Option<SymbolId> {
         let syntax = self.syntax(file)?.call(node)?;
         self.0

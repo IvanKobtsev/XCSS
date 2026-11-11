@@ -1,6 +1,6 @@
 //! Scoped CSS emission from an immutable XCSS analysis snapshot.
 use std::collections::{BTreeMap, BTreeSet};
-use xcss_analysis::{AnalysisSnapshot, DependencyKind, SymbolId, SymbolKind};
+use xcss_analysis::{AnalysisSnapshot, SymbolId, SymbolKind};
 pub use xcss_source::scoped_property;
 use xcss_source::{Diagnostic, FileId, Location, Severity, TextRange};
 use xcss_syntax::{Node, NodeKind, ParseResult};
@@ -20,6 +20,17 @@ pub struct GenerateOptions {
     pub source_root: Option<String>,
     /// Destination used to rebase assets in the shared utility stylesheet.
     pub utilities_output_path: Option<String>,
+    pub class_positions: BTreeMap<FileId, BTreeMap<String, BTreeSet<usize>>>,
+}
+
+pub fn positional_class(file: &FileId, name: &str, index: usize) -> String {
+    let hex = |value: &str| {
+        value
+            .bytes()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    format!("_xcss_position_{}_{}_{}", hex(&file.0), hex(name), index)
 }
 #[derive(Clone, Debug)]
 pub struct GeneratedModule {
@@ -139,28 +150,6 @@ pub fn generate(
             }
         }
     }
-    for file in &required {
-        if let Some(parsed) = snapshot.syntax(file) {
-            for node in parsed.tree.descendants() {
-                if let Some(composition) = parsed.composition(node)
-                    && let xcss_syntax::ast::CompositionSource::Module(specifier) =
-                        composition.source
-                    && specifier
-                        .split('?')
-                        .next()
-                        .unwrap_or(specifier)
-                        .ends_with(".css")
-                {
-                    return Err(vec![Diagnostic::error(
-                        "generate.external-composition",
-                        file,
-                        node.header,
-                        "Composition from external CSS Modules requires an adapter; use a project XCSS module",
-                    )]);
-                }
-            }
-        }
-    }
     let errors: Vec<_> = snapshot
         .diagnostics()
         .iter()
@@ -178,24 +167,6 @@ pub fn generate(
                 TextRange::default(),
                 "Generation requires project-relative module identities",
             )]);
-        }
-    }
-    let mut emitted = BTreeSet::from([entry.clone()]);
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for dep in snapshot.dependencies() {
-            if dep.kind == DependencyKind::Composition && emitted.contains(&dep.from) {
-                if !dep.to.0.ends_with(".xcss") {
-                    return Err(vec![Diagnostic::error(
-                        "generate.external-composition",
-                        &dep.from,
-                        TextRange::default(),
-                        "Composition from external CSS Modules is not supported",
-                    )]);
-                }
-                changed |= emitted.insert(dep.to.clone());
-            }
         }
     }
     let mut modules = Vec::new();
@@ -221,7 +192,7 @@ pub fn generate(
                 .unwrap_or_else(|| "xcss-utils.css".into())
         })
     };
-    for file in &emitted {
+    for file in std::iter::once(entry) {
         let output_file = if options.bundle { entry } else { file };
         let output_identity = options
             .output_paths
@@ -241,7 +212,7 @@ pub fn generate(
             options.source_root.as_deref(),
         );
         lower.utility_output_identity = &utility_identity;
-        let mapped = lower.module()?;
+        let mapped = lower.module(options.class_positions.get(file))?;
         utility_globals.extend(lower.globals.clone());
         let parse = snapshot.syntax(file).unwrap();
         for node in &parse.tree.children {
@@ -312,43 +283,10 @@ pub fn generate(
                 .flat_map(|interface| &interface.provided_variables)
                 .map(|(key, variable)| (key.clone(), variable.scoped_name.clone()))
                 .collect(),
-            stylesheet_dependencies: snapshot
-                .dependencies()
-                .iter()
-                .filter(|d| {
-                    d.from == *file && d.kind == DependencyKind::Composition && d.to != *file
-                })
-                .map(|d| d.to.clone())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect(),
+            stylesheet_dependencies: Vec::new(),
             native_imports: lower.native_imports.into_iter().collect(),
             source_dependencies: lower.sources.into_iter().collect(),
         });
-    }
-    let base: BTreeMap<_, _> = modules
-        .iter()
-        .map(|m| (m.module_id.clone(), m.classes.clone()))
-        .collect();
-    for module in &mut modules {
-        for (name, value) in &mut module.classes {
-            if let Some(symbol) = snapshot.symbols().iter().find(|s| {
-                s.location.file == module.module_id
-                    && s.kind == SymbolKind::Class
-                    && s.name == *name
-                    && !s.global
-            }) {
-                let mut names = vec![value.clone()];
-                compose(snapshot, symbol.id, &base, &mut names, &mut BTreeSet::new());
-                let mut seen = BTreeSet::new();
-                *value = names
-                    .into_iter()
-                    .flat_map(|n| n.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
-                    .filter(|n| seen.insert(n.clone()))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-            }
-        }
     }
     let utilities = if utility_rules.is_empty() {
         None
@@ -549,33 +487,6 @@ fn bundle_modules(
     })?;
     artifact.source_map = raw::tag(artifact.source_map, &raw_ranges);
     Ok(artifact)
-}
-fn compose(
-    snapshot: &AnalysisSnapshot,
-    id: SymbolId,
-    base: &BTreeMap<FileId, BTreeMap<String, String>>,
-    out: &mut Vec<String>,
-    seen: &mut BTreeSet<SymbolId>,
-) {
-    if !seen.insert(id) {
-        return;
-    }
-    for composition in snapshot.compositions().iter().filter(|c| c.owner == id) {
-        for member in &composition.members {
-            if let Some(target) = member.target {
-                let symbol = snapshot.symbol(target).unwrap();
-                if let Some(name) = base
-                    .get(&symbol.location.file)
-                    .and_then(|m| m.get(&symbol.name))
-                {
-                    out.push(name.clone());
-                }
-                compose(snapshot, target, base, out, seen);
-            } else {
-                out.push(member.name.clone());
-            }
-        }
-    }
 }
 fn backend(
     snapshot: &AnalysisSnapshot,

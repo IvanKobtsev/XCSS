@@ -4,8 +4,8 @@
 
 `xcss-codegen::generate(snapshot, entry, options)` emits readable scoped CSS by
 default, class dictionaries, declared custom-property names, source maps, and
-native/composition/source dependencies. `GenerateOptions` supports minification,
-per-module output identities for URL rebasing, and composition-only bundling.
+native and source dependencies. `GenerateOptions` supports minification,
+per-module output identities for URL rebasing, and utility bundling.
 The `css_vars` artifact dictionary exposes scoped names for variables marked
 `@provided`, keyed by their JavaScript export names.
 `xcss-core` re-exports these APIs and provides project inspection/compilation.
@@ -39,7 +39,6 @@ Inline and URL stylesheet requests include their own bundled utilities.
 Class, ID and animation scoping use pinned Lightning CSS with
 `xcss_[hash]_[local]` and project-relative filenames. Dashed-identifier scoping is
 disabled: only declared XCSS custom properties receive an XCSS module suffix.
-Composition exports are resolved transitively and deduplicated in source order.
 Only local classes are included in the default JavaScript dictionary. Global
 keyframe exceptions are normalized through private backend placeholders.
 
@@ -113,8 +112,8 @@ injections are included without importing unrelated library styles.
 
 ## Integration limits
 
-Composition supports project XCSS modules and global names; external CSS Modules
-need a separate adapter. Value imports/exports and ICSS syntax are not added.
+Use `@util` to share rules between classes. XCSS rejects `composes` declarations
+and passes `@raw` contents through as written.
 No Sass variables, loops or functions are supported. Compilation errors do not
 replace CLI output. CLI names are plain .css, with adjacent .css.map and
 .exports.json artifacts. Native CSS imports and assets remain downstream inputs;

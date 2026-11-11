@@ -7,3 +7,4 @@
 .box {
   width: --provided-width;
 }
+.override { color: green; }

@@ -1,10 +1,7 @@
 use std::collections::BTreeSet;
 
 use xcss_source::{FileId, Location, Position, TextRange};
-use xcss_syntax::{
-    NodeKind, TokenKind,
-    ast::{CompositionSource, decode_identifier},
-};
+use xcss_syntax::{NodeKind, TokenKind, ast::decode_identifier};
 use xcss_typescript::EditorIndex;
 
 use super::{EditorLocation, Range, ReferenceRole, ServiceSnapshot, SymbolKind};
@@ -246,7 +243,7 @@ impl ServiceSnapshot {
             .filter(|node| {
                 node.header.start <= offset
                     && offset <= node.header.end
-                    && matches!(node.kind, NodeKind::Variants | NodeKind::Declaration)
+                    && node.kind == NodeKind::Variants
             })
             .min_by_key(|node| node.header.end - node.header.start)?;
         if parse
@@ -266,32 +263,17 @@ impl ServiceSnapshot {
             })
             .collect();
         let text = |index: usize| tokens.get(index).map(|token| parse.slice(token.range));
-        let (start, end, target, variants) = if node.kind == NodeKind::Variants {
-            if !parse
-                .tree
-                .children
-                .iter()
-                .any(|child| std::ptr::eq(child, node))
-                || text(3) != Some(":")
-            {
-                return None;
-            }
-            (4, tokens.len(), file, true)
-        } else {
-            let composition = parse.composition(node)?;
-            if !text(0)?.eq_ignore_ascii_case("composes") || text(1) != Some(":") {
-                return None;
-            }
-            let end = (2..tokens.len())
-                .find(|&i| text(i) == Some("from"))
-                .unwrap_or(tokens.len());
-            let target = match composition.source {
-                CompositionSource::Module(specifier) => self.0.resolved_module(file, specifier)?,
-                CompositionSource::Local if end == tokens.len() => file,
-                _ => return None,
-            };
-            (2, end, target, false)
-        };
+        if !parse
+            .tree
+            .children
+            .iter()
+            .any(|child| std::ptr::eq(child, node))
+            || text(3) != Some(":")
+        {
+            return None;
+        }
+        let start = 4;
+        let end = tokens.len();
         let left = tokens.get(start - 1)?.range.end;
         let right = tokens
             .get(end)
@@ -313,7 +295,7 @@ impl ServiceSnapshot {
         let previous_text = previous.map(|token| parse.slice(token.range));
         let has_dot = previous_text == Some(".")
             && previous.is_some_and(|token| token.range.end == range.start);
-        if variants && !has_dot && !matches!(previous_text, None | Some(",")) {
+        if !has_dot && !matches!(previous_text, None | Some(",")) {
             return None;
         }
         let used: BTreeSet<_> = names
@@ -322,25 +304,19 @@ impl ServiceSnapshot {
             .filter(|(i, token)| Some(*i) != current && token.kind == TokenKind::Word)
             .map(|(_, token)| decode_identifier(parse.slice(token.range)))
             .collect();
-        let interface = self.0.module_interface(target)?;
+        let interface = self.0.module_interface(file)?;
         Some(
             interface
                 .classes
                 .iter()
-                .filter(|name| {
-                    !used.contains(*name)
-                        && (variants
-                            || interface.class_locations[*name]
-                                .iter()
-                                .any(|location| location.file == *target))
-                })
+                .filter(|name| !used.contains(*name))
                 .map(|name| xcss_typescript::Completion {
                     label: name.clone(),
                     kind: "class",
                     range,
                     new_text: format!(
                         "{}{}",
-                        if variants && !has_dot { "." } else { "" },
+                        if !has_dot { "." } else { "" },
                         css_identifier(name)
                     ),
                 })

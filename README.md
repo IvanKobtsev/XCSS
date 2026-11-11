@@ -46,13 +46,13 @@ export default defineConfig({ plugins: [xcss()] })
 ```
 
 ```ts
-import styles from './button.xcss'
+import { styles } from './button.xcss'
 import inlineCss from './button.xcss?inline'
 import stylesheetUrl from './button.xcss?url'
 ```
 
-The default export maps local class names to generated class strings, including
-compositions. Side-effect imports also work. Inline imports return processed CSS
+The named `styles` export maps local class names to generated class strings.
+Side-effect imports also work. Inline imports return processed CSS
 without injecting it; URL imports return a stylesheet URL. XCSS owns scoping;
 Vite handles plain CSS delivery, extraction, assets, and native CSS imports.
 
@@ -94,9 +94,9 @@ and media/supports/container conditions. Injection-local constants may depend on
 parameters. Constants are file-local and have no import/export syntax.
 
 Classes, IDs, and animation names are scoped. Functional and nonfunctional
-`:local`/`:global` switches are supported. Class composition supports project
-XCSS modules and global names. External CSS Modules composition needs a future
-adapter. XCSS does not support mutable Sass variables, loops, interpolation, custom
+`:local`/`:global` switches are supported. Use `@util` to share styles between
+classes. XCSS rejects `composes` declarations and passes `@raw` CSS through.
+XCSS does not support mutable Sass variables, loops, interpolation, custom
 compile-time functions, or ICSS value import/export syntax.
 
 ## CLI and Rust/Node APIs
@@ -114,8 +114,8 @@ See the [Vite package guide](packages/vite-plugin/README.md#typescript-and-varia
 cargo run -p xcss-cli -- compile styles/button.xcss --output dist/button.css --root .
 ```
 
-The CLI writes scoped `.css`, adjacent `.css.map` and `.exports.json`, and
-composition dependency artifacts. Do not name output `.module.css`: names are
+The CLI writes scoped `.css`, adjacent `.css.map` and `.exports.json`.
+Do not name output `.module.css`: names are
 already scoped. Compilation errors preserve previous artifacts.
 
 The Rust `xcss-core` facade exposes project inspection, compilation and the

@@ -1,11 +1,14 @@
-import { readFile, readdir } from 'node:fs/promises'
-import { basename, dirname, join, relative, resolve as resolvePath } from 'node:path'
+import { readFile, readdir, stat } from 'node:fs/promises'
+import { basename, dirname, join, posix, relative, resolve as resolvePath } from 'node:path'
 import { Compiler, inspect } from '@cross-css/native'
-import type { NativeArtifact, NativeCompilation } from '@cross-css/native'
+import type { NativeArtifact, NativeClassPlan, NativeCompilation } from '@cross-css/native'
 import { normalizePath, type Plugin, type ModuleNode, type ViteDevServer } from 'vite'
 import { createCssId, createVirtualId, cssAssetUrls, isCrossCssId, parseVirtualId } from './internal.js'
+import { classProject, hasIntrinsicXClass } from './class-project.js'
 
-export default function xcss(): Plugin {
+const projectSource = /\.(?:xcss|[jt]sx?|[cm][jt]s|json)$/i
+
+export default function xcss(options: { tsconfig?: string } = {}): Plugin {
   const compiler = new Compiler()
   const sources = new Map<string, { source: string; revision: number }>()
   const activeIds = new Set<string>()
@@ -22,13 +25,16 @@ export default function xcss(): Plugin {
   let revision = 0
   let projectVersion = 0
   let sync: Promise<void> | undefined
+  let classPlan: NativeClassPlan | undefined
+  let classError: Error | undefined
+  const jsxModules = new Set<string>()
   const idFor = (path: string) => normalizePath(relative(root, path))
   const fileFor = (id: string) => normalizePath(resolvePath(root, id))
   const utilityCssId = () => normalizePath(join(root, '__xcss_utils.css'))
   const invalidate = (server: ViteDevServer) => {
     projectVersion++
     sync = undefined
-    for (const id of activeIds) { const module = server.moduleGraph.getModuleById(id); if (module) server.moduleGraph.invalidateModule(module) }
+    for (const id of [...activeIds, ...jsxModules]) { const module = server.moduleGraph.getModuleById(id); if (module) server.moduleGraph.invalidateModule(module) }
     const shared = server.moduleGraph.getModuleById(utilityCssId())
     if (shared) server.moduleGraph.invalidateModule(shared)
   }
@@ -49,6 +55,20 @@ export default function xcss(): Plugin {
       if (sources.get(id)?.source !== file.source) { compiler.setFile(id, ++revision, file.source); sources.set(id, { source: file.source, revision }) }
     }
     for (const resolution of resolutions) compiler.setResolution(resolution.importer, resolution.specifier, resolution.target)
+    classPlan = undefined
+    classError = undefined
+    compiler.clearClassSlots()
+    const config = resolvePath(root, options.tsconfig ?? 'tsconfig.json')
+    try {
+      await stat(config)
+      if (version !== projectVersion) return
+      const prefix = '_/'.repeat(normalizePath(root).split('/').length) + '__xcss_project_root__'
+      const projectId = (file: string) => posix.join(prefix, idFor(file))
+      const project = classProject(config, projectId)
+      if (project.hasJsx) classPlan = compiler.planClassSlots(projectId(config), project.sources)
+    } catch (error) {
+      if (version === projectVersion) classError = error instanceof Error ? error : new Error(String(error))
+    }
   }
   function resultFor(result: NativeCompilation, fail: (error: { message: string; id?: string; loc?: { file: string; line: number; column: number } }) => never): Map<string, NativeArtifact> {
     if (!result.success) {
@@ -63,12 +83,73 @@ export default function xcss(): Plugin {
     configResolved(config) { root = config.root; build = config.command === 'build'; base = config.base; assetsDir = config.build.assetsDir; outDir = config.build.outDir },
     configureServer(server) {
       devServer = server
-      const changed = (file: string) => { if (file.toLowerCase().endsWith('.xcss')) { invalidate(server); server.ws.send({ type: 'full-reload' }) } }
+      const changed = (file: string) => {
+        if (projectSource.test(file)) {
+          invalidate(server)
+          server.ws.send({ type: 'full-reload' })
+        }
+      }
       const edited = (file: string) => { if (file.toLowerCase().endsWith('.xcss')) invalidate(server) }
       server.watcher.on('add', changed)
       server.watcher.on('unlink', changed)
       server.watcher.on('change', edited)
       server.httpServer?.once('close', () => { server.watcher.off('add', changed); server.watcher.off('unlink', changed); server.watcher.off('change', edited) })
+    },
+    async transform(code, id) {
+      if (!/\.[jt]sx$/i.test(id)) return
+      jsxModules.add(id)
+      for (;;) {
+        const version = projectVersion
+        await (sync ??= synchronize(version, async (specifier, importer) => {
+          const resolved = await this.resolve(specifier, importer, { skipSelf: true })
+          return resolved && !resolved.external ? parseVirtualId(resolved.id)?.sourcePath ?? resolved.id : null
+        }).catch(error => { sync = undefined; throw error }))
+        if (version === projectVersion) break
+        sync = undefined
+      }
+      if (classError && (options.tsconfig || hasIntrinsicXClass(id, code))) this.error(classError.message)
+      const file = idFor(id)
+      const diagnostic = classPlan?.diagnostics.find(item => ['XC-001', 'XC-002', 'XC-003', 'XC-009'].includes(item.code) && item.moduleId === file)
+      if (diagnostic) this.error({ message: diagnostic.message, id, loc: { file: id, line: diagnostic.line, column: diagnostic.column - 1 } })
+      const sites = classPlan?.sites.filter(site => site.moduleId === file)
+      if (!sites?.length) {
+        if (hasIntrinsicXClass(id, code)) this.error('The XCSS TypeScript project must include this JSX file')
+        return
+      }
+      const jsxSource = /@jsxImportSource\s+([^\s*]+)/.exec(code)?.[1]
+      if (jsxSource && jsxSource !== '@cross-css/vite/react') {
+        this.error('xClass requires the @cross-css/vite/react JSX runtime')
+      }
+      const imports = new Set<string>()
+      const modules = new Map<string, NativeArtifact>()
+      let output = code
+      for (const site of [...sites].sort((a, b) => b.offset - a.offset)) {
+        if (code[site.offset] !== '>' && code.slice(site.offset, site.offset + 2) !== '/>') {
+          this.error('XCSS could not locate the analyzed JSX element. Run XCSS before plugins that rewrite JSX.')
+        }
+        const slots = site.slots.map(slot => slot.map(origin => {
+          let module = modules.get(origin.moduleId)
+          if (!module) {
+            module = resultFor(compiler.compile(origin.moduleId), error => this.error(error)).get(origin.moduleId)
+            if (!module) this.error('Missing XCSS class module ' + origin.moduleId)
+            modules.set(origin.moduleId, module)
+          }
+          let specifier = normalizePath(relative(dirname(id), fileFor(origin.moduleId)))
+          if (!specifier.startsWith('.')) specifier = './' + specifier
+          imports.add(specifier)
+          const baseClass = module.classes[origin.className]
+          if (baseClass === undefined) this.error('Missing XCSS class ' + origin.className)
+          return [origin.variantLabel ?? baseClass, baseClass + ' ' + origin.alias]
+        }))
+        output = output.slice(0, site.offset) + ' __xcssClassSlots={' + JSON.stringify(slots) + '} ' + output.slice(site.offset)
+      }
+      const prefix = jsxSource ? '' : '/** @jsxImportSource @cross-css/vite/react */\n'
+      const firstLine = output.startsWith('#!') ? output.indexOf('\n') + 1 : 0
+      const importStatements = [...imports].map(path => 'import ' + JSON.stringify(path) + ';')
+      return {
+        code: output.slice(0, firstLine) + prefix + output.slice(firstLine) + '\n' + importStatements.join('\n'),
+        map: null,
+      }
     },
     async resolveId(source, importer, options) {
       if (source === utilityModuleId || source === utilityCssId()) return source
@@ -162,7 +243,7 @@ export default function xcss(): Plugin {
       visit(entry)
       const dictionary = (values: Record<string, string>) => 'JSON.parse(' + JSON.stringify(JSON.stringify(values)) + ')'
       return {
-        code: [...imports, 'export default ' + dictionary(artifact.classes) + ';', 'export const cssVars = ' + dictionary(artifact.cssVars) + ';'].join('\n'),
+        code: [...imports, 'export const styles = ' + dictionary(artifact.classes) + ';', 'export const cssVars = ' + dictionary(artifact.cssVars) + ';'].join('\n'),
         map: null,
         moduleSideEffects: true,
       }
@@ -210,10 +291,11 @@ export default function xcss(): Plugin {
       return [{ tag: 'link', attrs: { rel: 'stylesheet', href: base + utilityFile }, injectTo: 'head' }]
     } },
     handleHotUpdate(context) {
-      if (!context.file.toLowerCase().endsWith('.xcss')) return
+      if (!projectSource.test(context.file)) return
       invalidate(context.server)
       const affected = new Set<ModuleNode>(context.modules)
       for (const id of activeIds) { const module = context.server.moduleGraph.getModuleById(id); if (module) affected.add(module) }
+      for (const id of jsxModules) { const module = context.server.moduleGraph.getModuleById(id); if (module) affected.add(module) }
       const shared = context.server.moduleGraph.getModuleById(utilityCssId())
       if (shared) affected.add(shared)
       return [...affected]

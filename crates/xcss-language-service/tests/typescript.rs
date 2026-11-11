@@ -16,7 +16,7 @@ fn revisions_snapshots_unsaved_edits_and_utf16() {
             r#"{"compilerOptions":{"strict":true},"files":["index.ts"]}"#.into(),
         )
         .unwrap();
-    service.set_typescript_file(ts.clone(), 1, "import styles, { type Variants } from './a.xcss'; /* 😀 */ styles.absent; const v: Variants<'V'> = 'two';".into()).unwrap();
+    service.set_typescript_file(ts.clone(), 1, "import { styles, type Variants } from './a.xcss'; /* 😀 */ styles.absent; const v: Variants<'V'> = 'two';".into()).unwrap();
     service.set_typescript_project(Some("tsconfig.json".into()));
     let old = service.snapshot();
     let diagnostics = old.diagnostics(&ts);
@@ -53,7 +53,11 @@ fn revisions_snapshots_unsaved_edits_and_utf16() {
     assert!(service.snapshot().diagnostics(&ts).is_empty());
     service.remove_file(&xcss, 3).unwrap();
     service
-        .set_typescript_file(ts.clone(), 4, "import s from './a.xcss'; s.one;".into())
+        .set_typescript_file(
+            ts.clone(),
+            4,
+            "import { styles as s } from './a.xcss'; s.one;".into(),
+        )
         .unwrap();
     let diagnostics = service.snapshot().diagnostics(&ts);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
@@ -73,7 +77,11 @@ fn tsconfig_and_resolution_updates_invalidate_the_checker() {
         .unwrap();
     service.set_typescript_project(Some(config.0.clone()));
     service
-        .set_typescript_file(ts.clone(), 1, "import s from 'styles.xcss'; s.one;".into())
+        .set_typescript_file(
+            ts.clone(),
+            1,
+            "import { styles as s } from 'styles.xcss'; s.one;".into(),
+        )
         .unwrap();
     service
         .set_typescript_file(

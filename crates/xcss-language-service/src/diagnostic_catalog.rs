@@ -7,25 +7,11 @@ const ENTRIES: &[(&str, &str, &str)] = &[
     ("XC-006", "XC-006", "Unknown provided variable export"),
     ("XC-007", "XC-007", "Unknown xVars key"),
     ("XC-008", "XC-008", "Invalid xVars value"),
+    ("XC-009", "XC-009", "Invalid xClass value"),
     (
         "binding.ambiguous-injection",
         "XC-200",
         "Ambiguous injection",
-    ),
-    (
-        "binding.composition-conflict",
-        "XC-201",
-        "Conflicting class composition",
-    ),
-    (
-        "binding.composition-cycle",
-        "XC-202",
-        "Class composition cycle",
-    ),
-    (
-        "binding.composition-owner",
-        "XC-203",
-        "Invalid class composition owner",
     ),
     (
         "binding.constant-position",
@@ -102,6 +88,11 @@ const ENTRIES: &[(&str, &str, &str)] = &[
         "syntax.unexpected-close",
         "XC-111",
         "Unexpected closing token",
+    ),
+    (
+        "syntax.unsupported-composes",
+        "XC-122",
+        "Unsupported composes declaration",
     ),
     ("syntax.util-content", "XC-112", "Invalid utility content"),
     (

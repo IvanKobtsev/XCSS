@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+
+- Add `@provided` custom properties, the named `cssVars` export, and React's `xVars` prop for inline style overrides.
+- Add order-based specificity to React's `xClass` prop. XCSS checks fixed slots and resolves scoped classes and variant groups across components.
+- Replace the default class map export with the named `styles` export. Keep default imports for `?inline` and `?url`.
+- Reject `composes` declarations in XCSS. Use `@util` to share styles or `@raw` to pass CSS through.
+
 ## 0.9.0
 
 - Add native editor API v5 for class, variant group, and variant member navigation, references, and completion in XCSS and TypeScript.

@@ -27,28 +27,28 @@ importers:
   packages/native:
     optionalDependencies:
       '@cross-css/native-darwin-arm64':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native-platforms/darwin-arm64
       '@cross-css/native-darwin-x64':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native-platforms/darwin-x64
       '@cross-css/native-linux-arm64-gnu':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native-platforms/linux-arm64-gnu
       '@cross-css/native-linux-arm64-musl':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native-platforms/linux-arm64-musl
       '@cross-css/native-linux-x64-gnu':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native-platforms/linux-x64-gnu
       '@cross-css/native-linux-x64-musl':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native-platforms/linux-x64-musl
       '@cross-css/native-win32-arm64-msvc':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native-platforms/win32-arm64-msvc
       '@cross-css/native-win32-x64-msvc':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native-platforms/win32-x64-msvc
 
   packages/native-platforms/darwin-arm64: {}
@@ -70,8 +70,11 @@ importers:
   packages/vite-plugin:
     dependencies:
       '@cross-css/native':
-        specifier: 0.9.0
+        specifier: 0.10.0
         version: link:../native
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
     devDependencies:
       '@types/node':
         specifier: ^22.18.12
@@ -88,9 +91,6 @@ importers:
       react-dom:
         specifier: ^19.3.1
         version: 19.3.1(react@19.3.1)
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
       vite:
         specifier: ^8.0.0
         version: 8.3.5(@types/node@22.20.5)

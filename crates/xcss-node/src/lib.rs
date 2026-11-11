@@ -82,6 +82,33 @@ impl ToNapiValue for StringMap {
 pub struct NativeInspection {
     pub imports: Vec<String>,
 }
+
+#[napi(object)]
+pub struct NativeProjectSource {
+    pub path: String,
+    pub text: String,
+}
+
+#[napi(object, object_from_js = false)]
+pub struct NativeClassOrigin {
+    pub module_id: String,
+    pub class_name: String,
+    pub variant_label: Option<String>,
+    pub alias: String,
+}
+
+#[napi(object, object_from_js = false)]
+pub struct NativeClassSite {
+    pub module_id: String,
+    pub offset: u32,
+    pub slots: Vec<Vec<NativeClassOrigin>>,
+}
+
+#[napi(object, object_from_js = false)]
+pub struct NativeClassPlan {
+    pub sites: Vec<NativeClassSite>,
+    pub diagnostics: Vec<NativeDiagnostic>,
+}
 #[napi]
 pub fn inspect(source: String) -> NativeInspection {
     NativeInspection {
@@ -92,6 +119,7 @@ pub fn inspect(source: String) -> NativeInspection {
 #[napi]
 pub struct Compiler {
     host: AnalysisHost,
+    positions: BTreeMap<FileId, BTreeMap<String, std::collections::BTreeSet<usize>>>,
 }
 #[napi]
 impl Compiler {
@@ -99,7 +127,102 @@ impl Compiler {
     pub fn new() -> Self {
         Self {
             host: AnalysisHost::new(),
+            positions: BTreeMap::new(),
         }
+    }
+
+    #[napi]
+    pub fn clear_class_slots(&mut self) {
+        self.positions.clear();
+    }
+
+    #[napi]
+    pub fn plan_class_slots(
+        &mut self,
+        config: String,
+        sources: Vec<NativeProjectSource>,
+    ) -> napi::Result<NativeClassPlan> {
+        self.positions.clear();
+        let snapshot = self.host.snapshot();
+        let project = xcss_language_service::TypeScriptProject {
+            config,
+            files: sources
+                .into_iter()
+                .map(|source| {
+                    let id = FileId(source.path);
+                    let file = xcss_core::SourceFile::new(id.clone(), 0, source.text);
+                    (id, std::sync::Arc::new(file))
+                })
+                .collect(),
+        };
+        let plan = xcss_language_service::class_slots(&project, &snapshot)
+            .map_err(napi::Error::from_reason)?;
+        let diagnostics = plan
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| {
+                let position = project
+                    .files
+                    .get(&diagnostic.location.file)
+                    .and_then(|file| file.byte_to_utf16(diagnostic.location.range.start));
+                let mut converted = convert_diagnostic(diagnostic, &snapshot);
+                if let Some(position) = position {
+                    converted.line = position.line as u32 + 1;
+                    converted.column = position.character as u32 + 1;
+                }
+                if let Some((_, path)) = converted.module_id.split_once("__xcss_project_root__/") {
+                    converted.module_id = path.to_owned();
+                }
+                converted
+            })
+            .collect();
+        let mut sites = Vec::new();
+        for (id, entries) in plan.sites {
+            for entry in entries {
+                let offset = project.files[&id].text()[..entry.insert]
+                    .encode_utf16()
+                    .count() as u32;
+                let slots = entry
+                    .slots
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, origins)| {
+                        origins
+                            .into_iter()
+                            .map(|origin| {
+                                let alias = xcss_core::positional_class(
+                                    &origin.module,
+                                    &origin.class,
+                                    index,
+                                );
+                                self.positions
+                                    .entry(origin.module.clone())
+                                    .or_default()
+                                    .entry(origin.class.clone())
+                                    .or_default()
+                                    .insert(index);
+                                NativeClassOrigin {
+                                    module_id: origin.module.0,
+                                    class_name: origin.class,
+                                    variant_label: origin.variant_label,
+                                    alias,
+                                }
+                            })
+                            .collect()
+                    })
+                    .collect();
+                sites.push(NativeClassSite {
+                    module_id: id
+                        .0
+                        .split_once("__xcss_project_root__/")
+                        .map_or(id.0.as_str(), |(_, path)| path)
+                        .to_owned(),
+                    offset,
+                    slots,
+                });
+            }
+        }
+        Ok(NativeClassPlan { sites, diagnostics })
     }
     #[napi]
     pub fn set_file(
@@ -176,6 +299,7 @@ impl Compiler {
             &GenerateOptions {
                 minify: minify.unwrap_or(false),
                 bundle: bundle.unwrap_or(false),
+                class_positions: self.positions.clone(),
                 ..GenerateOptions::default()
             },
         );

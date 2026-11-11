@@ -9,7 +9,7 @@ export default defineConfig({ plugins: [xcss()] })
 ```
 
 ```ts
-import styles from './button.xcss'       // inject/extract CSS, export class names
+import { styles } from './button.xcss'       // inject/extract CSS, export class names
 import './reset.xcss'                   // side-effect styles
 import text from './button.xcss?inline' // processed CSS, no injection
 import href from './button.xcss?url'    // stylesheet URL
@@ -18,8 +18,7 @@ import href from './button.xcss?url'    // stylesheet URL
 XCSS scopes names before handing plain virtual CSS to Vite. Vite handles native
 CSS imports, asset URLs, development styling, production extraction and targeting.
 There is no Sass dependency, generated partial, or second CSS Modules pass.
-Compositions use XCSS's own class-export dictionary. Inline/URL stylesheets
-include composition dependencies. Unsupported or conflicting query modes fail
+Unsupported or conflicting query modes fail
 explicitly. Aliases are resolved by Vite.
 
 ## TypeScript and variant groups
@@ -37,7 +36,7 @@ It lets ordinary TypeScript accept XCSS imports and the `Variants` type:
 ```
 
 ```ts
-import styles, { type Variants } from './Button.xcss'
+import { styles, type Variants } from './Button.xcss'
 interface ButtonProps { variant: Variants<'Button'> }
 ```
 
@@ -61,9 +60,8 @@ TypeScript checker uses the permissive declarations. Groups belong to their XCSS
 exported local classes, without requiring a corresponding base selector.
 Vite compilation does not automatically run TS project checking.
 
-Variant values are literal names such as `primary`. This feature checks them;
-it does not translate them to scoped classes or implement an `xClass` attribute.
-Use `styles.primary` when applying the existing scoped class at runtime.
+Variant values are literal names such as `primary`. Use `styles.primary` to
+apply the corresponding scoped class at runtime.
 
 A project maintains one native analysis host. Edits update source revisions;
 additions/removals rebuild the global injection index. Active XCSS wrappers and
@@ -99,7 +97,7 @@ project without that plugin, set
 ```
 
 ```tsx
-import styles, { cssVars } from './Box.xcss'
+import { styles, cssVars } from './Box.xcss'
 import { px } from '@cross-css/vite/units'
 
 export function Box({ width }: { width: number }) {
@@ -119,6 +117,33 @@ preserve the unit in the return type. Compatible literals work directly. For
 reusable maps, keep literal values narrow with `as const` or use a unit helper. Use an
 explicit `CssValue<'length'>` assertion for a dynamic CSS string whose type you
 know, such as a constructed `calc()` expression.
+
+## Composing classes in React
+
+With the XCSS JSX runtime configured, use `xClass` on intrinsic elements to
+compose scoped class names. Pass an array literal or a fixed readonly tuple of
+named `styles` exports, values typed as `Variants<'Group'>`, and conditional
+slots. Booleans, `null`, and `undefined` leave the slot empty. Use `className`
+for global classes.
+
+```tsx
+import type { ClassName } from '@cross-css/vite/react'
+import { styles } from './Box.xcss'
+
+export function Box({ active, className }: { active: boolean; className?: ClassName }) {
+  return <div className="global" xClass={[styles.box, active && styles.active, className]} />
+}
+```
+
+The runtime appends the contributed classes and positional aliases to
+`className`. Later slots add more specificity to eligible stylesheet-root
+rules. Variant slots resolve labels to the classes declared in their group.
+Vite uses the root `tsconfig.json` to find usages. Set
+`xcss({ tsconfig: 'tsconfig.app.json' })` for a split config, and use the same
+config with `xcss check --project`.
+
+Use `@util` for shared styles. XCSS rejects `composes` declarations and passes
+CSS within `@raw` through to the stylesheet.
 
 ## Shared utilities
 

@@ -5,7 +5,7 @@ pub use xcss_analysis::{
 };
 pub use xcss_codegen::{
     GenerateOptions, GeneratedModule, GeneratedProject, GeneratedUtilities, GeneratedUtilityRule,
-    generate, merge_utilities,
+    generate, merge_utilities, positional_class,
 };
 pub use xcss_source::{Diagnostic, FileId, Location, Severity, SourceFile, TextRange};
 
@@ -35,11 +35,6 @@ pub fn inspect_project_file(source: &str) -> ProjectInspection {
     for node in parse.tree.descendants() {
         if let Some(import) = parse.injection_import(node) {
             imports.push(import.specifier.to_owned());
-        }
-        if let Some(composition) = parse.composition(node)
-            && let xcss_syntax::ast::CompositionSource::Module(specifier) = composition.source
-        {
-            imports.push(specifier.to_owned());
         }
     }
     imports.sort();

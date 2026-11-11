@@ -16,6 +16,9 @@ use diagnostics::{
     Issues, VARIANT_GROUP_MARKER, contract_errors, missing_modules, semantic_issues, variant_errors,
 };
 pub use editor::{Completion, EditorIndex, Occurrence, Symbol, editor_index};
+pub use xvars::{ClassOrigin, ClassSite, ClassSlotPlan};
+
+const CLASS_NAME: &str = "type ClassName = string & { readonly __xcssClassName__: true };\n";
 
 /// Paths are project-relative forward-slash paths. Include configs, package metadata,
 /// dependencies and declarations as well as TS sources. No disk reads occur here.
@@ -25,13 +28,19 @@ pub struct Project {
     pub files: BTreeMap<FileId, Arc<SourceFile>>,
 }
 
-pub fn declaration(interface: &ModuleInterface, precise: bool) -> String {
+pub fn declaration(file: &FileId, interface: &ModuleInterface, precise: bool) -> String {
     let quote = |s: &str| serde_json::to_string(s).unwrap();
-    let mut text = String::from("declare const styles: {\n");
+    let mut text = String::from(CLASS_NAME);
+    let module = quote(&file.0);
+    text.push_str("export declare const styles: {\n");
     for class in &interface.classes {
-        text.push_str(&format!("  {}: string;\n", quote(class)));
+        text.push_str(&format!(
+            "  {}: ClassName & {{ readonly __xcssClassExport__: {}; readonly __xcssClassModule__: {module} }};\n",
+            quote(class),
+            quote(class)
+        ));
     }
-    text.push_str("};\nexport default styles;\nexport declare const cssVars: {\n");
+    text.push_str("};\nexport declare const cssVars: {\n");
     for (key, variable) in &interface.provided_variables {
         text.push_str(&format!(
             "  readonly {}: {};\n",
@@ -43,13 +52,18 @@ pub fn declaration(interface: &ModuleInterface, precise: bool) -> String {
     for (group, members) in &interface.variants {
         let group = quote(group);
         let values = if precise {
-            members
+            let labels = members
                 .iter()
                 .map(|m| quote(m))
                 .collect::<Vec<_>>()
-                .join(" | ")
+                .join(" | ");
+            format!(
+                "({labels}) & {{ readonly {VARIANT_GROUP_MARKER}?: {group}; readonly __xcssVariantModule__?: {module} }}"
+            )
         } else {
-            format!("string & {{ readonly {VARIANT_GROUP_MARKER}?: {group} }}")
+            format!(
+                "string & {{ readonly {VARIANT_GROUP_MARKER}?: {group}; readonly __xcssVariantModule__?: {module} }}"
+            )
         };
         text.push_str(&format!("  {group}: {values};\n"));
     }
@@ -104,15 +118,24 @@ fn with_program<T>(
                 .module_interface(file)
                 .is_some_and(|interface| !interface.provided_variables.is_empty())
         });
-    if value_contracts {
-        files.insert(xvars::CONTRACT_PATH.into(), xvars::declaration());
+    if precise {
+        files.insert(
+            xvars::CONTRACT_PATH.into(),
+            xvars::declaration(value_contracts),
+        );
     }
+    let prefix = project
+        .config
+        .split_once("__xcss_project_root__/")
+        .map_or(String::new(), |(parent, _)| {
+            format!("{parent}__xcss_project_root__/")
+        });
     for file in snapshot.files() {
         if let Some(interface) = snapshot.module_interface(file) {
             let stem = file.0.strip_suffix(".xcss").unwrap_or(&file.0);
             files.insert(
-                format!("/{stem}.d.xcss.ts"),
-                declaration(interface, precise),
+                format!("/{prefix}{stem}.d.xcss.ts"),
+                declaration(file, interface, precise),
             );
         }
     }
@@ -149,7 +172,7 @@ fn with_program<T>(
     {
         return Err(format!("File '{missing}' not found."));
     }
-    if value_contracts {
+    if precise {
         config
             .parsed_config
             .file_names
@@ -184,11 +207,33 @@ fn run(
         } else {
             let mut diagnostics = missing_modules(program, project);
             diagnostics.extend(contract_errors(program, snapshot, &issues));
-            diagnostics.extend(xvars::check(program, project, snapshot));
+            diagnostics.extend(xvars::check(program, project, snapshot).diagnostics);
             diagnostics
         };
         (diagnostics, issues)
     })
+}
+
+pub fn class_slots(
+    project: &Project,
+    snapshot: &AnalysisSnapshot,
+) -> Result<ClassSlotPlan, String> {
+    let (mut plan, issues) = with_program(project, snapshot, true, |program| {
+        let mut plan = xvars::check(program, project, snapshot);
+        let issues = semantic_issues(program, project);
+        plan.diagnostics
+            .extend(contract_errors(program, snapshot, &issues));
+        (plan, issues)
+    })?;
+    if issues
+        .values()
+        .flatten()
+        .any(|issue| issue.is_value_error())
+    {
+        let (variants, _) = run(project, snapshot, Some(issues))?;
+        plan.diagnostics.extend(variants);
+    }
+    Ok(plan)
 }
 
 /// Report XCSS contract diagnostics or return the reason TypeScript setup failed.

@@ -6,7 +6,7 @@ test('class, group and member locations and completion cross the native boundary
   assert.equal(languageServiceCapabilities().apiVersion, 5)
   const service = new LanguageService()
   const css = '.primary {} .secondary {}\n@variants Button: .primary, .secondary;'
-  const ts = 'import styles, { type Variants as V } from "./theme.xcss";\n/* 😀 */ styles.primary; const value: V<"Button"> = "primary";'
+  const ts = 'import { styles, type Variants as V } from "./theme.xcss";\n/* 😀 */ styles.primary; const value: V<"Button"> = "primary";'
   service.setFile('theme.xcss', 1, css)
   service.setTypescriptProject('tsconfig.json')
   service.setTypescriptFile('tsconfig.json', 1, '{"files":["app.ts"]}')

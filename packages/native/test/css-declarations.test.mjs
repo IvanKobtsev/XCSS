@@ -30,7 +30,7 @@ test('typed references use declared types and arithmetic uses analysis facts', (
 })
 
 test('directives and descriptors are excluded; unprojectable values retain properties', () => {
-  const { result } = analyze('@vars { --t: time; } @font-face { font-family: x; src: url(x); } @property --x { syntax: "<color>"; inherits: false; initial-value: red; } .a { composes: b; content: /* hi */ preserve; width: --unknown; height: var(--x); transition: (opacity, color) 1s; color: red; }')
+  const { result } = analyze('@vars { --t: time; } @font-face { font-family: x; src: url(x); } @property --x { syntax: "<color>"; inherits: false; initial-value: red; } .a { content: /* hi */ preserve; width: --unknown; height: var(--x); transition: (opacity, color) 1s; color: red; }')
   assert.deepEqual(result.declarations.map(d => d.property), ['width', 'height', 'transition', 'color'])
   assert.deepEqual(result.declarations.map(d => d.checkable), [false, false, false, true])
 })

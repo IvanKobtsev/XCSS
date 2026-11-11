@@ -7,7 +7,7 @@ test('TS checking accepts unsaved project sources and updates after XCSS edits',
   service.setTypescriptProject('tsconfig.json')
   service.setTypescriptFile('tsconfig.json', 1, JSON.stringify({ compilerOptions: { strict: true }, files: ['index.ts'] }))
   service.setFile('a.xcss', 1, '@variants V: .one; .one {}')
-  service.setTypescriptFile('index.ts', 1, "import s, { type Variants } from './a.xcss'; const v: Variants<'V'> = 'two'; s.missing;")
+  service.setTypescriptFile('index.ts', 1, "import { styles as s, type Variants } from './a.xcss'; const v: Variants<'V'> = 'two'; s.missing;")
   assert.equal(service.document('index.ts').diagnostics.length, 2)
   service.setFile('a.xcss', 2, '@variants V: .two; .two {} .missing {}')
   assert.deepEqual(service.document('index.ts').diagnostics, [])

@@ -86,7 +86,7 @@ try {
   }))
   await writeFile(join(testRoot, 'button.xcss'), '.button {}')
   const appPath = join(testRoot, 'app.ts')
-  const source = "import styles from './button.xcss'; import './unrelated'; const count: number = 'bad';\n"
+  const source = "import { styles } from './button.xcss'; import './unrelated'; const count: number = 'bad';\n"
   await writeFile(appPath, source + "styles.button;\n")
   const success = runCheck('check:xcss')
   if (success.stderr.trim()) throw new Error(`Unexpected stderr from the packaged XCSS CLI:\n${success.stderr}`)

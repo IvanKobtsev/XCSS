@@ -1,9 +1,12 @@
 {
-  "extends": "../../../tsconfig.json",
   "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
     "jsx": "react-jsx",
     "jsxImportSource": "@cross-css/vite/react",
     "types": []
   },
-  "include": ["app.tsx", "../../../client.d.ts"]
+  "include": ["*.tsx", "../../../client.d.ts"]
 }

@@ -14,7 +14,7 @@ fn checks_typescript_without_emitting_and_reports_original_locations() {
     )
     .unwrap();
     fs::write(root.join("a.xcss"), "@variants V: .one; .one {}").unwrap();
-    let imports = "import styles, { type Variants } from './a.xcss'; import 'app/helpers'; const n: number = 'ordinary type error';\n";
+    let imports = "import { styles, type Variants } from './a.xcss'; import 'app/helpers'; const n: number = 'ordinary type error';\n";
     fs::write(
         root.join("index.ts"),
         format!("{imports}type Missing = Variants<'Missing'>; const v: Variants<'V'> = 'wrong'; styles.missing;"),
@@ -193,11 +193,7 @@ fn writes_one_shared_utility_stylesheet_with_imports_and_maps() {
         "@util trim($n: integer = 3) { max-height: $n * 1lh; background: url('./icon.svg'); }",
     )
     .unwrap();
-    fs::write(
-        root.join("a.xcss"),
-        ".a { composes: b from './b.xcss'; @:trim; } span { @:trim(4); }",
-    )
-    .unwrap();
+    fs::write(root.join("a.xcss"), ".a { @:trim; } span { @:trim(4); }").unwrap();
     fs::write(root.join("b.xcss"), ".b { @:trim(3); }").unwrap();
     let output = run(&root, "a.xcss", "dist/out.css");
     assert!(
@@ -212,8 +208,6 @@ fn writes_one_shared_utility_stylesheet_with_imports_and_maps() {
     let caller = fs::read_to_string(root.join("dist/out.css")).unwrap();
     assert!(caller.contains("@import \"./out.utils.css\";"));
     assert!(caller.contains("_util_inj_"));
-    let dependency = fs::read_to_string(root.join("dist/.xcss/b.css")).unwrap();
-    assert!(dependency.contains("out.utils.css"));
 }
 #[test]
 fn compile_errors_preserve_all_previous_artifacts() {
@@ -226,27 +220,6 @@ fn compile_errors_preserve_all_previous_artifacts() {
     for name in ["out.css", "out.css.map", "out.exports.json"] {
         assert_eq!(fs::read_to_string(root.join(name)).unwrap(), "previous");
     }
-}
-#[test]
-fn writes_composition_dependencies_and_rebases_assets() {
-    let root = sandbox();
-    fs::create_dir_all(root.join("src")).unwrap();
-    fs::write(
-        root.join("src/a.xcss"),
-        ".a { composes: b from \"./b.xcss\"; background: url('./image.svg'); }",
-    )
-    .unwrap();
-    fs::write(root.join("src/b.xcss"), ".b { color: red; }").unwrap();
-    let result = run(&root, "src/a.xcss", "dist/out.css");
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let css = fs::read_to_string(root.join("dist/out.css")).unwrap();
-    assert!(css.contains("@import"));
-    assert!(css.contains("../src/image.svg"));
-    assert!(root.join("dist/.xcss/src/b.css").exists());
 }
 #[test]
 fn rejects_sass_and_double_scoped_output() {

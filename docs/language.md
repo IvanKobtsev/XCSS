@@ -12,14 +12,14 @@ injection definitions and `:global` classes are not module exports.
 The directive emits no CSS. TS consumers import `type Variants` from the same
 XCSS module and write `Variants<"Button">`. XCSS analysis checks it as the exact
 union `"primary" | "secondary"`, including assignments and JSX props across
-files. Other exported classes remain accessible through the default styles map
+files. Other exported classes remain accessible through the named `styles` map
 without becoming variants. Arbitrary strings fail union assignment; ordinary TS
 assertions and `any` retain their usual behavior.
 
 The project's own TS checker sees a permissive string type through
 `@cross-css/vite/client`. Exact checking runs in the native language service
-or `xcss check --project tsconfig.json`. This does not add runtime conversion of
-variant strings or an `xClass` transform.
+or `xcss check --project tsconfig.json`. Use the stylesheet's default class
+export to look up the scoped class for a variant name.
 
 XCSS extends modern CSS and CSS Modules, not Sass. Native nesting, unknown CSS
 properties and extensible at-rules are accepted. Native CSS imports are distinct

@@ -13,7 +13,7 @@ Source owns immutable revisions, file identity, original byte ranges, line index
 UTF-16 conversion, and diagnostics. Syntax owns trivia-preserving tokens,
 recovering trees, typed AST views, arithmetic precedence, and selector inspection.
 Raffia stays private to syntax. Analysis owns scopes, symbols, bindings, types,
-injection targets/bodies, constant initializers, registrations, compositions, keyframes, and dependencies.
+injection targets/bodies, constant initializers, registrations, keyframes, and dependencies.
 Code generation consumes those facts, expands injections into an origin-aware IR,
 lowers extensions, then uses pinned Lightning CSS privately for scoping/printing.
 The independent `xcss-language-service` consumes source, syntax, analysis, and
@@ -47,7 +47,7 @@ Immutable snapshots remain valid after subsequent edits. Symbol/scope IDs belong
 to one snapshot. Positions use zero-based UTF-16 units; byte ranges use UTF-8.
 
 Queries expose syntax, scopes, symbols, references/targets, signatures, expression
-structures/types, registration facts, compositions, diagnostics and dependencies.
+structures/types, registration facts, diagnostics and dependencies.
 An unresolved custom property remains global. Dynamic types remain unknown.
 Missing imports suppress consequential unresolved-call diagnostics. CSS runtime
 values are never evaluated by the analyzer.
@@ -56,7 +56,7 @@ values are never evaluated by the analyzer.
 
 `generate(snapshot, entry, options)` returns scoped module artifacts and warnings,
 or original-source diagnostics without artifacts. Only errors in required files
-block an entry. Composition modules produce stylesheets; injection modules only
+block an entry. Injection modules only
 contribute definitions. Optional bundling supports inline/URL requests.
 
 Artifacts carry CSS, class dictionaries, custom-property names, source maps, native
@@ -73,4 +73,4 @@ loading so stale reads cannot overwrite a newer project version.
 
 See [generation](generation.md) for lowering and registration rules. Future work
 adds further compile-time language features, lint policy/fixes, completion/rename, migration
-adapters, and compatibility for external CSS Modules composition.
+adapters.

@@ -37,8 +37,8 @@ fn stylesheet_classes_groups_and_members_have_separate_usages() {
     service.set_typescript_project(Some("tsconfig.json".into()));
     service.set_typescript_file(id("tsconfig.json"), 1,
         r#"{"compilerOptions":{"strict":true,"jsx":"preserve"},"files":["index.tsx","closed.ts"]}"#.into()).unwrap();
-    let ts = r#"import styles, { type Variants as V } from './a.xcss';
-import other, { type Variants as W } from './b.xcss';
+    let ts = r#"import { styles, type Variants as V } from './a.xcss';
+import { styles as other, type Variants as W } from './b.xcss';
 /* 😀 */ styles.primary; styles["hyphen-name"]; other.primary;
 const button: V<"Button"> = "primary";
 const otherGroup: V<"Other"> = "primary";
@@ -122,12 +122,12 @@ const pendingJsx = <Control variant="" />;"#;
 }
 
 #[test]
-fn stylesheet_completion_uses_module_exports_and_composition_targets() {
+fn stylesheet_completion_uses_module_exports() {
     let mut service = LanguageService::new();
     let style = r#"@import recipes from "./recipes";
 @variants Button: .first, .;
 .first { @:recipes.paint; }
-.second { composes: oth from "./recipes"; }
+.second {}
 :global(.hidden) {}"#;
     let recipes = ".other {} @injection paint { .injected {} } @injection unused { .absent {} }";
     service.set_file(id("a.xcss"), 1, style.into()).unwrap();
@@ -140,9 +140,4 @@ fn stylesheet_completion_uses_module_exports_and_composition_targets() {
         labels(&snapshot, "a.xcss", at(style, ".;", 1)),
         ["injected", "second"]
     );
-    let items = snapshot.completion(&id("a.xcss"), at(style, "oth from", 3));
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].new_text, "other");
-    assert_eq!(items[0].range.start, at(style, "oth from", 0));
-    assert_eq!(items[0].range.end, at(style, "oth from", 3));
 }

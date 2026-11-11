@@ -1,0 +1,7 @@
+@variants Button: .primary, .secondary;
+.primary { color: red; }
+.secondary { color: blue; }
+:is(.secondary) {
+  text-decoration: underline;
+  :global(.nested-child) { font-weight: 700; }
+}

@@ -11,7 +11,7 @@ it('keeps ordinary TypeScript permissive for XCSS classes and variant values', (
   const exists = host.fileExists.bind(host)
   host.fileExists = path => path === file || exists(path)
   const consumer = `
-    import styles, { type Variants } from './Button.xcss';
+    import { styles, type Variants } from './Button.xcss';
     const value: Variants<'UnknownGroup'> = 'anything';
     const name: string = styles.nonExisting;
     export { value, name };

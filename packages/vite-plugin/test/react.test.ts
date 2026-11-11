@@ -1,18 +1,23 @@
 import { fileURLToPath } from 'node:url'
+import { cp, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { build, createServer, type InlineConfig } from 'vite'
 import { expect, it } from 'vitest'
 import xcss from '../src/index.js'
 import { ms, percentage, px, vh } from '../src/units.js'
+import { normalizeProps } from '../src/react/props.js'
+import { createCssId } from '../src/internal.js'
 
 const root = fileURLToPath(new URL('./fixtures/react/', import.meta.url))
 interface Fixture {
   cssVars: Readonly<Record<string, string>>
   emptyVars: Readonly<Record<string, string>>
+  styles: Record<string, string>
   html: string
   ref: unknown
   element: { key: string | null; props: { ref: unknown } }
-  empty: { props: { style: Record<string, string> } }
-  unchanged: { props: { style: Record<string, string> } }
+  empty: { props: { style: Record<string, string>; className?: string } }
+  unchanged: { props: { style: Record<string, string>; className?: string } }
 }
 
 function checkFixture(app: Fixture) {
@@ -25,6 +30,13 @@ function checkFixture(app: Fixture) {
   expect(app.html).toContain('<b>A</b><i>B</i>')
   expect(app.html).toContain('<span>24px</span>')
   expect(app.html).not.toContain('xVars')
+  expect(app.html.toLowerCase()).not.toContain('xclass')
+  expect(app.html).toContain('class="global ' + app.styles.box + ' _xcss_position_')
+  expect(app.html).toContain('_626f78_2"')
+  expect(app.html).toMatch(/id="first" class="[^"]*_7365636f6e64617279_1 [^"]*_6f76657272696465_2"/)
+  expect(app.html).toMatch(/id="second" class="[^"]*_6f76657272696465_1 [^"]*_7365636f6e64617279_2"/)
+  expect(app.empty.props).not.toHaveProperty('className')
+  expect(app.unchanged.props.className).toBe(' kept ')
   expect(app.element.key).toBe('box')
   expect(app.element.props.ref).toBe(app.ref)
   expect(app.empty.props.style).toBe(app.unchanged.props.style)
@@ -35,7 +47,7 @@ function config(): InlineConfig {
   return { root, configFile: false, plugins: [xcss()], logLevel: 'silent' }
 }
 
-it('merges xVars in the Vite development runtime and SSR', async () => {
+it('merges xVars and xClass in the Vite development runtime and SSR', async () => {
   const server = await createServer({ ...config(), server: { middlewareMode: true }, appType: 'custom' })
   try {
     const app = await server.ssrLoadModule('/app.tsx') as Fixture
@@ -45,7 +57,7 @@ it('merges xVars in the Vite development runtime and SSR', async () => {
   }
 })
 
-it('merges xVars in a production bundle', async () => {
+it('merges xVars and xClass in a production bundle', async () => {
   const result = await build({
     ...config(),
     build: {
@@ -61,6 +73,45 @@ it('merges xVars in a production bundle', async () => {
   const app = await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(entry.code).toString('base64')}`) as Fixture
   checkFixture(app)
   expect(css).toContain(`var(${app.cssVars.providedWidth})`)
+  expect(css).toContain('_7072696d617279_1')
+  expect(css).toContain('_7072696d617279_2')
+})
+
+it('refreshes the slot plan and CSS when JSX changes in development', async () => {
+  const temporary = await mkdtemp(join(dirname(root.replace(/[\\/]$/, '')), 'react-update-'))
+  await cp(root, temporary, { recursive: true })
+  await rename(join(temporary, 'tsconfig.json'), join(temporary, 'tsconfig.app.json'))
+  const server = await createServer({
+    ...config(), root: temporary, server: { middlewareMode: true }, appType: 'custom',
+    plugins: [xcss({ tsconfig: 'tsconfig.app.json' })],
+  })
+  try {
+    const appPath = join(temporary, 'app.tsx')
+    const cssId = createCssId(join(temporary, 'box.xcss').replaceAll('\\', '/'))
+    const first = await server.ssrLoadModule('/app.tsx') as Fixture
+    expect(first.html).toContain('_626f78_2')
+    const css = await server.transformRequest(cssId)
+    expect(css?.code).toContain('_626f78_2')
+    const source = await readFile(appPath, 'utf8')
+    await writeFile(appPath, source.replace('[styles.box, false, styles.box]', '[styles.box, false, false, styles.box]'))
+    await expect.poll(async () => {
+      const app = await server.ssrLoadModule('/app.tsx') as Fixture
+      return app.html
+    }).toContain('_626f78_3')
+    const refreshed = await server.transformRequest(cssId)
+    expect(refreshed?.code).toContain('_626f78_3')
+    expect(refreshed?.code).not.toContain('_626f78_2')
+  } finally {
+    await server.close()
+    await rm(temporary, { recursive: true, force: true })
+  }
+})
+
+it('preserves skipped slots and custom component props', () => {
+  const props = { className: 'global', xClass: ['local', false, 'local'],
+    __xcssClassSlots: [[['local', 'local local_0']], [], [['local', 'local local_2']]] }
+  expect(normalizeProps('div', props)).toEqual({ className: 'global local local_0 local local_2' })
+  expect(normalizeProps(() => null, props)).toBe(props)
 })
 
 it('formats finite CSS numbers with their unit', () => {

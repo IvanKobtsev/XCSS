@@ -257,13 +257,12 @@ fn utilities_share_across_modules_and_preserve_conditions_assets_and_maps() {
         ),
         (
             "src/a.xcss",
-            ".a { composes: b from './b.xcss'; @:trim(3); } @media (width > 10px) { @layer components { .c { @:trim; } } } .parent { &:hover { @:trim(4); } }",
+            ".a { @:trim(3); } @media (width > 10px) { @layer components { .c { @:trim; } } } .parent { &:hover { @:trim(4); } }",
         ),
         ("src/b.xcss", ".b { @:trim; }"),
     ] {
         host.set_file(id(file), 1, source).unwrap();
     }
-    host.set_resolution(id("src/a.xcss"), "./b.xcss", Some(id("src/b.xcss")));
     let snapshot = host.snapshot();
     let options = GenerateOptions {
         utilities_output_path: Some("dist/shared/utils.css".into()),
@@ -540,31 +539,26 @@ fn injection_substitution_content_scope_and_assets() {
     );
 }
 #[test]
-fn composition_exports_and_dependencies() {
-    let result = compile(
-        &[
-            ("a.xcss", ".a { composes: b from \"./b.xcss\"; }"),
-            ("b.xcss", ".b { composes: global-name from global; }"),
-        ],
-        "a.xcss",
-        &[("a.xcss", "./b.xcss", "b.xcss")],
-    )
-    .unwrap();
-    assert_eq!(result.modules.len(), 2);
-    let a = result
-        .modules
-        .iter()
-        .find(|m| m.module_id == id("a.xcss"))
+fn composes_is_rejected_but_raw_is_preserved() {
+    let mut host = AnalysisHost::new();
+    let file = id("a.xcss");
+    host.set_file(file.clone(), 1, ".a { composes: b; }")
         .unwrap();
-    let b = result
-        .modules
-        .iter()
-        .find(|m| m.module_id == id("b.xcss"))
+    assert_eq!(
+        generate(&host.snapshot(), &file, &GenerateOptions::default()).unwrap_err()[0].code,
+        "syntax.unsupported-composes"
+    );
+    host.set_file(file.clone(), 2, "@raw { .a { composes: b; } }")
         .unwrap();
-    assert!(a.classes["a"].contains(&b.classes["b"]));
-    assert!(!a.css.contains("composes"));
-    assert_eq!(a.stylesheet_dependencies, vec![id("b.xcss")]);
+    assert!(
+        generate(&host.snapshot(), &file, &GenerateOptions::default())
+            .unwrap()
+            .modules[0]
+            .css
+            .contains(".a { composes: b; }")
+    );
 }
+
 #[test]
 fn keyframes_and_global_switches() {
     let result=compile(&[("a.xcss","@keyframes spin { from { opacity: 0; } to { opacity: 1; } } .a :global .external { animation: spin 1s; } :global(.outside) { color: red; }")],"a.xcss",&[]).unwrap();
@@ -755,44 +749,6 @@ fn annotated_independent_math_initial_values_are_valid() {
         )
         .is_ok()
     );
-}
-
-#[test]
-fn composition_bundle_hoists_native_imports_and_rebases_their_paths() {
-    let mut host = AnalysisHost::new();
-    host.set_file(
-        id("src/a.xcss"),
-        1,
-        "@import './base.css'; .a { composes: b from './lib/b.xcss'; }",
-    )
-    .unwrap();
-    host.set_file(
-        id("src/lib/b.xcss"),
-        1,
-        "@import './lib.css'; .b { background: url('./icon.svg'); }",
-    )
-    .unwrap();
-    host.set_resolution(id("src/a.xcss"), "./lib/b.xcss", Some(id("src/lib/b.xcss")));
-    let result = generate(
-        &host.snapshot(),
-        &id("src/a.xcss"),
-        &GenerateOptions {
-            bundle: true,
-            ..GenerateOptions::default()
-        },
-    )
-    .unwrap();
-    let module = &result.modules[0];
-    let parsed = xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
-        id("css"),
-        0,
-        module.css.clone(),
-    )));
-    assert_eq!(parsed.tree.children[0].kind, xcss_syntax::NodeKind::Import);
-    assert_eq!(parsed.tree.children[1].kind, xcss_syntax::NodeKind::Import);
-    assert!(module.css.contains("./lib/lib.css"));
-    assert!(module.css.contains("./lib/icon.svg"));
-    assert_eq!(module.native_imports.len(), 2);
 }
 
 #[test]

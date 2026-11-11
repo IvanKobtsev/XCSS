@@ -342,6 +342,9 @@ pub(crate) fn stylesheet(snapshot: &AnalysisSnapshot, declaration: P<Node>) -> O
         .file_name()
         .trim_start_matches('/')
         .strip_suffix(".d.xcss.ts")?;
+    let stem = stem
+        .split_once("__xcss_project_root__/")
+        .map_or(stem, |(_, path)| path);
     let id = FileId(format!("{stem}.xcss"));
     snapshot.module_interface(&id).map(|_| id)
 }
@@ -402,8 +405,8 @@ pub(crate) fn contextual_groups(
     expected: P<tsrs_checker::Type>,
 ) -> BTreeSet<(FileId, &'static str)> {
     let non_nullable = checker.get_non_nullable_type(expected);
-    // The marker lives in the relaxed declaration only. Its source distinguishes
-    // an actual XCSS contract from an unrelated string union with the same values.
+    // The marker declaration identifies the XCSS module even when another
+    // stylesheet declares the same group and member names.
     let mut groups = BTreeSet::new();
     let alternatives = if non_nullable.is_union() {
         non_nullable.as_union_type().types()

@@ -184,6 +184,29 @@ export interface NativeInspection {
 imports: Array<string>
 }
 
+export interface NativeProjectSource {
+path: string
+text: string
+}
+
+export interface NativeClassOrigin {
+moduleId: string
+className: string
+variantLabel?: string
+alias: string
+}
+
+export interface NativeClassSite {
+moduleId: string
+offset: number
+slots: Array<Array<NativeClassOrigin>>
+}
+
+export interface NativeClassPlan {
+sites: Array<NativeClassSite>
+diagnostics: Array<NativeDiagnostic>
+}
+
 export declare function inspect(source: string): NativeInspection
 
 export interface SourceFormatOptions {
@@ -232,6 +255,8 @@ export declare class LanguageService {
 export declare class Compiler {
 
  constructor()
+ clearClassSlots(): void
+ planClassSlots(config: string, sources: Array<NativeProjectSource>): NativeClassPlan
  setFile(moduleId: string, revision: number, source: string): void
  removeFile(moduleId: string, revision: number): void
  setResolution(importer: string, specifier: string, target?: string | undefined | null): void

@@ -10,8 +10,8 @@ describe('Vite integration',()=>{
   const directory=await mkdtemp(join(root,'test-utils-build-'))
   try {
    await writeFile(join(directory,'index.html'),'<script type="module" src="/main.js"></script>')
-   await writeFile(join(directory,'main.js'),"import styles from './a.xcss'; console.log(styles); import('./lazy.js').then(console.log)")
-   await writeFile(join(directory,'lazy.js'),"import styles from './b.xcss'; export default styles")
+   await writeFile(join(directory,'main.js'),"import { styles } from './a.xcss'; console.log(styles); import('./lazy.js').then(console.log)")
+   await writeFile(join(directory,'lazy.js'),"import { styles } from './b.xcss'; export default styles")
    await writeFile(join(directory,'a.xcss'),'.a { @:trim; color: red; } span { @:trim(4); }')
    await writeFile(join(directory,'b.xcss'),'.b { @:trim(3); }')
    await writeFile(join(directory,'unused.xcss'),'.unused { @:trim(99); }')
@@ -72,7 +72,14 @@ describe('Vite integration',()=>{
  })
  it('serves wrappers and processes inline CSS without injection',async()=>{
   const server=await createServer({root,configFile:false,logLevel:'silent',plugins:[xcss()],server:{middlewareMode:true}})
-  try {const wrapper=await server.transformRequest('/src/styles.xcss');expect(wrapper?.code).toContain('export default');expect(wrapper?.code).toContain('xcss_');const inline=await server.transformRequest('/src/inline.xcss?inline');expect(inline?.code).not.toContain('updateStyle')}finally{await server.close()}
+  try {
+   const wrapper=await server.transformRequest('/src/styles.xcss')
+   expect(wrapper?.code).toContain('export const styles')
+   expect(wrapper?.code).toContain('export const cssVars')
+   expect(wrapper?.code).not.toContain('export default')
+   const inline=await server.transformRequest('/src/inline.xcss?inline')
+   expect(inline?.code).not.toContain('updateStyle')
+  }finally{await server.close()}
  })
  it('updates global injection resolution after edits, additions and removals',async()=>{
   const directory=await mkdtemp(join(root,'test-hmr-'))

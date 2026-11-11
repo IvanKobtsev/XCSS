@@ -223,17 +223,6 @@ pub struct Import<'a> {
     pub specifier: &'a str,
 }
 #[derive(Clone, Debug)]
-pub struct Composition<'a> {
-    pub names: Vec<(&'a str, TextRange)>,
-    pub source: CompositionSource<'a>,
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CompositionSource<'a> {
-    Local,
-    Global,
-    Module(&'a str),
-}
-#[derive(Clone, Debug)]
 pub struct Keyframes<'a> {
     pub keyword: &'a str,
     pub name: &'a str,
@@ -304,30 +293,6 @@ impl ParseResult {
             global,
             scope_switch: switched,
         })
-    }
-    pub fn composition<'a>(&'a self, node: &Node) -> Option<Composition<'a>> {
-        let declaration = self.declaration(node)?;
-        if !declaration.property.eq_ignore_ascii_case("composes") {
-            return None;
-        }
-        let tokens = self.significant(declaration.value.range);
-        let from = tokens
-            .iter()
-            .position(|t| t.kind == TokenKind::Word && self.token_text(t) == "from");
-        let end = from.unwrap_or(tokens.len());
-        let names = tokens[..end]
-            .iter()
-            .filter(|t| t.kind == TokenKind::Word)
-            .map(|t| (self.token_text(t), t.range))
-            .collect();
-        let source = match from.and_then(|i| tokens.get(i + 1)) {
-            Some(token) if self.token_text(token) == "global" => CompositionSource::Global,
-            Some(token) => {
-                CompositionSource::Module(self.token_text(token).trim_matches(['\'', '"']))
-            }
-            None => CompositionSource::Local,
-        };
-        Some(Composition { names, source })
     }
     pub(super) fn significant(&self, range: TextRange) -> Vec<&Token> {
         self.tokens

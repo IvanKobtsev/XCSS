@@ -17,17 +17,6 @@ pub enum SymbolKind {
 }
 
 #[derive(Clone, Debug)]
-pub struct ResolvedComposition {
-    pub owner: SymbolId,
-    pub members: Vec<CompositionMember>,
-}
-#[derive(Clone, Debug)]
-pub struct CompositionMember {
-    pub name: String,
-    pub target: Option<SymbolId>,
-    pub location: Location,
-}
-#[derive(Clone, Debug)]
 pub struct VariableRegistration {
     pub symbol: SymbolId,
     pub location: Location,
@@ -118,7 +107,6 @@ pub struct Expression {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DependencyKind {
     Import,
-    Composition,
     Injection,
 }
 #[derive(Clone, Debug)]

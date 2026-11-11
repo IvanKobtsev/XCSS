@@ -82,9 +82,8 @@ impl ServiceSnapshot {
                 .filter(|t| !matches!(t.kind, TokenKind::Whitespace | TokenKind::Comment))
                 .map(|t| parse.slice(t.range))
                 .collect();
-            if property.eq_ignore_ascii_case("composes")
-                || property.eq_ignore_ascii_case("content")
-                    && significant.eq_ignore_ascii_case("preserve")
+            if property.eq_ignore_ascii_case("content")
+                && significant.eq_ignore_ascii_case("preserve")
             {
                 return;
             }

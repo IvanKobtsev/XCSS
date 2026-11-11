@@ -279,34 +279,6 @@ fn diagnostics_and_cycles() {
     }
 }
 #[test]
-fn css_modules_compositions_and_global_classes() {
-    let mut h = host(&[
-        (
-            "a",
-            ".base { color: red; } :global(.external) { color: red; }",
-        ),
-        (
-            "b",
-            ".button { composes: base from \"a\"; } .one { composes: two; } .two { composes: one; }",
-        ),
-    ]);
-    h.set_resolution(id("b"), "a", Some(id("a")));
-    let s = h.snapshot();
-    assert!(s.symbols().iter().any(|s| s.name == "external" && s.global));
-    assert_eq!(
-        s.diagnostics()
-            .iter()
-            .filter(|d| d.code == "binding.composition-cycle")
-            .count(),
-        2
-    );
-    assert!(
-        !s.diagnostics()
-            .iter()
-            .any(|d| d.code == "binding.missing-export")
-    );
-}
-#[test]
 fn missing_import_does_not_cascade() {
     let mut h = host(&[("a", "@import { tone } from \"missing\"; .a { @:tone; }")]);
     let s = h.snapshot();
@@ -419,25 +391,6 @@ fn declaration_signature_and_import_diagnostics() {
             .len()
             == 1
     );
-}
-
-#[test]
-fn escaped_classes_and_composition_reference_ranges() {
-    let mut h = host(&[(
-        "a",
-        ".composes {} .caf\\e9 {} .target { composes: composes caf\\e9; }",
-    )]);
-    let s = h.snapshot();
-    assert!(s.diagnostics().is_empty(), "{:?}", s.diagnostics());
-    let symbol = s.symbols().iter().find(|s| s.name == "composes").unwrap();
-    let reference = s.references_to(symbol.id).next().unwrap();
-    let source = s.syntax(&id("a")).unwrap();
-    assert_eq!(source.slice(reference.location.range), "composes");
-    assert_eq!(
-        reference.location.range.start,
-        source.source.text().rfind("composes caf").unwrap()
-    );
-    assert!(s.symbols().iter().any(|s| s.name == "café"));
 }
 
 #[test]

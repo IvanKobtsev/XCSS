@@ -12,7 +12,7 @@ test('loading another module refreshes the existing shared utility stylesheet',a
  await expect(page.locator('#util-utility')).toHaveCSS('padding-left','12px')
  await page.evaluate(async()=>{
   const path='/src/browser-lazy-utils.xcss'
-  const styles=(await import(/* @vite-ignore */ path)).default
+  const { styles }=await import(/* @vite-ignore */ path)
   const element=document.createElement('div');element.id='util-lazy';element.className=styles.lazy;document.body.append(element)
  })
  await expect(page.locator('#util-lazy')).toHaveCSS('padding-top','20px')
@@ -21,10 +21,9 @@ test('registered defaults and non-inheritance work in a browser',async({page})=>
  await expect(page.locator('#child')).toHaveCSS('opacity','0')
  await expect(page.locator('#parent')).toHaveCSS('color','rgba(0, 0, 0, 0)')
 })
-test('native nesting, composed exports and scoped keyframes work',async({page})=>{
+test('native nesting, class exports and scoped keyframes work',async({page})=>{
  await page.locator('#child').hover();await expect(page.locator('#child')).toHaveCSS('color','rgb(0, 0, 255)')
  await expect(page.locator('#composed')).toHaveCSS('background-color','rgb(255, 0, 0)')
- expect((await page.locator('#composed').getAttribute('class'))!.split(' ')).toHaveLength(2)
  await expect(page.locator('#animated')).toHaveCSS('animation-name',/^xcss_.*_pulse$/)
 })
 test('stylesheet URLs serve CSS and inline imports stay text',async({page})=>{

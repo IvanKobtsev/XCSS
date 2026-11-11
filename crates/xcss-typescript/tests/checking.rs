@@ -17,6 +17,93 @@ fn project(files: &[(&str, &str)]) -> Project {
 }
 
 #[test]
+fn xclass_checks_branded_inputs_and_effective_spreads() {
+    let mut host = AnalysisHost::new();
+    host.set_file(FileId("a.xcss".into()), 1, ".button {} .other {}")
+        .unwrap();
+    let p = project(&[
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"strict":true,"jsx":"preserve","module":"esnext","moduleResolution":"bundler"},"files":["app.tsx"]}"#,
+        ),
+        (
+            "app.tsx",
+            r#"
+import { styles } from './a.xcss';
+declare global { namespace JSX { interface IntrinsicElements { div: any } } }
+type ClassName = string & { readonly __xcssClassName__: true };
+declare const condition: boolean;
+declare const external: string;
+declare const optional: { xClass?: readonly [ClassName] };
+declare function Custom(props: { xClass: string }): any;
+const choice = condition ? styles.button : styles.other;
+const bad = { xClass: external };
+const fixed = [choice, condition && styles.other, null] as const;
+<div className={styles.button} xClass={fixed} />;
+<div xClass={[external as ClassName]} />;
+<div {...bad} xClass={[choice]} />;
+<div xClass={external} {...{ xClass: [styles.other] as const }} />;
+<Custom xClass={external} />;
+<div xClass="plain" />;
+<div xClass={123} />;
+<div xClass={{ plain: true }} />;
+<div xClass={[choice, external]} />;
+<div {...bad} />;
+<div xClass={external} {...optional} />;
+<div xClass={[styles.missing]} />;
+<div xClass={[...fixed]} />;
+<div xClass={[[styles.button]]} />;
+"#,
+        ),
+    ]);
+    let diagnostics = check(&p, &host.snapshot()).unwrap();
+    let codes: Vec<_> = diagnostics.iter().map(|d| d.code).collect();
+    assert_eq!(
+        codes,
+        [
+            "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009",
+            "XC-009", "XC-001", "XC-009", "XC-009"
+        ],
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn xclass_rejects_ambiguous_variant_labels() {
+    let mut host = AnalysisHost::new();
+    for file in ["a.xcss", "b.xcss"] {
+        host.set_file(
+            FileId(file.into()),
+            1,
+            "@variants Button: .primary; .primary {}",
+        )
+        .unwrap();
+    }
+    let p = project(&[
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"strict":true,"jsx":"preserve","module":"esnext","moduleResolution":"bundler"},"files":["app.tsx"]}"#,
+        ),
+        (
+            "app.tsx",
+            r#"
+import type { Variants as A } from './a.xcss';
+import type { Variants as B } from './b.xcss';
+declare const variant: A<'Button'> | B<'Button'>;
+<button xClass={[variant]} />;
+"#,
+        ),
+    ]);
+    let diagnostics = check(&p, &host.snapshot()).unwrap();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == "XC-009" && d.message.contains("more than one stylesheet")),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
 fn provided_vars_check_effective_jsx_maps() {
     let mut host = AnalysisHost::new();
     host.set_file(
@@ -151,7 +238,7 @@ fn exact_classes_variants_and_cross_file_jsx() {
         ),
         (
             "Button.tsx",
-            r#"import styles, { type Variants as V } from './Button.xcss';
+            r#"import { styles, type Variants as V } from './Button.xcss';
 import { helper } from 'app/helpers';
 declare global { namespace JSX { interface IntrinsicElements { button: any } } }
 export interface Props { variant: V<'Button'> }
@@ -247,7 +334,7 @@ fn module_isolation_and_alias_resolution() {
         ),
         (
             "index.ts",
-            r#"import aliased, { type Variants as A } from '@/a.xcss';
+            r#"import { styles as aliased, type Variants as A } from '@/a.xcss';
 import { type Variants as B } from './b.xcss';
 aliased.small;
 aliased['large'];
@@ -284,9 +371,12 @@ fn missing_modules_and_config_errors_are_not_hidden() {
         ("tsconfig.json", r#"{"files":["index.ts","client.d.ts"]}"#),
         (
             "client.d.ts",
-            "declare module '*.xcss' { const styles: Record<string, string>; export default styles; }",
+            "declare module '*.xcss' { export const styles: Record<string, string>; }",
         ),
-        ("index.ts", "import s from './missing.xcss'; s.anything;"),
+        (
+            "index.ts",
+            "import { styles as s } from './missing.xcss'; s.anything;",
+        ),
     ]);
     let diagnostics = check(&p, &snapshot).unwrap();
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");

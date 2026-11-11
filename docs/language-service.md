@@ -36,7 +36,7 @@ When enabled, use consistent project-relative forward-slash paths for both XCSS
 and TS inputs. TS module resolution follows the supplied tsconfig, including
 paths aliases. Host inputs must include all required dependencies; the engine
 never reads the filesystem. Existing `setResolution` continues to resolve XCSS
-injection and composition imports.
+injection imports.
 
 `document(path)` and `xcss check` report XCSS diagnostics at their original source
 locations. TypeScript diagnostics for other imports and type errors are omitted.

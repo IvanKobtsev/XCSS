@@ -1,7 +1,50 @@
 //! Selector inspection shared by analysis and emission.
 use crate::{Node, NodeKind, ParseResult, TokenKind};
-use raffia::{ParserBuilder, ast::*};
+use raffia::{ParserBuilder, Spanned, ast::*};
 use xcss_source::TextRange;
+
+pub fn subject_class_selectors(
+    parse: &ParseResult,
+    node: &Node,
+) -> Vec<(TextRange, TextRange, String)> {
+    let header = crate::mask_line_comments(parse.slice(node.header));
+    let Ok(list) = ParserBuilder::new(&header)
+        .syntax(raffia::Syntax::Css)
+        .build()
+        .parse::<SelectorList>()
+    else {
+        return Vec::new();
+    };
+    let local = selector_classes(parse, node);
+    let mut result = Vec::new();
+    for selector in &list.selectors {
+        let Some(ComplexSelectorChild::CompoundSelector(subject)) = selector.children.last() else {
+            continue;
+        };
+        for simple in &subject.children {
+            let SimpleSelector::Class(_) = simple else {
+                continue;
+            };
+            let span = simple.span();
+            let end = span.end + node.header.start;
+            if let Some((name, _, _)) = local
+                .iter()
+                .find(|(_, range, global)| !global && range.end == end)
+            {
+                let selector_span = selector.span();
+                result.push((
+                    TextRange::new(
+                        selector_span.start + node.header.start,
+                        selector_span.end + node.header.start,
+                    ),
+                    TextRange::new(span.start + node.header.start, end),
+                    name.clone(),
+                ));
+            }
+        }
+    }
+    result
+}
 pub fn selector_needs_content(text: &str) -> bool {
     let cleaned = crate::mask_line_comments(text);
     let text = cleaned.as_str();

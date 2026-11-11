@@ -79,7 +79,10 @@ impl<'a> Lowerer<'a> {
             .unwrap_or_else(|| file.clone());
         values::rebase(&source, self.output_identity, url)
     }
-    pub fn module(&mut self) -> Result<Mapped, Vec<Diagnostic>> {
+    pub fn module(
+        &mut self,
+        positions: Option<&BTreeMap<String, BTreeSet<usize>>>,
+    ) -> Result<Mapped, Vec<Diagnostic>> {
         let parse = self.snapshot.syntax(self.entry).unwrap();
         let statements = self.nodes(self.entry, &parse.tree.children, &Frame::default(), 0)?;
         let mut out = Mapped::default();
@@ -123,9 +126,74 @@ impl<'a> Lowerer<'a> {
             s.kind != NodeKind::Import && !s.header.text.trim_start().starts_with("@charset ")
         }) {
             self.print(statement, &mut out);
+            if let Some(positions) = positions
+                && statement.kind == NodeKind::Rule
+                && statement.origin.file == *self.entry
+                && let Some(node) = parse.tree.children.iter().find(|node| {
+                    node.kind == NodeKind::Rule && node.header == statement.origin.range
+                })
+            {
+                self.print_positional(parse, node, statement, positions, &mut out);
+            }
         }
         out.append(&self.injected_utils);
         Ok(out)
+    }
+
+    fn print_positional(
+        &self,
+        parse: &ParseResult,
+        node: &Node,
+        statement: &Statement,
+        positions: &BTreeMap<String, BTreeSet<usize>>,
+        out: &mut Mapped,
+    ) {
+        let children: Vec<_> = statement
+            .children
+            .iter()
+            .flatten()
+            .filter(|child| child.kind == NodeKind::Declaration)
+            .cloned()
+            .collect();
+        if children.is_empty() {
+            return;
+        }
+        let mut selectors = BTreeSet::new();
+        for (selector, class, name) in xcss_syntax::subject_class_selectors(parse, node) {
+            let Some(indices) = positions.get(&name) else {
+                continue;
+            };
+            for &index in indices {
+                let alias = positional_class(self.entry, &name, index);
+                let left =
+                    without_line_comments(parse.slice(TextRange::new(selector.start, class.end)));
+                let right =
+                    without_line_comments(parse.slice(TextRange::new(class.end, selector.end)));
+                let boost = if index == 0 {
+                    String::new()
+                } else {
+                    format!(":is(*, {})", "#_".repeat(index))
+                };
+                selectors.insert(normalize_selector(&format!(
+                    "{left}:where(:global(.{alias})){boost}{right}"
+                )));
+            }
+        }
+        if !selectors.is_empty() {
+            let mut header = Mapped::default();
+            header.push(
+                &selectors.into_iter().collect::<Vec<_>>().join(", "),
+                &statement.origin,
+            );
+            self.print(
+                &Statement {
+                    header,
+                    children: Some(children),
+                    ..statement.clone()
+                },
+                out,
+            );
+        }
     }
     fn nodes(
         &mut self,
@@ -414,9 +482,6 @@ impl<'a> Lowerer<'a> {
                     let Some(declaration) = parse.declaration(node) else {
                         continue;
                     };
-                    if declaration.property.eq_ignore_ascii_case("composes") {
-                        continue;
-                    }
                     let mut header = Mapped::default();
                     let property = values::property_name(
                         self,

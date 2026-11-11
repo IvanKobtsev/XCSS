@@ -7,7 +7,9 @@ mod selectors;
 pub use selector_analysis::{
     SelectorAnalysis, SelectorKind, SelectorPart, Specificity, analyze_selectors,
 };
-pub use selectors::{local_class_names, selector_classes, selector_needs_content};
+pub use selectors::{
+    local_class_names, selector_classes, selector_needs_content, subject_class_selectors,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TokenKind {
