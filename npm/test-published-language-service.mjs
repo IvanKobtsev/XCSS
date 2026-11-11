@@ -7,7 +7,7 @@ const require = createRequire(resolve(process.cwd(), 'package.json'))
 const { LanguageService, languageServiceCapabilities } = require('@cross-css/native')
 const expectedVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 assert.equal(require('@cross-css/native/package.json').version, expectedVersion)
-assert.equal(languageServiceCapabilities().apiVersion, 5)
+assert.equal(languageServiceCapabilities().apiVersion, 6)
 const service = new LanguageService()
 const source = '@injection paint {} .a { @:paint; }'
 service.setFile('file:///test.xcss', 1, source)
@@ -20,7 +20,7 @@ assert.equal(service.cssDeclarations('file:///test.xcss').declarations.length, 0
 service.setFile('file:///css.xcss', 1, '.a { display: flex; }')
 assert.equal(service.cssDeclarations('file:///css.xcss').declarations[0].property, 'display')
 assert.equal(service.cssValues('file:///css.xcss').values[0].property, 'display')
-assert.deepEqual(languageServiceCapabilities().tokenTypes.slice(-3), ['cssFunction', 'cssKeyword', 'cssColor'])
+assert.deepEqual(languageServiceCapabilities().tokenTypes.slice(-6, -3), ['cssFunction', 'cssKeyword', 'cssColor'])
 
 service.setFile('file:///selectors.xcss', 1, '#root, .parent { a.button[data-kind="hello"]:where(.disabled)::after { & > * {} } }')
 const selectors = service.selectors('file:///selectors.xcss')

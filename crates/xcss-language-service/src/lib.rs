@@ -4,7 +4,7 @@ use xcss_source::{Diagnostic, FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind};
 
 pub use xcss_analysis::UpdateError;
-pub const API_VERSION: u32 = 5;
+pub const API_VERSION: u32 = 6;
 use std::{
     collections::BTreeMap,
     sync::{Arc, OnceLock},
@@ -24,7 +24,7 @@ pub use xcss_typescript::{Project as TypeScriptProject, class_slots};
 mod css;
 mod diagnostic_catalog;
 mod editor;
-pub use editor::{Completion, ExportedSymbol};
+pub use editor::{Completion, DefinitionDetails, ExportedSymbol};
 mod values;
 pub use css::{CssDeclaration, CssDeclarations, CssValuePart};
 pub use values::{CssFunction, CssValue, CssValues};
@@ -50,6 +50,9 @@ pub const TOKEN_TYPES: &[&str] = &[
     "cssFunction",
     "cssKeyword",
     "cssColor",
+    "xcssClassMember",
+    "xcssProvidedVariable",
+    "xcssImport",
 ];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -266,6 +269,11 @@ impl ServiceSnapshot {
             .collect()
     }
     pub fn definition(&self, file: &FileId, position: Position) -> Vec<EditorLocation> {
+        if self.0.syntax(file).is_none() {
+            return self
+                .definition_details(file, position)
+                .map_or_else(Vec::new, |details| details.targets);
+        }
         let Some(offset) = self.offset(file, position) else {
             return vec![];
         };
@@ -382,7 +390,7 @@ impl ServiceSnapshot {
     }
     pub fn semantic_tokens(&self, file: &FileId) -> Vec<SemanticToken> {
         let Some(parse) = self.0.syntax(file) else {
-            return vec![];
+            return self.typescript_tokens(file);
         };
         // Priority resolves broad contextual candidates against resolved identifiers.
         let mut candidates: Vec<(TextRange, usize, bool, u8)> = Vec::new();

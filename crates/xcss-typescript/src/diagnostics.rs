@@ -365,7 +365,7 @@ pub(crate) fn styles_module(
     dictionary_module(checker, snapshot, receiver, "styles")
 }
 
-fn dictionary_module(
+pub(crate) fn dictionary_module(
     checker: &mut Checker,
     snapshot: &AnalysisSnapshot,
     receiver: P<Node>,

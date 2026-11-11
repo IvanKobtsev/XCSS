@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0
+
+- Add native editor API v6 for TypeScript navigation and highlighting of named XCSS imports, class names, and provided variable names.
+
 ## 0.10.1
 
 - Accept a single class in React's `xClass` prop. `xClass={styles.button}` uses slot zero, just like `xClass={[styles.button]}`.

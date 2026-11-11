@@ -23,6 +23,116 @@ fn labels(snapshot: &ServiceSnapshot, file: &str, pos: Position) -> Vec<String> 
 }
 
 #[test]
+fn named_exports_and_members_have_distinct_targets_and_tokens() {
+    let mut service = LanguageService::new();
+    let css = "@import recipes from './recipes';\n@vars { @provided --button-width: length; }\n@vars { @provided { --gap: length; } }\n@variants Button: .hello;\n@variants Other: .hello;\n.hello { @:recipes.paint; }\n.hello {}";
+    let ts = r#"import { styles as s, cssVars as vars, type Variants as V } from './a.xcss';
+import { cssVars as other } from './b.xcss';
+/* 😀 */ s.hello; vars.buttonWidth; vars["gap"]; other.buttonWidth;
+type T = V<"Button">;
+function shadow() { const s = { hello: '' }; s.hello; }
+vars.unknown;"#;
+    service.set_file(id("a.xcss"), 1, css.into()).unwrap();
+    service
+        .set_file(
+            id("b.xcss"),
+            1,
+            "@vars { @provided --button-width: length; }".into(),
+        )
+        .unwrap();
+    service
+        .set_file(
+            id("recipes.xcss"),
+            1,
+            "@injection paint { .hello {} }".into(),
+        )
+        .unwrap();
+    service.set_resolution(id("a.xcss"), "./recipes".into(), Some(id("recipes.xcss")));
+    service.set_typescript_project(Some("tsconfig.json".into()));
+    service
+        .set_typescript_file(id("tsconfig.json"), 1, r#"{"files":["app.ts"]}"#.into())
+        .unwrap();
+    service
+        .set_typescript_file(id("app.ts"), 1, ts.into())
+        .unwrap();
+    let snapshot = service.snapshot();
+    let details = |marker, skip| {
+        snapshot
+            .definition_details(&id("app.ts"), at(ts, marker, skip))
+            .unwrap()
+    };
+    assert_eq!(details("styles as", 0).targets[0].file, id("a.xcss"));
+    assert_eq!(
+        details("s.hello", 0).targets[0].range.start,
+        at(css, "@import", 0)
+    );
+    let class = details("s.hello", 2);
+    assert_eq!(class.origin.start, at(ts, "s.hello", 2));
+    assert_eq!(class.targets.len(), 3);
+    assert!(
+        class
+            .targets
+            .iter()
+            .any(|target| target.file == id("recipes.xcss"))
+    );
+    assert_eq!(details("cssVars as", 0).targets.len(), 2);
+    assert_eq!(details("vars.buttonWidth", 0).targets.len(), 2);
+    assert_eq!(
+        details("vars.buttonWidth", 5).targets[0].range.start,
+        at(css, "--button-width", 0)
+    );
+    assert_eq!(
+        details("vars[\"gap\"]", 6).targets[0].range.start,
+        at(css, "--gap", 0)
+    );
+    assert_eq!(
+        details("other.buttonWidth", 6).targets[0].file,
+        id("b.xcss")
+    );
+    assert_eq!(details("V<", 0).targets.len(), 2);
+    assert_eq!(
+        details("\"Button\"", 1).targets[0].range.start,
+        at(css, "Button:", 0)
+    );
+    assert!(
+        snapshot
+            .definition(&id("app.ts"), at(ts, "vars.unknown", 5))
+            .is_empty()
+    );
+    let tokens = snapshot.semantic_tokens(&id("app.ts"));
+    let legend = xcss_language_service::TOKEN_TYPES;
+    assert_eq!(
+        tokens
+            .iter()
+            .filter(|token| legend[token.token_type] == "xcssImport")
+            .count(),
+        8
+    );
+    let members: Vec<_> = tokens
+        .iter()
+        .filter(|token| legend[token.token_type] == "xcssClassMember")
+        .collect();
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0].character, class.origin.start.character);
+    assert_eq!(
+        tokens
+            .iter()
+            .filter(|token| legend[token.token_type] == "xcssProvidedVariable")
+            .count(),
+        3
+    );
+    service
+        .set_file(id("a.xcss"), 2, css.replace("--gap", "--space"))
+        .unwrap();
+    assert!(
+        service
+            .snapshot()
+            .definition(&id("app.ts"), at(ts, "vars[\"gap\"]", 6))
+            .is_empty()
+    );
+}
+
+#[test]
 fn stylesheet_classes_groups_and_members_have_separate_usages() {
     let mut service = LanguageService::new();
     let style = "@variants Button: .primary, .secondary;\n@variants Other: .primary;\n.primary {} .secondary {} .hyphen-name {} :global(.hidden) {}";

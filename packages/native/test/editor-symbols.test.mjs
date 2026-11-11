@@ -2,8 +2,27 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { LanguageService, languageServiceCapabilities } from '../index.js'
 
+test('definition details and TypeScript token kinds use the same source ranges', () => {
+  const service = new LanguageService()
+  const uri = 'app.ts'
+  const source = 'import { cssVars as vars } from "./theme.xcss"; /* 😀 */ vars.buttonWidth;'
+  service.setFile('theme.xcss', 1, '@vars { @provided --button-width: length; }')
+  service.setTypescriptProject('tsconfig.json')
+  service.setTypescriptFile('tsconfig.json', 1, '{"files":["app.ts"]}')
+  service.setTypescriptFile(uri, 1, source)
+  const start = { line: 0, character: source.indexOf('buttonWidth') }
+  const details = service.definitionDetails(uri, start)
+  assert.deepEqual(details.origin.start, start)
+  assert.equal(details.targets[0].uri, 'theme.xcss')
+  const { tokenTypes } = languageServiceCapabilities()
+  assert.deepEqual(service.document(uri).tokens.map(item => [tokenTypes[item.tokenType], source.slice(item.character, item.character + item.length)]), [
+    ['xcssImport', 'cssVars'], ['xcssImport', 'vars'], ['xcssProvidedVariable', 'buttonWidth'],
+  ])
+  assert.deepEqual(service.document(uri, false).tokens, [])
+})
+
 test('class, group and member locations and completion cross the native boundary', () => {
-  assert.equal(languageServiceCapabilities().apiVersion, 5)
+  assert.equal(languageServiceCapabilities().apiVersion, 6)
   const service = new LanguageService()
   const css = '.primary {} .secondary {}\n@variants Button: .primary, .secondary;'
   const ts = 'import { styles, type Variants as V } from "./theme.xcss";\n/* 😀 */ styles.primary; const value: V<"Button"> = "primary";'

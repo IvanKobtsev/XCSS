@@ -105,6 +105,11 @@ range: EditorRange
 text: string
 }
 
+export interface EditorDefinitionDetails {
+origin: EditorRange
+targets: Array<EditorLocation>
+}
+
 export interface EditorCompletion {
 label: string
 kind: string
@@ -243,8 +248,9 @@ export declare class LanguageService {
  setFile(uri: string, revision: number, source: string): void
  removeFile(uri: string, revision: number): void
  setResolution(importer: string, specifier: string, target?: string | undefined | null): void
- document(uri: string): EditorDocument
+ document(uri: string, includeTokens?: boolean | undefined | null): EditorDocument
  definition(uri: string, position: EditorPosition): Array<EditorLocation>
+ definitionDetails(uri: string, position: EditorPosition): EditorDefinitionDetails | null
  references(uri: string, position: EditorPosition, includeDeclaration: boolean): Array<EditorLocation>
  symbolsAt(uri: string, position: EditorPosition): Array<EditorExportedSymbol>
  referencesForSymbols(symbols: Array<EditorExportedSymbol>, includeDeclaration: boolean): Array<EditorLocation>

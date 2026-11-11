@@ -15,7 +15,7 @@ mod xvars;
 use diagnostics::{
     Issues, VARIANT_GROUP_MARKER, contract_errors, missing_modules, semantic_issues, variant_errors,
 };
-pub use editor::{Completion, EditorIndex, Occurrence, Symbol, editor_index};
+pub use editor::{Completion, EditorIndex, NavigationTarget, Occurrence, Symbol, editor_index};
 pub use xvars::{ClassOrigin, ClassSite, ClassSlotPlan};
 
 const CLASS_NAME: &str = "type ClassName = string & { readonly __xcssClassName__: true };\n";
