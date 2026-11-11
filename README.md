@@ -33,11 +33,17 @@ expanded, and discrete properties receive `allow-discrete` unless `normal` is
 specified. Eligible `::before`/`::after` rules receive empty content; use
 `content: preserve` to suppress insertion.
 
-## Vite
+## Installation
+
+In an existing Vite 8 project, install the XCSS plugin. Use Node.js 20.19 or later in the 20.x line, or Node.js 22.12 or later.
 
 ```console
 pnpm add -D @cross-css/vite
 ```
+
+For npm, use `npm install -D @cross-css/vite`.
+
+Add the plugin to `vite.config.ts` (or `vite.config.js`).
 
 ```ts
 import { defineConfig } from 'vite'
@@ -55,6 +61,131 @@ The named `styles` export maps local class names to generated class strings.
 Side-effect imports also work. Inline imports return processed CSS
 without injecting it; URL imports return a stylesheet URL. XCSS owns scoping;
 Vite handles plain CSS delivery, extraction, assets, and native CSS imports.
+
+### TypeScript
+
+Add `@cross-css/vite/client` to the `compilerOptions.types` array in the config
+that includes your app files. Keep existing entries such as `vite/client`.
+You can also put the following reference in an environment declaration file
+such as `src/vite-env.d.ts`.
+
+```ts
+/// <reference types="vite/client" />
+/// <reference types="@cross-css/vite/client" />
+```
+
+The XCSS declarations cover ordinary `.xcss` imports. If your project
+type-checks `?inline` and `?url` imports, add these declarations to that same
+environment file.
+
+```ts
+declare module '*.xcss?inline' {
+  const css: string
+  export default css
+}
+
+declare module '*.xcss?url' {
+  const url: string
+  export default url
+}
+```
+
+### React JSX with `xClass` and `xVars`
+
+These props use the XCSS automatic JSX runtime and work on intrinsic elements
+such as `<button>`. The runtime supports React 18.3 and React 19. In a project
+using `@vitejs/plugin-react`, configure the same JSX import source in Vite and
+TypeScript. Keep XCSS before plugins that rewrite JSX.
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import xcss from '@cross-css/vite'
+
+export default defineConfig({
+  plugins: [
+    xcss({ tsconfig: 'tsconfig.app.json' }),
+    react({ jsxImportSource: '@cross-css/vite/react' }),
+  ],
+})
+```
+
+In `tsconfig.app.json`, merge these options into your existing configuration.
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@cross-css/vite/react",
+    "types": ["vite/client", "@cross-css/vite/client"]
+  }
+}
+```
+
+Vite uses `tsconfig.json` for XCSS analysis when you call `xcss()`. If your
+root config only references other configs, pass the app config as shown above.
+It must include the JSX files that use `xClass` and the component call sites
+XCSS needs to trace. For JavaScript JSX files, set `allowJs: true` and include
+the `.jsx` files in that config. If you use Vite without the React plugin,
+set `oxc.jsx` to
+`{ runtime: 'automatic', importSource: '@cross-css/vite/react' }` in the Vite config.
+
+Create `Button.xcss` and import its named exports.
+
+```xcss
+@vars {
+  @provided --button-width: length = 0px;
+}
+
+@variants Tone: .primary, .secondary;
+.button { width: --button-width; }
+.primary { color: navy; }
+.secondary { color: gray; }
+```
+
+```tsx
+import { styles, cssVars, type Variants } from './Button.xcss'
+import { px } from '@cross-css/vite/units'
+
+export function Button({ tone, width }: { tone: Variants<'Tone'>; width: number }) {
+  return (
+    <button
+      className="global-button"
+      xClass={[styles.button, tone]}
+      xVars={{ [cssVars.buttonWidth]: px(width) }}
+    >
+      Continue
+    </button>
+  )
+}
+```
+
+Use an inline array or a fixed readonly tuple for `xClass`. Later slots boost
+eligible stylesheet-root selectors. A conditional value such as
+`active && styles.active` keeps its slot when false. Use ordinary `className`
+for global class names.
+
+With `noUncheckedIndexedAccess` enabled, TypeScript treats keys in the
+bundled `cssVars` declaration as potentially absent. For a variable declared
+in the stylesheet, use `[cssVars.buttonWidth!]` as the computed key.
+`xcss check` verifies that the export exists.
+
+### Check your setup
+
+Add an npm script that points to the same app config used by the plugin.
+
+```json
+{
+  "scripts": {
+    "check:xcss": "xcss check --project tsconfig.app.json"
+  }
+}
+```
+
+Run `pnpm check:xcss` alongside your normal TypeScript check. The bundled
+TypeScript declarations make stylesheet imports and JSX props available.
+`xcss check` validates actual exported names, variant values, `xClass` slots,
+and `xVars` keys and values against your stylesheets.
 
 ## Variables and injections
 
@@ -101,14 +232,10 @@ compile-time functions, or ICSS value import/export syntax.
 
 ## CLI and Rust/Node APIs
 
-Run `xcss check` from the project directory to check stylesheets. TypeScript
-consumers can enable the bundled declarations with
-`"types": ["@cross-css/vite/client"]` in `compilerOptions`. Use
-`xcss check --project tsconfig.json` in a package script to check XCSS class
-references and `Variants<"Group">` values with the embedded tsrs checker.
+Run `xcss check` from the project directory to check stylesheets. See
+[Check your setup](#check-your-setup) for project-aware checks.
 If TypeScript setup fails, the command prints a warning and still checks the
 stylesheets.
-See the [Vite package guide](packages/vite-plugin/README.md#typescript-and-variant-groups).
 
 ```console
 cargo run -p xcss-cli -- compile styles/button.xcss --output dist/button.css --root .
