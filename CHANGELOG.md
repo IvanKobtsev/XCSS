@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1
+
+- Suppress redundant xClass and xVars container diagnostics for missing XCSS exports while preserving specific member errors.
+
 ## 0.11.0
 
 - Add native editor API v6 for TypeScript navigation and highlighting of named XCSS imports, class names, and provided variable names.

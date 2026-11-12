@@ -62,8 +62,58 @@ const fixed = [choice, condition && styles.other, null] as const;
         codes,
         [
             "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009",
-            "XC-009", "XC-001", "XC-009", "XC-009"
+            "XC-001", "XC-009", "XC-009"
         ],
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn missing_exports_do_not_cascade_into_container_errors() {
+    let mut host = AnalysisHost::new();
+    host.set_file(
+        FileId("a.xcss".into()),
+        1,
+        ".button {} @vars { @provided --width = 1px; }",
+    )
+    .unwrap();
+    let p = project(&[
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"strict":true,"jsx":"preserve","module":"esnext","moduleResolution":"bundler"},"files":["app.tsx"]}"#,
+        ),
+        (
+            "app.tsx",
+            r#"
+import { styles as s, cssVars as v } from './a.xcss';
+declare global { namespace JSX { interface IntrinsicElements { div: any } } }
+const missing = s.absent;
+const map = { [v.absent]: '2px', [v.width]: '3px' };
+<div xClass={[s.button, missing]} xVars={map} />;
+<div xClass={[s.absent, 'plain']} xVars={{ [v.absent]: '2px', '--private': 1 }} />;
+"#,
+        ),
+    ]);
+    let diagnostics = check(&p, &host.snapshot()).unwrap();
+    let codes: Vec<_> = diagnostics.iter().map(|d| d.code).collect();
+    assert_eq!(
+        codes.iter().filter(|&&code| code == "XC-001").count(),
+        2,
+        "{diagnostics:?}"
+    );
+    assert_eq!(
+        codes.iter().filter(|&&code| code == "XC-006").count(),
+        2,
+        "{diagnostics:?}"
+    );
+    assert_eq!(
+        codes.iter().filter(|&&code| code == "XC-009").count(),
+        1,
+        "{diagnostics:?}"
+    );
+    assert_eq!(
+        codes.iter().filter(|&&code| code == "XC-007").count(),
+        1,
         "{diagnostics:?}"
     );
 }

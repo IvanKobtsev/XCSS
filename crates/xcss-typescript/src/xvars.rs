@@ -11,7 +11,8 @@ use xcss_source::{Diagnostic, FileId, TextRange};
 
 use crate::Project;
 use crate::diagnostics::{
-    contextual_groups, node_range, project_file, provided_member_error, string_type, stylesheet,
+    contextual_groups, node_range, project_file, provided_member_error, string_type, styles_module,
+    stylesheet,
 };
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -296,7 +297,7 @@ impl Check<'_> {
         expression: Option<P<Node>>,
     ) {
         if name == "xVars" {
-            self.map(checker, ty, range);
+            self.map(checker, ty, range, expression, 0);
         } else {
             let slots = self.tuple(checker, ty, expression, 0).or_else(|| {
                 let origins = match expression {
@@ -446,6 +447,31 @@ impl Check<'_> {
             return None;
         }
         let expression = ast::skip_parentheses(expression);
+        let access = match expression.kind() {
+            Kind::PropertyAccessExpression => {
+                let access = expression.as_property_access_expression();
+                Some((access.expression(), access.name()))
+            }
+            Kind::ElementAccessExpression => {
+                let access = expression.as_element_access_expression();
+                Some((access.expression(), access.argument_expression()))
+            }
+            _ => None,
+        };
+        if let Some((receiver, key)) = access
+            && (expression.kind() == Kind::PropertyAccessExpression
+                || ast::is_string_literal_like(key))
+            && let Some(module) = styles_module(checker, self.snapshot, receiver)
+            && !self
+                .snapshot
+                .module_interface(&module)?
+                .classes
+                .contains(key.text())
+        {
+            // The member diagnostic owns this failure; retain the slot without
+            // inventing a class origin for an export that does not exist.
+            return Some(BTreeSet::new());
+        }
         if expression.kind() == Kind::AsExpression {
             return self.expression_origins(
                 checker,
@@ -672,7 +698,88 @@ impl Check<'_> {
         Some(result)
     }
 
-    fn map(&mut self, checker: &mut Checker, ty: P<Type>, range: TextRange) {
+    fn map(
+        &mut self,
+        checker: &mut Checker,
+        ty: P<Type>,
+        range: TextRange,
+        expression: Option<P<Node>>,
+        depth: usize,
+    ) {
+        if depth < 64
+            && let Some(expression) = expression
+        {
+            let expression = ast::skip_parentheses(expression);
+            let inner = match expression.kind() {
+                Kind::AsExpression => Some(expression.as_as_expression().expression()),
+                Kind::SatisfiesExpression => {
+                    Some(expression.as_satisfies_expression().expression())
+                }
+                Kind::NonNullExpression => Some(expression.as_non_null_expression().expression()),
+                _ => None,
+            };
+            if let Some(inner) = inner {
+                self.map(checker, ty, range, Some(inner), depth + 1);
+                return;
+            }
+            if expression.kind() == Kind::Identifier
+                && let Some(symbol) = checker.get_symbol_at_location_exported(expression)
+                && let Some(decl) = symbol.value_declaration()
+                && const_variable(decl)
+                && let Some(value) = decl.as_variable_declaration().initializer()
+            {
+                self.map(checker, ty, range, Some(value), depth + 1);
+                return;
+            }
+            if expression.kind() == Kind::ObjectLiteralExpression {
+                let properties = expression
+                    .as_object_literal_expression()
+                    .properties()
+                    .nodes();
+                let mut missing = false;
+                let mut other_dynamic = false;
+                for &property in properties {
+                    if property.kind() == Kind::PropertyAssignment {
+                        let name = property.as_property_assignment().name();
+                        if name.kind() == Kind::ComputedPropertyName {
+                            let key = name.as_computed_property_name().expression();
+                            if provided_member_error(
+                                checker,
+                                self.snapshot,
+                                self.file,
+                                self.id,
+                                key,
+                            )
+                            .is_some()
+                            {
+                                missing = true;
+                            } else {
+                                let key_type = checker.get_type_at_location(key);
+                                other_dynamic |= !key_type.flags().intersects(
+                                    TypeFlags::StringLiteral | TypeFlags::NumberLiteral,
+                                );
+                            }
+                        }
+                    } else {
+                        other_dynamic = true;
+                    }
+                }
+                if missing && !other_dynamic {
+                    self.map_properties(checker, ty, range, true);
+                    return;
+                }
+            }
+        }
+        self.map_properties(checker, ty, range, false);
+    }
+
+    fn map_properties(
+        &mut self,
+        checker: &mut Checker,
+        ty: P<Type>,
+        range: TextRange,
+        missing_key: bool,
+    ) {
         let ty = constraint(checker, ty);
         for &ty in alternatives(&ty) {
             if ty
@@ -688,7 +795,7 @@ impl Check<'_> {
                 self.invalid_map(range);
                 continue;
             }
-            if !checker.get_index_infos_of_type_exported(ty).is_empty() {
+            if !missing_key && !checker.get_index_infos_of_type_exported(ty).is_empty() {
                 self.invalid_map(range);
             }
             for &property in checker.get_properties_of_type_exported(ty) {
