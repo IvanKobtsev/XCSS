@@ -55,3 +55,8 @@ The workflow rejects a tag whose version does not exactly match the manifests. P
 If a release needs a workflow fix after the tag has been pushed, run **Release**
 manually from the branch containing the fix and enter the original version tag.
 The workflow checks that the branch manifests match the requested release.
+
+Release package smoke tests run against locally packed tarballs before publication.
+A successful publish command completes publication; the workflow does not reinstall
+new packages from npm as a release gate, since registry propagation can lag behind
+a successful upload.

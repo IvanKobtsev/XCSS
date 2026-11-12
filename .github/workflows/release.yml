@@ -244,24 +244,7 @@ jobs:
             node npm/publish-package.mjs "$package_file" "$package_name@$package_version"
           done
 
-      - name: Verify published language service
-        shell: bash
-        run: |
-          verification_directory=$(mktemp -d)
-          cd "$verification_directory"
-          npm init -y
-          for attempt in $(seq 1 12); do
-            # Require the host binary explicitly: npm can silently omit an optional
-            # dependency while newly published registry metadata is propagating.
-            if npm install --ignore-scripts --prefer-online "@cross-css/native@${RELEASE_TAG#v}" "@cross-css/native-linux-x64-gnu@${RELEASE_TAG#v}"; then
-              break
-            fi
-            test "$attempt" -lt 12
-            sleep 15
-          done
-          node "$GITHUB_WORKSPACE/npm/test-published-language-service.mjs"
-
-      - name: Upload Vite package after verifying its published dependencies
+      - name: Upload Vite package for the initial manual release
         if: env.RELEASE_TAG == 'v0.7.2'
         uses: actions/upload-artifact@v4
         with:

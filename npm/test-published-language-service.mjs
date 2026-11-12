@@ -1,4 +1,4 @@
-// Run in a clean directory with @cross-css/native installed from the registry.
+// Run in a clean directory with @cross-css/native installed from release tarballs.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
