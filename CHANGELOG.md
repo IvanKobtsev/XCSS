@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 
 - Resolve XCSS recipe imports and `url()` asset aliases from project `tsconfig.paths` in both CLI and Vite; CLI compile now accepts `--project`.
 - Breaking: remove implicit CLI `@/` resolution and Vite aliases for references inside XCSS. Declare mappings explicitly in `compilerOptions.paths`.
