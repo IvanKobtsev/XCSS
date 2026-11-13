@@ -11,10 +11,13 @@ mod registration;
 mod values;
 use mapped::Mapped;
 
+/// Host-resolved asset URLs by definition file and decoded URL.
+pub type AssetResolutions = BTreeMap<FileId, BTreeMap<String, Result<String, String>>>;
+
 #[derive(Clone, Debug, Default)]
 pub struct GenerateOptions {
     /// Host-resolved URLs, keyed by definition file and decoded URL. Targets use source-root coordinates.
-    pub asset_resolutions: BTreeMap<FileId, BTreeMap<String, Result<String, String>>>,
+    pub asset_resolutions: AssetResolutions,
     pub minify: bool,
     pub output_paths: BTreeMap<FileId, String>,
     pub bundle: bool,

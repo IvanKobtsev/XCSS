@@ -23,7 +23,7 @@ pub(super) struct Lowerer<'a> {
     pub entry: &'a FileId,
     pub output_identity: &'a str,
     pub source_root: Option<&'a str>,
-    pub asset_resolutions: Option<&'a BTreeMap<FileId, BTreeMap<String, Result<String, String>>>>,
+    pub asset_resolutions: Option<&'a AssetResolutions>,
     pub sources: BTreeSet<FileId>,
     pub properties: BTreeMap<String, String>,
     pub diagnostics: Vec<Diagnostic>,

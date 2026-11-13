@@ -57,7 +57,7 @@ impl Resolver {
                 Some((prefix.len(), key.len(), targets, middle))
             })
             .collect::<Vec<_>>();
-        matches.sort_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
+        matches.sort_by_key(|a| std::cmp::Reverse((a.0, a.1)));
         let Some((_, _, targets, middle)) = matches.first() else {
             return Ok(None);
         };
@@ -123,15 +123,16 @@ fn decode_percent(path: &str) -> String {
     let bytes = path.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(a), Some(b)) = (
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(a), Some(b)) = (
                 (bytes[i + 1] as char).to_digit(16),
                 (bytes[i + 2] as char).to_digit(16),
-            ) {
-                out.push((a * 16 + b) as u8);
-                i += 3;
-                continue;
-            }
+            )
+        {
+            out.push((a * 16 + b) as u8);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;
@@ -215,14 +216,13 @@ fn extends_path(directory: &Path, entry: &str) -> Result<PathBuf, String> {
             return Some(json);
         }
         if path.is_dir() {
-            if let Ok(text) = fs::read_to_string(path.join("package.json")) {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                    if let Some(config) = value.get("tsconfig").and_then(|v| v.as_str()) {
-                        let target = path.join(config);
-                        if target.is_file() {
-                            return Some(target);
-                        }
-                    }
+            if let Ok(text) = fs::read_to_string(path.join("package.json"))
+                && let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
+                && let Some(config) = value.get("tsconfig").and_then(|v| v.as_str())
+            {
+                let target = path.join(config);
+                if target.is_file() {
+                    return Some(target);
                 }
             }
             let config = path.join("tsconfig.json");
