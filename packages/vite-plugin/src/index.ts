@@ -22,6 +22,7 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
   let base = '/'
   let assetsDir = 'assets'
   let outDir = 'dist'
+  let configFiles = new Set<string>()
   let revision = 0
   let projectVersion = 0
   let sync: Promise<void> | undefined
@@ -38,12 +39,20 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
     const shared = server.moduleGraph.getModuleById(utilityCssId())
     if (shared) server.moduleGraph.invalidateModule(shared)
   }
-  async function synchronize(version: number, resolver: (specifier: string, importer: string) => Promise<string | null>) {
+  async function synchronize(version: number) {
+    const config = options.tsconfig ? resolvePath(root, options.tsconfig) : undefined
+    configFiles = new Set(compiler.configureProject(root, config))
+    if (devServer) devServer.watcher.add([...configFiles])
     const filenames = await findXcssFiles(root)
     const loaded = await Promise.all(filenames.map(async filename => ({ filename, source: await readFile(filename, 'utf8') })))
     const resolutions: Array<{ importer: string; specifier: string; target: string | null }> = []
     for (const file of loaded) for (const specifier of inspect(file.source).imports) {
-      const resolved = await resolver(specifier, file.filename)
+      let resolved: string | null
+      try { resolved = compiler.resolveImport(file.filename, specifier) }
+      catch (error) {
+        const line = file.source.slice(0, file.source.indexOf(specifier)).split('\n').length
+        throw new Error(file.filename + ':' + line + ': ' + (error instanceof Error ? error.message : String(error)))
+      }
       resolutions.push({ importer: idFor(file.filename), specifier, target: resolved ? idFor(resolved.split('?')[0]) : null })
     }
     if (version !== projectVersion) return
@@ -52,20 +61,20 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
     for (const id of utilityEntries) if (!current.has(id)) utilityEntries.delete(id)
     for (const file of loaded) {
       const id = idFor(file.filename)
-      if (sources.get(id)?.source !== file.source) { compiler.setFile(id, ++revision, file.source); sources.set(id, { source: file.source, revision }) }
+      compiler.setFile(id, ++revision, file.source); sources.set(id, { source: file.source, revision })
     }
     for (const resolution of resolutions) compiler.setResolution(resolution.importer, resolution.specifier, resolution.target)
     classPlan = undefined
     classError = undefined
     compiler.clearClassSlots()
-    const config = resolvePath(root, options.tsconfig ?? 'tsconfig.json')
+    const classConfig = resolvePath(root, options.tsconfig ?? 'tsconfig.json')
     try {
-      await stat(config)
+      await stat(classConfig)
       if (version !== projectVersion) return
       const prefix = '_/'.repeat(normalizePath(root).split('/').length) + '__xcss_project_root__'
       const projectId = (file: string) => posix.join(prefix, idFor(file))
-      const project = classProject(config, projectId)
-      if (project.hasJsx) classPlan = compiler.planClassSlots(projectId(config), project.sources)
+      const project = classProject(classConfig, projectId)
+      if (project.hasJsx) classPlan = compiler.planClassSlots(projectId(classConfig), project.sources)
     } catch (error) {
       if (version === projectVersion) classError = error instanceof Error ? error : new Error(String(error))
     }
@@ -84,12 +93,12 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
     configureServer(server) {
       devServer = server
       const changed = (file: string) => {
-        if (projectSource.test(file)) {
+        if (projectSource.test(file) || configFiles.has(normalizePath(file))) {
           invalidate(server)
           server.ws.send({ type: 'full-reload' })
         }
       }
-      const edited = (file: string) => { if (file.toLowerCase().endsWith('.xcss')) invalidate(server) }
+      const edited = (file: string) => { if (projectSource.test(file) || configFiles.has(normalizePath(file))) invalidate(server) }
       server.watcher.on('add', changed)
       server.watcher.on('unlink', changed)
       server.watcher.on('change', edited)
@@ -100,13 +109,11 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
       jsxModules.add(id)
       for (;;) {
         const version = projectVersion
-        await (sync ??= synchronize(version, async (specifier, importer) => {
-          const resolved = await this.resolve(specifier, importer, { skipSelf: true })
-          return resolved && !resolved.external ? parseVirtualId(resolved.id)?.sourcePath ?? resolved.id : null
-        }).catch(error => { sync = undefined; throw error }))
+        await (sync ??= synchronize(version).catch(error => { sync = undefined; throw error }))
         if (version === projectVersion) break
         sync = undefined
       }
+      for (const config of configFiles) this.addWatchFile(config)
       if (classError && (options.tsconfig || hasIntrinsicXClass(id, code))) this.error(classError.message)
       const file = idFor(id)
       const diagnostic = classPlan?.diagnostics.find(item => ['XC-001', 'XC-002', 'XC-003', 'XC-009'].includes(item.code) && item.moduleId === file)
@@ -168,10 +175,7 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
       }
       if (id === utilityCssId()) {
         // Refresh from source on every shared-sheet request, including HMR removals.
-        await (sync ??= synchronize(projectVersion, async (specifier, importer) => {
-          const resolved = await this.resolve(specifier, importer, { skipSelf: true })
-          return resolved && !resolved.external ? parseVirtualId(resolved.id)?.sourcePath ?? resolved.id : null
-        }).catch(error => { sync = undefined; throw error }))
+        await (sync ??= synchronize(projectVersion).catch(error => { sync = undefined; throw error }))
         const result = compiler.compileUtilities([...utilityEntries].sort())
         resultFor(result, error => this.error(error))
         const shared = result.utilities
@@ -187,13 +191,11 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
       activeIds.add(id)
       for (;;) {
         const version = projectVersion
-        await (sync ??= synchronize(version, async (specifier, importer) => {
-          const resolved = await this.resolve(specifier, importer, { skipSelf: true })
-          return resolved && !resolved.external ? parseVirtualId(resolved.id)?.sourcePath ?? resolved.id : null
-        }).catch(error => { sync = undefined; throw error }))
+        await (sync ??= synchronize(version).catch(error => { sync = undefined; throw error }))
         if (version === projectVersion) break
         sync = undefined
       }
+      for (const config of configFiles) this.addWatchFile(config)
       for (const module of sources.keys()) this.addWatchFile(fileFor(module))
       const entry = idFor(virtual.sourcePath)
       const result = compiler.compile(entry, false, virtual.kind === 'bundle')
@@ -291,7 +293,7 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
       return [{ tag: 'link', attrs: { rel: 'stylesheet', href: base + utilityFile }, injectTo: 'head' }]
     } },
     handleHotUpdate(context) {
-      if (!projectSource.test(context.file)) return
+      if (!projectSource.test(context.file) && !configFiles.has(normalizePath(context.file))) return
       invalidate(context.server)
       const affected = new Set<ModuleNode>(context.modules)
       for (const id of activeIds) { const module = context.server.moduleGraph.getModuleById(id); if (module) affected.add(module) }

@@ -19,7 +19,15 @@ XCSS scopes names before handing plain virtual CSS to Vite. Vite handles native
 CSS imports, asset URLs, development styling, production extraction and targeting.
 There is no Sass dependency, generated partial, or second CSS Modules pass.
 Unsupported or conflicting query modes fail
-explicitly. Aliases are resolved by Vite.
+explicitly. Imports inside XCSS and aliased `url()` assets resolve from the selected
+project's `compilerOptions.paths`, using root `tsconfig.json` by default or
+`xcss({ tsconfig: 'tsconfig.app.json' })`. Vite aliases do not apply to these
+references. JavaScript/TypeScript imports retain Vite's normal resolution.
+
+`paths` supports exact names, wildcard patterns, ordered target fallbacks,
+`extends`, and `baseUrl`. Declare `"@/*": ["./src/*"]` explicitly to use `@/`;
+there is no implicit root alias. See [language documentation](../../docs/language.md#path-aliases)
+for stylesheet and asset examples.
 
 ## TypeScript and variant groups
 

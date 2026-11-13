@@ -38,6 +38,12 @@ diagnostics: Array<EditorDiagnostic>
 tokens: Array<SemanticToken>
 }
 
+export interface EditorWarning {
+category: string
+message: string
+range: EditorRange
+}
+
 export interface CssValuePart {
 text?: string
 valueType?: string
@@ -239,6 +245,7 @@ export declare class LanguageService {
 
  cssValues(uri: string): CssValues
  selectors(uri: string): Selectors
+ classWarnings(uri: string): Array<EditorWarning>
  cssDeclarations(uri: string): CssDeclarations
  constructor()
  setTypescriptProject(config?: string | undefined | null): void
@@ -261,6 +268,8 @@ export declare class LanguageService {
 export declare class Compiler {
 
  constructor()
+ configureProject(root: string, config?: string | undefined | null): Array<string>
+ resolveImport(importer: string, specifier: string): string | null
  clearClassSlots(): void
  planClassSlots(config: string, sources: Array<NativeProjectSource>): NativeClassPlan
  setFile(moduleId: string, revision: number, source: string): void

@@ -19,6 +19,8 @@
     "index.js",
     "index.d.ts",
     "cli.cjs",
+    "css-validation.cjs",
+    "css-validation.d.cts",
     "platform.cjs",
     "README.md",
     "LICENSE",
@@ -45,5 +47,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "css-tree": "3.2.1"
   }
 }

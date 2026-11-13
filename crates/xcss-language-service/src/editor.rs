@@ -157,7 +157,7 @@ impl ServiceSnapshot {
         tokens.dedup();
         tokens
     }
-    fn editor_index(&self) -> &EditorIndex {
+    pub(super) fn editor_index(&self) -> &EditorIndex {
         self.3.get_or_init(|| {
             let Some(config) = &self.1.config else {
                 return EditorIndex::default();

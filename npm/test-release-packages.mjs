@@ -84,7 +84,7 @@ try {
     compilerOptions: { module: 'esnext', moduleResolution: 'bundler', types: ['@cross-css/vite/client'] },
     files: ['app.ts'],
   }))
-  await writeFile(join(testRoot, 'button.xcss'), '.button {}')
+  await writeFile(join(testRoot, 'button.xcss'), '.button { color: red; }')
   const appPath = join(testRoot, 'app.ts')
   const source = "import { styles } from './button.xcss'; import './unrelated'; const count: number = 'bad';\n"
   await writeFile(appPath, source + "styles.button;\n")

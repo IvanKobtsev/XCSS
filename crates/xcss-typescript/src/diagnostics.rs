@@ -371,6 +371,47 @@ pub(crate) fn dictionary_module(
     receiver: P<Node>,
     name: &str,
 ) -> Option<FileId> {
+    dictionary_module_at(checker, snapshot, receiver, name, 0)
+}
+
+fn dictionary_module_at(
+    checker: &mut Checker,
+    snapshot: &AnalysisSnapshot,
+    receiver: P<Node>,
+    name: &str,
+    depth: usize,
+) -> Option<FileId> {
+    if depth > 64 {
+        return None;
+    }
+    // Empty object types do not necessarily carry a type symbol. The imported
+    // declaration still identifies the dictionary, including renamed imports.
+    if let Some(mut symbol) = checker.get_symbol_at_location_exported(receiver) {
+        if symbol.flags().intersects(SymbolFlags::Alias) {
+            symbol = checker.get_aliased_symbol(symbol);
+        }
+        for &decl in symbol.declarations() {
+            if decl.kind() == Kind::VariableDeclaration
+                && decl.as_variable_declaration().name().text() != name
+                && let Some(value) = decl.as_variable_declaration().initializer()
+                && let Some(module) = dictionary_module_at(
+                    checker,
+                    snapshot,
+                    ast::skip_parentheses(value),
+                    name,
+                    depth + 1,
+                )
+            {
+                return Some(module);
+            }
+            if decl.kind() == Kind::VariableDeclaration
+                && decl.as_variable_declaration().name().text() == name
+                && let Some(module) = stylesheet(snapshot, decl)
+            {
+                return Some(module);
+            }
+        }
+    }
     let ty = checker.get_type_at_location(receiver);
     let ty = checker.get_non_nullable_type(ty);
     let declaration = ty.symbol()?.declarations().iter().copied().find(|&decl| {

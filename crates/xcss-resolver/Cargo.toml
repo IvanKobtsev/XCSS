@@ -1,0 +1,10 @@
+[package]
+name = "xcss-resolver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+[dependencies]
+serde_json.workspace = true
+xcss-core = { path = "../xcss-core" }
+pathdiff = "=0.2.3"

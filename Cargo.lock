@@ -1729,6 +1729,7 @@ dependencies = [
  "serde_json",
  "xcss-core",
  "xcss-language-service",
+ "xcss-resolver",
 ]
 
 [[package]]
@@ -1782,7 +1783,17 @@ dependencies = [
  "xcss-core",
  "xcss-format",
  "xcss-language-service",
+ "xcss-resolver",
  "xcss-source",
+]
+
+[[package]]
+name = "xcss-resolver"
+version = "0.11.1"
+dependencies = [
+ "pathdiff",
+ "serde_json",
+ "xcss-core",
 ]
 
 [[package]]

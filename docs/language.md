@@ -38,6 +38,54 @@ properties remain global. Dynamic values have unknown types, not type errors.
 Mutable Sass variables, interpolation, module directives, mixins and control
 flow are rejected. CSS Modules classes are local unless marked `:global`.
 
+## Path aliases
+
+CLI compilation/checking and the Vite plugin use the selected project's
+`compilerOptions.paths` for stylesheet imports and `url()` assets:
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@styles/*": ["./src/styles/*"],
+      "@assets/*": ["./src/assets/*"]
+    }
+  }
+}
+```
+
+```xcss
+@import { rounded } from "@styles/recipes.xcss";
+.card {
+  @:rounded;
+  background: url("@assets/card.svg?v=1#image");
+}
+```
+
+One config applies to the project: root `tsconfig.json` by default, CLI
+`--project <config>` for `compile` and `check`, or the Vite plugin's `tsconfig`
+option. CLI `compile` also accepts `--root <directory>`; an explicit `--project`
+path is relative to the working directory. An absent default config means no
+aliases. Missing explicit configs and invalid existing configs are errors.
+
+JSONC comments/trailing commas and extended configs are supported. Paths use
+TypeScript's `baseUrl` or the declaring config directory. Exact names take
+precedence over wildcards; the longest matching wildcard prefix wins. Target
+arrays try existing files in order. Targets must name files including extensions;
+there is no extension or directory-index inference. `baseUrl` alone does not
+add bare imports.
+
+Aliased assets retain query strings/fragments and are rebased relative to emitted
+CSS. Injections, utils, and constants retain their definition-site URL ownership.
+CLI compilation references assets without copying them; Vite serves/emits them
+through its asset pipeline. A matched alias with no existing target is an error.
+Ordinary URLs, external/data URLs, absolute URLs and fragments keep existing
+behavior. `@raw` contents remain literal.
+
+**Migration:** the CLI's former implicit `@/` root alias and Vite aliases for
+references inside XCSS are removed. Declare `"@/*": ["./*"]` for the old CLI
+mapping, or `"@/*": ["./src/*"]` for a source-directory mapping.
+
 ## Provided custom properties
 
 Mark a variable inside `@vars` with `@provided` to expose its scoped CSS name

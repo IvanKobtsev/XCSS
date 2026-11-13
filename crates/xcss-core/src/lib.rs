@@ -21,7 +21,13 @@ pub struct ImportResolution<'a> {
     pub target: Option<&'a str>,
 }
 #[derive(Clone, Debug)]
+pub struct AssetReference {
+    pub url: String,
+    pub range: TextRange,
+}
+#[derive(Clone, Debug)]
 pub struct ProjectInspection {
+    pub assets: Vec<AssetReference>,
     pub imports: Vec<String>,
 }
 
@@ -39,7 +45,31 @@ pub fn inspect_project_file(source: &str) -> ProjectInspection {
     }
     imports.sort();
     imports.dedup();
-    ProjectInspection { imports }
+    let mut assets = Vec::new();
+    let tokens = &parse.tokens;
+    for (index, token) in tokens.iter().enumerate() {
+        if token.kind != xcss_syntax::TokenKind::Word
+            || !parse.token_text(token).eq_ignore_ascii_case("url")
+        {
+            continue;
+        }
+        let Some(open) = tokens.get(index + 1).filter(|t| parse.token_text(t) == "(") else {
+            continue;
+        };
+        let Some(close) = tokens[index + 2..]
+            .iter()
+            .find(|t| parse.token_text(t) == ")")
+        else {
+            continue;
+        };
+        let inside = parse.source.text()[open.range.end..close.range.start].trim();
+        let url = xcss_syntax::ast::decode_identifier(inside.trim_matches(['\'', '"']));
+        assets.push(AssetReference {
+            url,
+            range: TextRange::new(token.range.start, close.range.end),
+        });
+    }
+    ProjectInspection { imports, assets }
 }
 
 pub fn compile_project(

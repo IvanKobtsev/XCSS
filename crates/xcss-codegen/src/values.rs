@@ -157,7 +157,7 @@ pub(super) fn render(
                     .unwrap_or("");
                 let quote = inside.starts_with(['\'', '"']);
                 let path = inside.trim_matches(['\'', '"']);
-                let rebased = lower.asset_url(&origin.file, path);
+                let rebased = lower.asset_url(&origin.file, path, value.range)?;
                 out.push(
                     &format!(
                         "url({}{}{})",
@@ -344,7 +344,10 @@ pub(super) fn transition(
 
 /// Pure path rebasing; module identities are normalized host-relative paths.
 pub fn rebase(origin: &FileId, target: &str, url: &str) -> String {
-    if url.is_empty() || url.starts_with(['/', '#', '?']) || url.contains(':') {
+    if url.is_empty()
+        || url.starts_with(['/', '#', '?'])
+        || url.split(['?', '#']).next().unwrap_or(url).contains(':')
+    {
         return url.into();
     }
     let split = url.find(['?', '#']).unwrap_or(url.len());

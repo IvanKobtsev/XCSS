@@ -2,6 +2,12 @@ use super::*;
 use xcss_language_service::{LanguageService, ServiceSnapshot, typescript_warning};
 
 pub(super) fn check_project(args: &[String]) -> Result<(), String> {
+    let warning_inputs = args.last().is_some_and(|arg| arg == "--warning-inputs");
+    let args = if warning_inputs {
+        &args[..args.len() - 1]
+    } else {
+        args
+    };
     let config = match args {
         [] => Ok(None),
         [flag, path] if flag == "--project" => canonical(path)
@@ -18,6 +24,9 @@ pub(super) fn check_project(args: &[String]) -> Result<(), String> {
         .filter(|path| !path.starts_with(&cwd))
         .and_then(Path::parent)
         .unwrap_or(&cwd);
+    let resolver =
+        xcss_resolver::Resolver::load(root, config.as_ref().map_err(Clone::clone)?.as_deref())?;
+    let mut asset_options = GenerateOptions::default();
     let mut paths = Vec::new();
     discover(
         root,
@@ -40,14 +49,23 @@ pub(super) fn check_project(args: &[String]) -> Result<(), String> {
         sources.insert(id, text);
     }
     for (id, text) in &sources {
+        resolver.assets(root, id, text, &mut asset_options)?;
+        for asset in xcss_core::inspect_project_file(text).assets {
+            if let Some(Err(error)) = asset_options
+                .asset_resolutions
+                .get(id)
+                .and_then(|m| m.get(&asset.url))
+            {
+                let prefix = &text[..asset.range.start];
+                let line = prefix.bytes().filter(|b| *b == b'\n').count() + 1;
+                let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+                return Err(format!("{}:{line}:{column}: {error}", id.0));
+            }
+        }
         for specifier in xcss_core::inspect_project_file(text).imports {
-            let candidate = if let Some(alias) = specifier.strip_prefix("@/") {
-                root.join(alias)
-            } else {
-                root.join(&id.0).parent().unwrap().join(&specifier)
-            };
-            let target = canonical(candidate)
-                .ok()
+            let target = resolver
+                .import(&root.join(&id.0), &specifier)
+                .map_err(|error| format!("{}: {error}", id.0))?
                 .and_then(|p| module_id(root, &p).ok())
                 .filter(|id| sources.contains_key(id));
             service.set_resolution(id.clone(), specifier, target);
@@ -71,6 +89,41 @@ pub(super) fn check_project(args: &[String]) -> Result<(), String> {
         }
         Err(reason) => eprintln!("Warning: {}", typescript_warning(&reason)),
         Ok(None) => {}
+    }
+    let snapshot = service.snapshot();
+    let range = |r: &xcss_language_service::Range| {
+        serde_json::json!({
+            "start": { "line": r.start.line, "character": r.start.character },
+            "end": { "line": r.end.line, "character": r.end.character },
+        })
+    };
+    let mut inputs = vec![];
+    for id in sources.keys() {
+        let warnings = snapshot.class_warnings(id);
+        if warning_inputs {
+            let declarations: Vec<_> = snapshot.css_declarations(id).declarations.iter().map(|d| serde_json::json!({
+                "property": d.property, "propertyRange": range(&d.property_range), "valueRange": range(&d.value_range),
+                "context": d.context, "checkable": d.checkable,
+                "parts": d.parts.iter().map(|p| serde_json::json!({"text": p.text, "valueType": p.value_type, "range": range(&p.range)})).collect::<Vec<_>>()
+            })).collect();
+            inputs.push(serde_json::json!({
+                "file": root.join(&id.0).to_string_lossy(), "declarations": declarations,
+                "warnings": warnings.iter().map(|w| serde_json::json!({"message": w.message, "range": range(&w.range)})).collect::<Vec<_>>()
+            }));
+        } else {
+            for warning in warnings {
+                eprintln!(
+                    "{}:{}:{}: Warning: {}",
+                    root.join(&id.0).display(),
+                    warning.range.start.line + 1,
+                    warning.range.start.character + 1,
+                    warning.message
+                );
+            }
+        }
+    }
+    if warning_inputs {
+        println!("{}", serde_json::json!(inputs));
     }
     if failed {
         Err("XCSS checking failed".into())

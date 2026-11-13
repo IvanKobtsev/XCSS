@@ -10,6 +10,7 @@ name = "xcss"
 path = "src/main.rs"
 
 [dependencies]
+xcss-resolver = { path = "../xcss-resolver" }
 xcss-core = { path = "../xcss-core" }
 xcss-language-service = { path = "../xcss-language-service" }
 

@@ -302,7 +302,9 @@ impl Check<'_> {
             let slots = self.tuple(checker, ty, expression, 0).or_else(|| {
                 let origins = match expression {
                     Some(expression) => self.expression_origins(checker, expression, 0),
-                    None => self.origins(checker, ty),
+                    None => self
+                        .origins(checker, ty)
+                        .or_else(|| self.branded(checker, ty).then(BTreeSet::new)),
                 }?;
                 Some(vec![origins])
             });
@@ -421,7 +423,10 @@ impl Check<'_> {
             let origins: Vec<_> = checker
                 .get_type_arguments(candidate)
                 .iter()
-                .map(|&element| self.origins(checker, element))
+                .map(|&element| {
+                    self.origins(checker, element)
+                        .or_else(|| self.branded(checker, element).then(BTreeSet::new))
+                })
                 .collect::<Option<_>>()?;
             if let Some(slots) = &mut slots {
                 if slots.len() != origins.len() {
@@ -438,6 +443,38 @@ impl Check<'_> {
     }
 
     fn expression_origins(
+        &self,
+        checker: &mut Checker,
+        expression: P<Node>,
+        depth: usize,
+    ) -> Option<BTreeSet<ClassOrigin>> {
+        self.trace_expression_origins(checker, expression, depth)
+            .or_else(|| {
+                let ty = checker.get_type_at_location(expression);
+                self.branded(checker, ty).then(BTreeSet::new)
+            })
+    }
+
+    fn branded(&self, checker: &mut Checker, ty: P<Type>) -> bool {
+        let ty = constraint(checker, ty);
+        alternatives(&ty).iter().all(|&candidate| {
+            candidate
+                .flags()
+                .intersects(TypeFlags::Nullable | TypeFlags::Never | TypeFlags::BooleanLike)
+                || checker
+                    .get_property_of_type(candidate, "__xcssClassName__")
+                    .is_some_and(|marker| {
+                        let value = checker.get_type_of_symbol_exported(marker);
+                        value.flags().intersects(TypeFlags::BooleanLiteral)
+                            && matches!(
+                                value.as_literal_type().value(),
+                                Some(LiteralValue::Boolean(true))
+                            )
+                    })
+        })
+    }
+
+    fn trace_expression_origins(
         &self,
         checker: &mut Checker,
         expression: P<Node>,

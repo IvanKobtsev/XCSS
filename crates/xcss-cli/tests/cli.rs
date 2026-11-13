@@ -13,7 +13,11 @@ fn checks_typescript_without_emitting_and_reports_original_locations() {
         r#"{"compilerOptions":{"strict":true},"files":["index.ts"]}"#,
     )
     .unwrap();
-    fs::write(root.join("a.xcss"), "@variants V: .one; .one {}").unwrap();
+    fs::write(
+        root.join("a.xcss"),
+        "@variants V: .one; .one { color: red; }",
+    )
+    .unwrap();
     let imports = "import { styles, type Variants } from './a.xcss'; import 'app/helpers'; const n: number = 'ordinary type error';\n";
     fs::write(
         root.join("index.ts"),
@@ -87,11 +91,7 @@ fn stylesheet_checks_survive_typescript_setup_failures() {
 
     for (stylesheet, valid) in [(".a {}", true), ("bogus;", false)] {
         fs::write(root.join("a.xcss"), stylesheet).unwrap();
-        for (config, reason) in [
-            (None, None),
-            (Some("missing.json"), Some("missing.json")),
-            (Some("valid.json"), Some("bad.ts")),
-        ] {
+        for (config, reason) in [(None, None), (Some("valid.json"), Some("bad.ts"))] {
             let output = match config {
                 Some(config) => check(&["--project", config]),
                 None => check(&[]),
@@ -125,6 +125,11 @@ fn stylesheet_checks_survive_typescript_setup_failures() {
         for (config, warning) in [("malformed.json", true), ("valid.json", false)] {
             let output = check(&["--project", config]);
             let message = String::from_utf8_lossy(&output.stderr);
+            if warning {
+                assert!(!output.status.success(), "{message}");
+                assert!(message.contains("malformed.json"), "{message}");
+                continue;
+            }
             assert_eq!(output.status.success(), valid, "{message}");
             assert_eq!(
                 message.contains("XC-105 Invalid XCSS statement"),
@@ -251,4 +256,102 @@ fn output_can_be_outside_project_root_without_changing_source_identity() {
         )),
         "{css}"
     );
+}
+
+#[test]
+fn tsconfig_aliases_resolve_imports_and_definition_site_assets() {
+    let root = sandbox();
+    fs::create_dir_all(root.join("src/deep")).unwrap();
+    fs::create_dir_all(root.join("assets")).unwrap();
+    fs::write(root.join("assets/icon.svg"), "svg").unwrap();
+    fs::write(
+        root.join("aliases.json"),
+        r#"{"compilerOptions":{"paths":{"@styles/*":["src/*"],"@assets/*":["assets/*"]}}}"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/recipe.xcss"), r#"$image = url("@assets/icon.svg?q=1#part"); @injection icon { background: $image; } @util icon-util { mask: url(@assets/icon.svg); }"#).unwrap();
+    fs::write(
+        root.join("src/deep/main.xcss"),
+        r#"@import { icon, icon-util } from "@styles/recipe.xcss"; .a { @:icon-util; @:icon; }"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_xcss"))
+        .current_dir(&root)
+        .args([
+            "compile",
+            "src/deep/main.xcss",
+            "-o",
+            "out/main.css",
+            "--project",
+            "aliases.json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let css = fs::read_to_string(root.join("out/main.css")).unwrap();
+    assert!(css.contains("../assets/icon.svg?q=1#part"), "{css}");
+    let css = fs::read_to_string(root.join("out/main.utils.css")).unwrap();
+    assert!(css.contains("../assets/icon.svg"), "{css}");
+    fs::write(
+        root.join("tsconfig.json"),
+        fs::read(root.join("aliases.json")).unwrap(),
+    )
+    .unwrap();
+    let checked = Command::new(env!("CARGO_BIN_EXE_xcss"))
+        .current_dir(&root)
+        .arg("check")
+        .output()
+        .unwrap();
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    fs::remove_file(root.join("assets/icon.svg")).unwrap();
+    let checked = Command::new(env!("CARGO_BIN_EXE_xcss"))
+        .current_dir(&root)
+        .arg("check")
+        .output()
+        .unwrap();
+    assert!(!checked.status.success());
+    assert!(
+        String::from_utf8_lossy(&checked.stderr).contains("Cannot resolve tsconfig paths alias")
+    );
+}
+
+#[test]
+fn cli_requires_explicit_aliases_and_valid_selected_config() {
+    let root = sandbox();
+    fs::write(
+        root.join("recipe.xcss"),
+        "@injection recipe { color: red; }",
+    )
+    .unwrap();
+    fs::write(
+        root.join("main.xcss"),
+        r#"@import { recipe } from "@/recipe.xcss"; .a { @:recipe; }"#,
+    )
+    .unwrap();
+    let invoke = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_xcss"))
+            .current_dir(&root)
+            .args(["compile", "main.xcss", "-o", "out/main.css"])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    assert!(!invoke(&[]).status.success());
+    fs::write(
+        root.join("tsconfig.json"),
+        r#"{"compilerOptions":{"paths":{"@/*":["./*"]}}}"#,
+    )
+    .unwrap();
+    assert!(invoke(&[]).status.success());
+    let result = invoke(&["--project", "missing.json"]);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("missing.json"));
 }

@@ -18,14 +18,20 @@ fn run() -> Result<(), String> {
     if args.first().is_some_and(|s| s == "check") {
         return check_project(&args[1..]);
     }
-    if !matches!(args.len(), 4 | 6)
-        || args[0] != "compile"
-        || !matches!(args[2].as_str(), "--output" | "-o")
-        || args.len() == 6 && args[4] != "--root"
-    {
-        return Err(
-            "usage: xcss compile <input.xcss> --output <output.css> [--root <directory>]".into(),
-        );
+    if args.len() < 4 || args[0] != "compile" || !matches!(args[2].as_str(), "--output" | "-o") {
+        return Err("usage: xcss compile <input.xcss> --output <output.css> [--root <directory>] [--project <tsconfig.json>]".into());
+    }
+    let mut root_arg = None;
+    let mut project_arg = None;
+    for pair in args[4..].chunks(2) {
+        if pair.len() != 2 {
+            return Err("Expected a value after compile option".into());
+        }
+        match pair[0].as_str() {
+            "--root" if root_arg.is_none() => root_arg = Some(PathBuf::from(&pair[1])),
+            "--project" if project_arg.is_none() => project_arg = Some(PathBuf::from(&pair[1])),
+            _ => return Err(format!("Unknown or duplicate option {}", pair[0])),
+        }
     }
     let input = PathBuf::from(&args[1]);
     let output = PathBuf::from(&args[3]);
@@ -39,8 +45,8 @@ fn run() -> Result<(), String> {
             "output must end in .css, without .module.css (XCSS already scopes names)".into(),
         );
     }
-    let root = canonical(if args.len() == 6 {
-        PathBuf::from(&args[5])
+    let root = canonical(if let Some(root) = root_arg {
+        root
     } else {
         env::current_dir().map_err(|e| e.to_string())?
     })
@@ -54,6 +60,8 @@ fn run() -> Result<(), String> {
     if input == output {
         return Err("input and output must differ".into());
     }
+    let resolver = xcss_resolver::Resolver::load(&root, project_arg.as_deref())?;
+    let mut asset_options = GenerateOptions::default();
     let mut paths = Vec::new();
     scan(&root, &mut paths)?;
     paths.sort();
@@ -67,14 +75,11 @@ fn run() -> Result<(), String> {
         files.insert(module, (path, source));
     }
     for (module, (path, source)) in &files {
+        resolver.assets(&root, module, source, &mut asset_options)?;
         for specifier in xcss_core::inspect_project_file(source).imports {
-            let candidate = if let Some(alias) = specifier.strip_prefix("@/") {
-                root.join(alias)
-            } else {
-                path.parent().unwrap().join(&specifier)
-            };
-            let target = canonical(candidate)
-                .ok()
+            let target = resolver
+                .import(path, &specifier)
+                .map_err(|error| format!("{}: {error}", module.0))?
                 .and_then(|p| module_id(&root, &p).ok())
                 .filter(|id| files.contains_key(id));
             host.set_resolution(module.clone(), specifier, target);
@@ -107,6 +112,7 @@ fn run() -> Result<(), String> {
         &snapshot,
         &entry,
         &GenerateOptions {
+            asset_resolutions: asset_options.asset_resolutions,
             output_paths,
             source_root: Some(root.to_string_lossy().replace('\\', "/")),
             utilities_output_path: Some(utilities_path.to_string_lossy().replace('\\', "/")),

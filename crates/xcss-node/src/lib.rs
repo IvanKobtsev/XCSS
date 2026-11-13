@@ -118,6 +118,9 @@ pub fn inspect(source: String) -> NativeInspection {
 
 #[napi]
 pub struct Compiler {
+    resolver: xcss_resolver::Resolver,
+    root: std::path::PathBuf,
+    assets: GenerateOptions,
     host: AnalysisHost,
     positions: BTreeMap<FileId, BTreeMap<String, std::collections::BTreeSet<usize>>>,
 }
@@ -126,11 +129,43 @@ impl Compiler {
     #[napi(constructor)]
     pub fn new() -> Self {
         Self {
+            resolver: xcss_resolver::Resolver::default(),
+            root: std::path::PathBuf::new(),
+            assets: GenerateOptions::default(),
             host: AnalysisHost::new(),
             positions: BTreeMap::new(),
         }
     }
 
+    #[napi]
+    pub fn configure_project(
+        &mut self,
+        root: String,
+        config: Option<String>,
+    ) -> napi::Result<Vec<String>> {
+        self.root = std::path::PathBuf::from(root);
+        self.resolver =
+            xcss_resolver::Resolver::load(&self.root, config.as_deref().map(std::path::Path::new))
+                .map_err(napi::Error::from_reason)?;
+        self.assets = GenerateOptions::default();
+        Ok(self
+            .resolver
+            .configs
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect())
+    }
+    #[napi]
+    pub fn resolve_import(
+        &self,
+        importer: String,
+        specifier: String,
+    ) -> napi::Result<Option<String>> {
+        self.resolver
+            .import(std::path::Path::new(&importer), &specifier)
+            .map(|p| p.map(|p| p.to_string_lossy().replace('\\', "/")))
+            .map_err(napi::Error::from_reason)
+    }
     #[napi]
     pub fn clear_class_slots(&mut self) {
         self.positions.clear();
@@ -231,12 +266,26 @@ impl Compiler {
         revision: u32,
         source: String,
     ) -> napi::Result<()> {
+        self.assets
+            .asset_resolutions
+            .remove(&FileId(module_id.clone()));
+        self.resolver
+            .assets(
+                &self.root,
+                &FileId(module_id.clone()),
+                &source,
+                &mut self.assets,
+            )
+            .map_err(napi::Error::from_reason)?;
         self.host
             .set_file(FileId(module_id), u64::from(revision), source)
             .map_err(|e| napi::Error::from_reason(format!("{e:?}")))
     }
     #[napi]
     pub fn remove_file(&mut self, module_id: String, revision: u32) -> napi::Result<()> {
+        self.assets
+            .asset_resolutions
+            .remove(&FileId(module_id.clone()));
         self.host
             .remove_file(&FileId(module_id), u64::from(revision))
             .map_err(|e| napi::Error::from_reason(format!("{e:?}")))
@@ -252,7 +301,14 @@ impl Compiler {
         let mut artifacts = Vec::new();
         let mut diagnostics = Vec::new();
         for entry in entries {
-            match xcss_core::generate(&snapshot, &FileId(entry), &GenerateOptions::default()) {
+            match xcss_core::generate(
+                &snapshot,
+                &FileId(entry),
+                &GenerateOptions {
+                    asset_resolutions: self.assets.asset_resolutions.clone(),
+                    ..GenerateOptions::default()
+                },
+            ) {
                 Ok(project) => {
                     diagnostics.extend(project.diagnostics);
                     if let Some(shared) = project.utilities {
@@ -297,6 +353,7 @@ impl Compiler {
             &snapshot,
             &FileId(entry),
             &GenerateOptions {
+                asset_resolutions: self.assets.asset_resolutions.clone(),
                 minify: minify.unwrap_or(false),
                 bundle: bundle.unwrap_or(false),
                 class_positions: self.positions.clone(),

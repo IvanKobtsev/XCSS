@@ -13,6 +13,8 @@ use mapped::Mapped;
 
 #[derive(Clone, Debug, Default)]
 pub struct GenerateOptions {
+    /// Host-resolved URLs, keyed by definition file and decoded URL. Targets use source-root coordinates.
+    pub asset_resolutions: BTreeMap<FileId, BTreeMap<String, Result<String, String>>>,
     pub minify: bool,
     pub output_paths: BTreeMap<FileId, String>,
     pub bundle: bool,
@@ -211,6 +213,7 @@ pub fn generate(
             &output_identity,
             options.source_root.as_deref(),
         );
+        lower.asset_resolutions = Some(&options.asset_resolutions);
         lower.utility_output_identity = &utility_identity;
         let mapped = lower.module(options.class_positions.get(file))?;
         utility_globals.extend(lower.globals.clone());

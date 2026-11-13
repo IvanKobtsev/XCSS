@@ -71,7 +71,6 @@ impl ServiceSnapshot {
         let recovered = recovered || !node.missing.is_empty();
         if let Some(declaration) = parse.declaration(node) {
             let property = decode_identifier(declaration.property);
-            let raw = parse.slice(declaration.value.range);
             let significant: String = parse
                 .tokens
                 .iter()
@@ -88,7 +87,7 @@ impl ServiceSnapshot {
                 return;
             }
             let mut parts = vec![];
-            let mut checkable = !recovered && !raw.trim().is_empty();
+            let mut checkable = !recovered;
             // Transition names and groups have XCSS-specific semantics; defer their values.
             if property.eq_ignore_ascii_case("transition")
                 || property.eq_ignore_ascii_case("transition-property")

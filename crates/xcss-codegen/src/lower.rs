@@ -23,6 +23,7 @@ pub(super) struct Lowerer<'a> {
     pub entry: &'a FileId,
     pub output_identity: &'a str,
     pub source_root: Option<&'a str>,
+    pub asset_resolutions: Option<&'a BTreeMap<FileId, BTreeMap<String, Result<String, String>>>>,
     pub sources: BTreeSet<FileId>,
     pub properties: BTreeMap<String, String>,
     pub diagnostics: Vec<Diagnostic>,
@@ -53,6 +54,7 @@ impl<'a> Lowerer<'a> {
             entry,
             output_identity,
             source_root,
+            asset_resolutions: None,
             sources: BTreeSet::new(),
             properties: BTreeMap::new(),
             diagnostics: Vec::new(),
@@ -72,12 +74,39 @@ impl<'a> Lowerer<'a> {
             count: 0,
         }
     }
-    pub fn asset_url(&self, file: &FileId, url: &str) -> String {
+    pub fn asset_url(
+        &self,
+        file: &FileId,
+        url: &str,
+        range: TextRange,
+    ) -> Result<String, Vec<Diagnostic>> {
+        let decoded = xcss_syntax::ast::decode_identifier(url);
+        if let Some(resolution) = self
+            .asset_resolutions
+            .and_then(|m| m.get(file))
+            .and_then(|m| m.get(&decoded))
+        {
+            let target = resolution.as_ref().map_err(|error| {
+                vec![Diagnostic::error(
+                    "generate.asset-alias",
+                    file,
+                    range,
+                    error,
+                )]
+            })?;
+            let root = self.source_root.unwrap_or("");
+            let source = FileId(if root.is_empty() {
+                "__xcss_assets__.xcss".into()
+            } else {
+                format!("{root}/__xcss_assets__.xcss")
+            });
+            return Ok(values::rebase(&source, self.output_identity, target));
+        }
         let source = self
             .source_root
             .map(|root| FileId(format!("{root}/{}", file.0)))
             .unwrap_or_else(|| file.clone());
-        values::rebase(&source, self.output_identity, url)
+        Ok(values::rebase(&source, self.output_identity, url))
     }
     pub fn module(
         &mut self,
@@ -561,8 +590,11 @@ impl<'a> Lowerer<'a> {
                             &parse.source.text()[node.header.start..token.range.start],
                             &origin,
                         );
-                        let url =
-                            self.asset_url(file, parse.token_text(token).trim_matches(['\'', '"']));
+                        let url = self.asset_url(
+                            file,
+                            parse.token_text(token).trim_matches(['\'', '"']),
+                            token.range,
+                        )?;
                         header.push(
                             &serde_json::to_string(&url).unwrap(),
                             &Location {

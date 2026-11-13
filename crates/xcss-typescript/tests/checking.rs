@@ -61,9 +61,39 @@ const fixed = [choice, condition && styles.other, null] as const;
     assert_eq!(
         codes,
         [
-            "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009",
-            "XC-001", "XC-009", "XC-009"
+            "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-001", "XC-009",
+            "XC-009"
         ],
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn empty_variable_dictionary_and_optional_branded_component_input() {
+    let mut host = AnalysisHost::new();
+    host.set_file(FileId("a.xcss".into()), 1, ".button {} .other {}")
+        .unwrap();
+    let p = project(&[
+        (
+            "tsconfig.json",
+            r#"{"compilerOptions":{"strict":true,"jsx":"preserve","module":"esnext","moduleResolution":"bundler"},"files":["app.tsx"]}"#,
+        ),
+        (
+            "app.tsx",
+            r#"
+import { styles, cssVars as vars } from './a.xcss';
+type ClassName = string & { readonly __xcssClassName__: true };
+declare global { namespace JSX { interface IntrinsicElements { div: any } } }
+function Button({ className }: { className?: ClassName }) {
+  return <div xClass={[styles.button, className]} xVars={{ [vars.none]: '2px' }} />;
+}
+"#,
+        ),
+    ]);
+    let diagnostics = check(&p, &host.snapshot()).unwrap();
+    assert_eq!(
+        diagnostics.iter().map(|d| d.code).collect::<Vec<_>>(),
+        ["XC-006"],
         "{diagnostics:?}"
     );
 }

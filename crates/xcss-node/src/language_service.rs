@@ -42,6 +42,12 @@ pub struct EditorDocument {
     pub tokens: Vec<SemanticToken>,
 }
 #[napi(object)]
+pub struct EditorWarning {
+    pub category: String,
+    pub message: String,
+    pub range: EditorRange,
+}
+#[napi(object)]
 pub struct CssValuePart {
     pub text: Option<String>,
     pub value_type: Option<String>,
@@ -232,6 +238,19 @@ impl LanguageService {
                 })
                 .collect(),
         }
+    }
+    #[napi]
+    pub fn class_warnings(&mut self, uri: String) -> Vec<EditorWarning> {
+        self.inner
+            .snapshot()
+            .class_warnings(&FileId(uri))
+            .into_iter()
+            .map(|w| EditorWarning {
+                category: w.category.into(),
+                message: w.message,
+                range: range(w.range),
+            })
+            .collect()
     }
     #[napi]
     pub fn css_declarations(&mut self, uri: String) -> CssDeclarations {

@@ -86,7 +86,7 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
                 .trim_end_matches(')')
                 .trim()
                 .trim_matches(['\'', '"']);
-            format!("url(\"{}\")", lower.asset_url(file, raw))
+            format!("url(\"{}\")", lower.asset_url(file, raw, origin.range)?)
         } else {
             initial.to_owned()
         };
