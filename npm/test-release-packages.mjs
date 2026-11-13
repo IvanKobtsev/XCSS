@@ -97,6 +97,14 @@ try {
     throw new Error('The packaged XCSS CLI did not isolate the missing class')
   }
   await writeFile(join(testRoot, 'tsconfig.app.json'), '{ invalid:')
+  const configFailure = runCheck('check:xcss', 1)
+  if (!configFailure.stderr.includes('tsconfig.app.json:')
+      || !configFailure.stderr.includes('key must be a string')
+      || configFailure.stderr.includes('Warning:')) {
+    throw new Error('The packaged XCSS CLI did not reject malformed resolver configuration')
+  }
+  // Valid resolver configuration can still have a TypeScript-only setup failure.
+  await writeFile(join(testRoot, 'tsconfig.app.json'), JSON.stringify({ files: ['missing.ts'] }))
   const warning = runCheck('check:xcss')
   if (!warning.stderr.startsWith("Warning: Couldn't analyze XCSS TypeScript integration: ")
       || warning.stderr.trim().split('\n').length !== 1) {
