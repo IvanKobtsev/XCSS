@@ -10,8 +10,8 @@ repository.workspace = true
 publish = true
 
 [dependencies]
-xcss-source = { path = "../xcss-source", version = "=0.12.0" }
-xcss-analysis = { path = "../xcss-analysis", version = "=0.12.0" }
+xcss-source = { path = "../xcss-source", version = "=0.13.0" }
+xcss-analysis = { path = "../xcss-analysis", version = "=0.13.0" }
 serde_json.workspace = true
 tsrs_compiler = { version = "=7.1.0-beta.tsrs1" }
 tsrs_core = { version = "=7.1.0-beta.tsrs1" }

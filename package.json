@@ -1,6 +1,6 @@
 {
   "name": "cross-css-workspace",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "packageManager": "pnpm@10.18.3",
   "scripts": {
