@@ -1,6 +1,10 @@
 [package]
 name = "xcss-source"
+description = "Source files, positions, and diagnostics for XCSS"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+readme = "README.md"
+repository.workspace = true
 

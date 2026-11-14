@@ -1,10 +1,14 @@
 [package]
 name = "xcss-resolver"
+description = "Filesystem project resolution for XCSS"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
-publish = false
+readme = "README.md"
+repository.workspace = true
+publish = true
 [dependencies]
 serde_json.workspace = true
-xcss-core = { path = "../xcss-core" }
+xcss-core = { path = "../xcss-core", version = "=0.12.0" }
 pathdiff = "=0.2.3"

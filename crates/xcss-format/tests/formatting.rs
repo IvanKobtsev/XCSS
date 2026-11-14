@@ -68,7 +68,7 @@ fn xcss_constructs() {
 #[test]
 fn fixture_language() {
     formatted(
-        include_str!("../../xcss-syntax/tests/fixtures/language.xcss"),
+        include_str!("fixtures/language.xcss"),
         &FormatOptions::default(),
     );
 }

@@ -1,13 +1,16 @@
 [package]
 name = "xcss-core"
+description = "Compiler core for the XCSS styling language"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+readme = "README.md"
 repository.workspace = true
 
 [dependencies]
-xcss-source = { path = "../xcss-source" }
-xcss-syntax = { path = "../xcss-syntax" }
-xcss-analysis = { path = "../xcss-analysis" }
-xcss-codegen = { path = "../xcss-codegen" }
+xcss-source = { path = "../xcss-source", version = "=0.12.0" }
+xcss-syntax = { path = "../xcss-syntax", version = "=0.12.0" }
+xcss-analysis = { path = "../xcss-analysis", version = "=0.12.0" }
+xcss-codegen = { path = "../xcss-codegen", version = "=0.12.0" }
 

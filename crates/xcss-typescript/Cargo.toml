@@ -1,20 +1,22 @@
 [package]
 name = "xcss-typescript"
+description = "TypeScript integration for XCSS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+readme = "README.md"
 repository.workspace = true
-publish = false
+publish = true
 
 [dependencies]
-xcss-source = { path = "../xcss-source" }
-xcss-analysis = { path = "../xcss-analysis" }
+xcss-source = { path = "../xcss-source", version = "=0.12.0" }
+xcss-analysis = { path = "../xcss-analysis", version = "=0.12.0" }
 serde_json.workspace = true
-tsrs_compiler = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
-tsrs_core = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
-tsrs_ast = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
-tsrs_checker = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
-tsrs_scanner = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
-tsrs_tsoptions = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
-tsrs_vfs = { git = "https://github.com/oxc-project/tsrs", rev = "ed745c993a1310daa5e6866b101d2e48818b351d" }
+tsrs_compiler = { version = "=7.1.0-beta.tsrs1" }
+tsrs_core = { version = "=7.1.0-beta.tsrs1" }
+tsrs_ast = { version = "=7.1.0-beta.tsrs1" }
+tsrs_checker = { version = "=7.1.0-beta.tsrs1" }
+tsrs_scanner = { version = "=7.1.0-beta.tsrs1" }
+tsrs_tsoptions = { version = "=7.1.0-beta.tsrs1" }
+tsrs_vfs = { version = "=7.1.0-beta.tsrs1" }

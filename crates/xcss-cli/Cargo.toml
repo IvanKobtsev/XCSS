@@ -1,8 +1,11 @@
 [package]
 name = "xcss-cli"
+description = "Command-line compiler for XCSS"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+readme = "README.md"
 repository.workspace = true
 
 [[bin]]
@@ -10,9 +13,9 @@ name = "xcss"
 path = "src/main.rs"
 
 [dependencies]
-xcss-resolver = { path = "../xcss-resolver" }
-xcss-core = { path = "../xcss-core" }
-xcss-language-service = { path = "../xcss-language-service" }
+xcss-resolver = { path = "../xcss-resolver", version = "=0.12.0" }
+xcss-core = { path = "../xcss-core", version = "=0.12.0" }
+xcss-language-service = { path = "../xcss-language-service", version = "=0.12.0" }
 
 serde_json.workspace = true
 pathdiff = "=0.2.3"
