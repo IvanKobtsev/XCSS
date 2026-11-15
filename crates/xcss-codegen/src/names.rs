@@ -53,25 +53,23 @@ pub fn project_names(
                 ..ParserOptions::default()
             },
         );
-        if let Ok(sheet) = sheet {
-            if let Ok(result) = sheet.to_css(PrinterOptions::default()) {
-                for name in result.exports.unwrap_or_default().keys() {
-                    if lower.globals.contains_key(name) {
-                        continue;
-                    }
-                    let ns = if snapshot.symbols().iter().any(|s| {
-                        s.location.file == *file
-                            && s.kind == SymbolKind::Keyframe
-                            && s.name == *name
-                    }) {
-                        "keyframe"
-                    } else {
-                        "class"
-                    };
-                    let key = (ns.to_string(), name.clone(), file.0.clone());
-                    identities.insert(key.clone());
-                    local.push(((file.clone(), name.clone()), key));
+        if let Ok(sheet) = sheet
+            && let Ok(result) = sheet.to_css(PrinterOptions::default())
+        {
+            for name in result.exports.unwrap_or_default().keys() {
+                if lower.globals.contains_key(name) {
+                    continue;
                 }
+                let ns = if snapshot.symbols().iter().any(|s| {
+                    s.location.file == *file && s.kind == SymbolKind::Keyframe && s.name == *name
+                }) {
+                    "keyframe"
+                } else {
+                    "class"
+                };
+                let key = (ns.to_string(), name.clone(), file.0.clone());
+                identities.insert(key.clone());
+                local.push(((file.clone(), name.clone()), key));
             }
         }
         for class in lower.utility_classes.values().flatten() {
