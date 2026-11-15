@@ -63,4 +63,12 @@ if (vitePackage.dependencies?.['@cross-css/native'] !== version) {
   throw new Error('@cross-css/vite must depend on the matching @cross-css/native version')
 }
 
+const args = process.argv.slice(2)
+if (args.length && (args.length !== 2 || args[0] !== '--tag')) {
+  throw new Error('Usage: node npm/verify-release.mjs [--tag v<version>]')
+}
+if (args.length && args[1] !== `v${version}`) {
+  throw new Error(`Release tag ${args[1]} does not match package version v${version}. Bump and commit the versions before creating the release tag.`)
+}
+
 console.log(`release metadata is consistent for ${version}`)

@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.18.3
@@ -37,8 +39,7 @@ jobs:
       - name: Verify tag and package versions
         shell: bash
         run: |
-          corepack pnpm verify-release
-          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
+          corepack pnpm verify-release --tag "$RELEASE_TAG"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
@@ -119,14 +120,15 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-node@v6
         with:
           node-version: 24
       - name: Verify tag and package versions
         shell: bash
         run: |
-          node npm/verify-release.mjs
-          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
+          node npm/verify-release.mjs --tag "$RELEASE_TAG"
       - name: Build native binding and CLI
         if: matrix.libc != 'musl'
         uses: houseabsolute/actions-rust-cross@v1
@@ -196,6 +198,8 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.18.3
