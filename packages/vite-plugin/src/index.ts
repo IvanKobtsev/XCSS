@@ -115,7 +115,12 @@ export default function xcss(): Plugin {
         if (version === projectVersion) break
         sync = undefined
       }
-      for (const config of configFiles) this.addWatchFile(config)
+      // Vite turns load/transform watch dependencies into client imports. Missing
+      // optional configs belong only to the server watcher (for creation events).
+      for (const config of configFiles) {
+        try { if ((await stat(config)).isFile()) this.addWatchFile(config) }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+      }
       if (classError && hasIntrinsicXClass(id, code)) this.error(classError.message)
       const file = idFor(id)
       const diagnostic = classPlan?.diagnostics.find(item => ['XC-001', 'XC-002', 'XC-003', 'XC-009'].includes(item.code) && item.moduleId === file)
@@ -197,7 +202,12 @@ export default function xcss(): Plugin {
         if (version === projectVersion) break
         sync = undefined
       }
-      for (const config of configFiles) this.addWatchFile(config)
+      // Vite turns load/transform watch dependencies into client imports. Missing
+      // optional configs belong only to the server watcher (for creation events).
+      for (const config of configFiles) {
+        try { if ((await stat(config)).isFile()) this.addWatchFile(config) }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+      }
       for (const module of sources.keys()) this.addWatchFile(fileFor(module))
       const entry = idFor(virtual.sourcePath)
       const result = compiler.compile(entry, false, virtual.kind === 'bundle')

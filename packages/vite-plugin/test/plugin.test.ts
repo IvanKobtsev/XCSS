@@ -33,3 +33,19 @@ describe('plugin shape',()=>{
  })
 
 })
+
+
+it('watches absent project config without exposing it as a client module dependency', async () => {
+ const root = fileURLToPath(new URL('../../../fixtures/vite-basic/', import.meta.url))
+ const source = normalizePath(join(root, 'src/styles.xcss'))
+ const plugin = xcss()
+ ;(plugin.configResolved as Function)({ root, command: 'serve', base: '/', build: { assetsDir: 'assets', outDir: 'dist' } })
+ const addWatchFile = vi.fn()
+ const context = { addWatchFile, error: (error: {message: string}) => { throw new Error(error.message) } }
+ for (const query of ['', '?inline', '?url']) {
+  const result = await (plugin.load as Function).call(context, createVirtualId(source + query)!.id)
+  expect(result).toBeTruthy()
+ }
+ expect(addWatchFile).not.toHaveBeenCalledWith(normalizePath(join(root, 'xcss.config.json')))
+ expect(addWatchFile).toHaveBeenCalledWith(normalizePath(join(root, 'tsconfig.json')))
+})
