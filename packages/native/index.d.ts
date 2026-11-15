@@ -248,6 +248,7 @@ export declare class LanguageService {
  classWarnings(uri: string): Array<EditorWarning>
  cssDeclarations(uri: string): CssDeclarations
  constructor()
+ setSuffixLength(length: number): void
  setTypescriptProject(config?: string | undefined | null): void
  typescriptProjectWarning(): string | null
  setTypescriptFile(path: string, revision: number, source: string): void
@@ -269,6 +270,7 @@ export declare class Compiler {
 
  constructor()
  configureProject(root: string, config?: string | undefined | null): Array<string>
+ projectTsconfig(): string
  resolveImport(importer: string, specifier: string): string | null
  clearClassSlots(): void
  planClassSlots(config: string, sources: Array<NativeProjectSource>): NativeClassPlan

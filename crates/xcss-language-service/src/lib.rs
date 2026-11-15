@@ -166,6 +166,9 @@ impl LanguageService {
     pub fn set_resolution(&mut self, file: FileId, specifier: String, target: Option<FileId>) {
         self.host.set_resolution(file, specifier, target);
     }
+    pub fn set_suffix_length(&mut self, length: usize) -> Result<(), String> {
+        self.host.set_suffix_length(length)
+    }
     pub fn snapshot(&mut self) -> ServiceSnapshot {
         let analysis = self.host.snapshot();
         let revision = analysis.revision() + self.typescript.generation;

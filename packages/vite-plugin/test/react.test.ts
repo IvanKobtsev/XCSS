@@ -22,19 +22,19 @@ interface Fixture {
 
 function checkFixture(app: Fixture) {
   const width = app.cssVars.providedWidth
-  expect(width).toMatch(/^--provided-width-xcss-/)
+  expect(width).toMatch(/^--provided-width_[0-9a-z]{3}$/)
   expect(Object.keys(app.cssVars)).toEqual(['angle', 'providedWidth'])
   expect(app.emptyVars).toEqual({})
   expect(app.html).toContain(`height:200px;${width}:24px`)
-  expect(app.html).toContain(`style="${width}:24px" class="${app.styles.box} _xcss_position_626f782e78637373_626f78_0"`)
+  expect(app.html).toContain(`style="${width}:24px" class="${app.styles.box} box_001"`)
   expect(app.html).toContain('<b>A</b><i>B</i>')
   expect(app.html).toContain('<span>24px</span>')
   expect(app.html).not.toContain('xVars')
   expect(app.html.toLowerCase()).not.toContain('xclass')
-  expect(app.html).toContain('class="global ' + app.styles.box + ' _xcss_position_')
-  expect(app.html).toContain('_626f78_2"')
-  expect(app.html).toMatch(/id="first" class="[^"]*_7365636f6e64617279_1 [^"]*_6f76657272696465_2"/)
-  expect(app.html).toMatch(/id="second" class="[^"]*_6f76657272696465_1 [^"]*_7365636f6e64617279_2"/)
+  expect(app.html).toContain('class="global ' + app.styles.box + ' box_')
+  expect(app.html).toContain('box_002"')
+  expect(app.html).toMatch(/id="first" class="[^"]*secondary_001 [^"]*override_002"/)
+  expect(app.html).toMatch(/id="second" class="[^"]*override_001 [^"]*secondary_002"/)
   expect(app.empty.props).not.toHaveProperty('className')
   expect(app.unchanged.props.className).toBe(' kept ')
   expect(app.element.key).toBe('box')
@@ -73,34 +73,36 @@ it('merges xVars and xClass in a production bundle', async () => {
   const app = await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(entry.code).toString('base64')}`) as Fixture
   checkFixture(app)
   expect(css).toContain(`var(${app.cssVars.providedWidth})`)
-  expect(css).toContain('_7072696d617279_1')
-  expect(css).toContain('_7072696d617279_2')
+  expect(css).toContain('primary_001')
+  expect(css).toContain('primary_002')
 })
 
 it('refreshes the slot plan and CSS when JSX changes in development', async () => {
   const temporary = await mkdtemp(join(dirname(root.replace(/[\\/]$/, '')), 'react-update-'))
   await cp(root, temporary, { recursive: true })
   await rename(join(temporary, 'tsconfig.json'), join(temporary, 'tsconfig.app.json'))
+  await writeFile(join(temporary, 'xcss.config.json'), JSON.stringify({ tsconfig: './tsconfig.app.json' }))
   const server = await createServer({
     ...config(), root: temporary, server: { middlewareMode: true }, appType: 'custom',
-    plugins: [xcss({ tsconfig: 'tsconfig.app.json' })],
+    plugins: [xcss()],
   })
   try {
     const appPath = join(temporary, 'app.tsx')
     const cssId = createCssId(join(temporary, 'box.xcss').replaceAll('\\', '/'))
     const first = await server.ssrLoadModule('/app.tsx') as Fixture
-    expect(first.html).toContain('_626f78_2')
+    expect(first.html).toContain('box_002')
     const css = await server.transformRequest(cssId)
-    expect(css?.code).toContain('_626f78_2')
+    expect(css?.code).toContain('box_002')
     const source = await readFile(appPath, 'utf8')
     await writeFile(appPath, source.replace('[styles.box, false, styles.box]', '[styles.box, false, false, styles.box]'))
     await expect.poll(async () => {
       const app = await server.ssrLoadModule('/app.tsx') as Fixture
-      return app.html
-    }).toContain('_626f78_3')
+      expect(app.html).toContain('box_002')
+      return (await server.transformRequest(cssId))?.code
+    }).toContain('#__000#__000#__000')
     const refreshed = await server.transformRequest(cssId)
-    expect(refreshed?.code).toContain('_626f78_3')
-    expect(refreshed?.code).not.toContain('_626f78_2')
+    expect(refreshed?.code).toContain('#__000#__000#__000')
+    expect(refreshed?.code).toContain('box_002')
   } finally {
     await server.close()
     await rm(temporary, { recursive: true, force: true })
@@ -121,5 +123,31 @@ it('formats finite CSS numbers with their unit', () => {
   expect(ms('1e+2')).toBe('1e+2ms')
   for (const value of ['', '1px', '0x10', '1.', Infinity, NaN]) {
     expect(() => px(value)).toThrow(TypeError)
+  }
+})
+
+
+it('restarts and reloads scoped names when shared configuration changes', async () => {
+  const temporary = await mkdtemp(join(dirname(root), 'react-config-'))
+  await cp(root, temporary, { recursive: true })
+  const configPath = join(temporary, 'xcss.config.json')
+  await writeFile(configPath, JSON.stringify({ suffixLength: 4 }))
+  const server = await createServer({ ...config(), root: temporary, server: { middlewareMode: true }, appType: 'custom' })
+  try {
+    const first = await server.ssrLoadModule('/app.tsx') as Fixture
+    expect(first.styles.box).toBe('box_0000')
+    await writeFile(configPath, JSON.stringify({ suffixLength: 5 }))
+    await expect.poll(async () => {
+      try { return (await server.ssrLoadModule('/app.tsx') as Fixture).styles.box }
+      catch { return undefined }
+    }, { timeout: 10000 }).toBe('box_00000')
+    await rm(configPath)
+    await expect.poll(async () => {
+      try { return (await server.ssrLoadModule('/app.tsx') as Fixture).styles.box }
+      catch { return undefined }
+    }, { timeout: 10000 }).toBe('box_000')
+  } finally {
+    await server.close()
+    await rm(temporary, { recursive: true, force: true })
   }
 })

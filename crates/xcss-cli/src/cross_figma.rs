@@ -645,11 +645,7 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         root = PathBuf::from(&args[index + 1]);
     }
-    let config_path = root.join("xcss.config.json");
-    let doc: Value = serde_json::from_slice(
-        &fs::read(&config_path).map_err(|e| format!("{}: {e}", config_path.display()))?,
-    )
-    .map_err(|e| e.to_string())?;
+    let doc = xcss_resolver::ProjectConfig::load(&root)?.document;
     let config: Config =
         serde_json::from_value(doc["cross-figma"].clone()).map_err(|e| e.to_string())?;
     if config.output.trim().is_empty() {

@@ -295,7 +295,13 @@ fn utilities_share_across_modules_and_preserve_conditions_assets_and_maps() {
     )
     .unwrap();
     assert!(bundled.utilities.is_none());
-    assert_eq!(bundled.modules[0].css.matches("._util_trim_3 {").count(), 2); // unconditional + media
+    assert_eq!(
+        bundled.modules[0]
+            .css
+            .matches("._util_trim_3_000 {")
+            .count(),
+        2
+    ); // unconditional + media
 }
 
 #[test]
@@ -452,7 +458,7 @@ fn constant_substitution_preserves_precedence_and_conditions() {
     let css = &result.modules[0].css;
     assert!(css.contains("(10px + var(--offset)) * 2"), "{css}");
     assert!(css.contains("@supports (width: 56px)"), "{css}");
-    assert!(css.contains("_layout (width > 56px)"), "{css}");
+    assert!(css.contains("layout_000 (width > 56px)"), "{css}");
 }
 
 #[test]
@@ -567,7 +573,7 @@ fn keyframes_and_global_switches() {
     assert!(!module.classes.contains_key("external"));
     assert!(module.css.contains(".external"));
     assert!(!module.css.contains(":global"));
-    assert!(!module.css.contains("@keyframes spin"));
+    assert!(module.css.contains("@keyframes spin_000"));
 }
 #[test]
 fn pseudo_content_after_expansion() {
@@ -848,4 +854,53 @@ fn zero_registration_and_silent_line_comments() {
             assert!(!css.contains(comment), "{css}");
         }
     }
+}
+
+#[test]
+fn compact_names_are_project_wide_and_entry_independent() {
+    let files = [
+        ("z.xcss", ".button { color: red; }"),
+        ("a.xcss", ".button { color: blue; } .card { color: green; }"),
+    ];
+    let mut host = AnalysisHost::new();
+    for (file, source) in files {
+        host.set_file(id(file), 1, source).unwrap();
+    }
+    let snapshot = host.snapshot();
+    let a = generate(&snapshot, &id("a.xcss"), &GenerateOptions::default()).unwrap();
+    let z = generate(&snapshot, &id("z.xcss"), &GenerateOptions::default()).unwrap();
+    assert_eq!(a.modules[0].classes["button"], "button_000");
+    assert_eq!(a.modules[0].classes["card"], "card_000");
+    assert_eq!(z.modules[0].classes["button"], "button_001");
+    assert!(z.modules[0].css.contains(".button_001"));
+    host.set_suffix_length(4).unwrap();
+    let z = generate(&host.snapshot(), &id("z.xcss"), &GenerateOptions::default()).unwrap();
+    assert_eq!(z.modules[0].classes["button"], "button_0001");
+}
+
+#[test]
+fn global_names_are_reserved_and_capacity_errors_are_project_wide() {
+    let mut host = AnalysisHost::new();
+    host.set_file(
+        id("a.xcss"),
+        1,
+        ".button { color: red; } :global(.button_000) { color: blue; }",
+    )
+    .unwrap();
+    let output = generate(&host.snapshot(), &id("a.xcss"), &GenerateOptions::default()).unwrap();
+    assert_eq!(output.modules[0].classes["button"], "button_001");
+    assert!(output.modules[0].css.contains(".button_000"));
+    let mut host = AnalysisHost::new();
+    host.set_suffix_length(1).unwrap();
+    for i in 0..37 {
+        host.set_file(id(&format!("{i:03}.xcss")), 1, ".button { color: red; }")
+            .unwrap();
+    }
+    let errors = generate(
+        &host.snapshot(),
+        &id("036.xcss"),
+        &GenerateOptions::default(),
+    )
+    .unwrap_err();
+    assert!(errors.iter().any(|d| d.code == "naming.capacity"));
 }

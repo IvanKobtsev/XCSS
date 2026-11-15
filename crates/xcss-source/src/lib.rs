@@ -1,4 +1,6 @@
 //! Source identities, immutable revisions and original-source locations.
+mod names;
+pub use names::Names;
 use std::sync::Arc;
 
 /// The stable CSS name of a declared custom property in a project-relative module.

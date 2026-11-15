@@ -84,7 +84,11 @@ fn provided_variables(
             exports.insert(
                 key,
                 ProvidedVariable {
-                    scoped_name: xcss_source::scoped_property(file, &decoded),
+                    scoped_name: db
+                        .names
+                        .get("variable", &decoded, &file.0)
+                        .unwrap_or(&decoded)
+                        .to_owned(),
                     value_type: symbol.value_type.clone(),
                     location: symbol.location.clone(),
                 },

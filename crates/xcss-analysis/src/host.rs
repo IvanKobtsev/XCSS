@@ -13,10 +13,21 @@ pub struct AnalysisHost {
     resolutions: BTreeMap<(FileId, String), Option<FileId>>,
     generation: u64,
     cached: Option<AnalysisSnapshot>,
+    suffix_length: Option<usize>,
 }
 impl AnalysisHost {
     pub fn new() -> Self {
         Self::default()
+    }
+    pub fn set_suffix_length(&mut self, length: usize) -> Result<(), String> {
+        if !(1..=16).contains(&length) {
+            return Err("suffixLength must be an integer from 1 through 16".into());
+        }
+        if self.suffix_length != Some(length) {
+            self.suffix_length = Some(length);
+            self.changed();
+        }
+        Ok(())
     }
     pub fn set_file(
         &mut self,
@@ -72,6 +83,7 @@ impl AnalysisHost {
             self.generation,
             self.files.clone(),
             &self.resolutions,
+            self.suffix_length.unwrap_or(3),
         )));
         self.cached = Some(snapshot.clone());
         snapshot
@@ -81,6 +93,17 @@ impl AnalysisHost {
 #[derive(Clone)]
 pub struct AnalysisSnapshot(Arc<Database>);
 impl AnalysisSnapshot {
+    pub fn suffix_length(&self) -> usize {
+        self.0.names.length
+    }
+    pub fn scoped_name(&self, namespace: &str, file: &FileId, name: &str) -> String {
+        self.0
+            .names
+            .get(namespace, name, &file.0)
+            .unwrap_or(name)
+            .to_owned()
+    }
+
     pub fn module_interface(&self, file: &FileId) -> Option<&ModuleInterface> {
         self.0.interfaces.get(file)
     }

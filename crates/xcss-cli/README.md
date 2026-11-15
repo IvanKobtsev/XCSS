@@ -76,3 +76,12 @@ directories and symlinks are skipped. Deleted IDs produce warnings and their
 references remain unchanged. Conflicting destination declarations fail before
 writing. Source changes, generated files, and metadata are committed together
 with rollback on installation failure. Obsolete generated files are not deleted.
+
+
+## Shared settings
+
+Root `xcss.config.json` also accepts `"suffixLength": 3` (integer 1–16) and
+`"tsconfig": "./tsconfig.json"`. Paths are relative to the project root.
+`compile` and `check` read these settings; `--project` overrides the TypeScript path.
+Scoped names use sorted per-name base-36 counters and can renumber when definitions
+change. Rebuild CSS and consumers together. Increase the length if capacity is exhausted.

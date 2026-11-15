@@ -21,7 +21,7 @@ There is no Sass dependency, generated partial, or second CSS Modules pass.
 Unsupported or conflicting query modes fail
 explicitly. Imports inside XCSS and aliased `url()` assets resolve from the selected
 project's `compilerOptions.paths`, using root `tsconfig.json` by default or
-`xcss({ tsconfig: 'tsconfig.app.json' })`. Vite aliases do not apply to these
+`"tsconfig": "./tsconfig.app.json"` in `xcss.config.json`. Vite aliases do not apply to these
 references. JavaScript/TypeScript imports retain Vite's normal resolution.
 
 `paths` supports exact names, wildcard patterns, ordered target fallbacks,
@@ -148,7 +148,7 @@ The runtime appends the contributed classes and positional aliases to
 `className`. Later slots add more specificity to eligible stylesheet-root
 rules. Variant slots resolve labels to the classes declared in their group.
 Vite uses the root `tsconfig.json` to find usages. Set
-`xcss({ tsconfig: 'tsconfig.app.json' })` for a split config, and use the same
+`"tsconfig": "./tsconfig.app.json"` in `xcss.config.json` for a split config, and use the same
 config with `xcss check --project`.
 
 Use `@util` for shared styles. XCSS rejects `composes` declarations and passes
@@ -161,3 +161,27 @@ Development updates its active usages through HMR; production includes utilities
 from eager and lazy modules in one CSS asset. Selector-based calls and
 `as injection` remain in the consuming module's CSS, inside `@layer utils`.
 `?inline` and `?url` requests include their utilities in their bundled stylesheet.
+
+
+## Project configuration
+
+All project settings live in root `xcss.config.json`; call the Vite plugin as `xcss()`.
+
+```json
+{
+  "suffixLength": 3,
+  "tsconfig": "./tsconfig.app.json"
+}
+```
+
+Both fields are optional. The defaults are three characters and `./tsconfig.json`.
+Suffix length must be an integer from 1 through 16. Scoped names use per-name,
+zero-padded base-36 counters (`button_000`, `button_001`, `card_000`). Allocation
+is deterministic across the complete loaded project. Adding or removing definitions
+may renumber names: rebuild CSS and its consumers together. Separate projects do
+not coordinate names. Exhausting the suffix space produces an error; increase
+`suffixLength` to provide more capacity. Configuration changes restart Vite.
+
+This replaces the previous hashed output names and the plugin's `tsconfig` option.
+The existing `cross-figma` section can coexist with these settings. CLI `--project`
+remains available as a one-off TypeScript project override.

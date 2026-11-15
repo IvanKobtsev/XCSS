@@ -60,7 +60,7 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
             )]);
         }
     }
-    let name = scoped_property(file, &symbol.name);
+    let name = lower.snapshot.scoped_name("variable", file, &symbol.name);
     if file == lower.entry {
         lower.properties.insert(symbol.name.clone(), name.clone());
     }

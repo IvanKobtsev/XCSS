@@ -38,7 +38,7 @@ test('substitutes immutable typed constants and retains runtime CSS math', () =>
 })
 test('returns scoped CSS, exports and original source maps',()=>{
  const result=compile('.a { width: --size * 2; }'); assert.equal(result.success,true); const artifact=result.artifacts[0];
- assert.match(artifact.css,/calc\(var\(--size\) \* 2\)/); assert.ok(artifact.classes.a.startsWith('xcss_')); assert.ok(JSON.parse(artifact.sourceMap).sources.includes('a.xcss')); assert.deepEqual(result.diagnostics,[])
+ assert.match(artifact.css,/calc\(var\(--size\) \* 2\)/); assert.ok(/^a_[0-9a-z]{3}$/.test(artifact.classes.a)); assert.ok(JSON.parse(artifact.sourceMap).sources.includes('a.xcss')); assert.deepEqual(result.diagnostics,[])
 })
 test('returns structured diagnostics without artifacts',()=>{
  const result=compile('@use "./tokens";'); assert.equal(result.success,false); assert.deepEqual(result.artifacts,[]); assert.equal(result.diagnostics[0].moduleId,'a.xcss'); assert.equal(result.diagnostics[0].line,1); assert.equal(result.diagnostics[0].code,'syntax.sass')

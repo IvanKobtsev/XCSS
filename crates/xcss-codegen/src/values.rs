@@ -29,7 +29,7 @@ pub(super) fn property_name(
         })
     {
         lower.registrations.insert(symbol.id);
-        let name = scoped_property(file, &decoded);
+        let name = lower.snapshot.scoped_name("variable", file, &decoded);
         if file == lower.entry {
             lower.properties.insert(decoded, name.clone());
         }

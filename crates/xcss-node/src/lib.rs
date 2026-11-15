@@ -144,6 +144,11 @@ impl Compiler {
         config: Option<String>,
     ) -> napi::Result<Vec<String>> {
         self.root = std::path::PathBuf::from(root);
+        let project =
+            xcss_resolver::ProjectConfig::load(&self.root).map_err(napi::Error::from_reason)?;
+        self.host
+            .set_suffix_length(project.suffix_length)
+            .map_err(napi::Error::from_reason)?;
         self.resolver =
             xcss_resolver::Resolver::load(&self.root, config.as_deref().map(std::path::Path::new))
                 .map_err(napi::Error::from_reason)?;
@@ -154,6 +159,14 @@ impl Compiler {
             .iter()
             .map(|p| p.to_string_lossy().replace('\\', "/"))
             .collect())
+    }
+    #[napi]
+    pub fn project_tsconfig(&self) -> napi::Result<String> {
+        Ok(xcss_resolver::ProjectConfig::load(&self.root)
+            .map_err(napi::Error::from_reason)?
+            .tsconfig
+            .to_string_lossy()
+            .replace('\\', "/"))
     }
     #[napi]
     pub fn resolve_import(
@@ -168,6 +181,7 @@ impl Compiler {
     }
     #[napi]
     pub fn clear_class_slots(&mut self) {
+        self.assets.planned_names = None;
         self.positions.clear();
     }
 
@@ -177,6 +191,7 @@ impl Compiler {
         config: String,
         sources: Vec<NativeProjectSource>,
     ) -> napi::Result<NativeClassPlan> {
+        self.assets.planned_names = None;
         self.positions.clear();
         let snapshot = self.host.snapshot();
         let project = xcss_language_service::TypeScriptProject {
@@ -257,6 +272,27 @@ impl Compiler {
                 });
             }
         }
+        let mut options = self.assets.clone();
+        options.class_positions = self.positions.clone();
+        let names = xcss_core::project_names(&snapshot, &options).map_err(|errors| {
+            napi::Error::from_reason(
+                errors
+                    .into_iter()
+                    .map(|d| d.message)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        })?;
+        for site in &mut sites {
+            for slot in &mut site.slots {
+                for origin in slot {
+                    if let Some(name) = names.global.get(&origin.alias) {
+                        origin.alias = name.clone();
+                    }
+                }
+            }
+        }
+        self.assets.planned_names = Some(std::sync::Arc::new(names));
         Ok(NativeClassPlan { sites, diagnostics })
     }
     #[napi]
@@ -266,6 +302,7 @@ impl Compiler {
         revision: u32,
         source: String,
     ) -> napi::Result<()> {
+        self.assets.planned_names = None;
         self.assets
             .asset_resolutions
             .remove(&FileId(module_id.clone()));
@@ -283,6 +320,7 @@ impl Compiler {
     }
     #[napi]
     pub fn remove_file(&mut self, module_id: String, revision: u32) -> napi::Result<()> {
+        self.assets.planned_names = None;
         self.assets
             .asset_resolutions
             .remove(&FileId(module_id.clone()));
@@ -292,12 +330,18 @@ impl Compiler {
     }
     #[napi]
     pub fn set_resolution(&mut self, importer: String, specifier: String, target: Option<String>) {
+        self.assets.planned_names = None;
         self.host
             .set_resolution(FileId(importer), specifier, target.map(FileId));
     }
     #[napi]
     pub fn compile_utilities(&mut self, entries: Vec<String>) -> NativeCompilation {
         let snapshot = self.host.snapshot();
+        let mut planning = self.assets.clone();
+        planning.class_positions = self.positions.clone();
+        if let Ok(names) = xcss_core::project_names(&snapshot, &planning) {
+            self.assets.planned_names = Some(std::sync::Arc::new(names));
+        }
         let mut artifacts = Vec::new();
         let mut diagnostics = Vec::new();
         for entry in entries {
@@ -305,6 +349,8 @@ impl Compiler {
                 &snapshot,
                 &FileId(entry),
                 &GenerateOptions {
+                    planned_names: self.assets.planned_names.clone(),
+                    class_positions: self.positions.clone(),
                     asset_resolutions: self.assets.asset_resolutions.clone(),
                     ..GenerateOptions::default()
                 },
@@ -349,11 +395,17 @@ impl Compiler {
         bundle: Option<bool>,
     ) -> NativeCompilation {
         let snapshot = self.host.snapshot();
+        let mut planning = self.assets.clone();
+        planning.class_positions = self.positions.clone();
+        if let Ok(names) = xcss_core::project_names(&snapshot, &planning) {
+            self.assets.planned_names = Some(std::sync::Arc::new(names));
+        }
         let result = xcss_core::generate(
             &snapshot,
             &FileId(entry),
             &GenerateOptions {
                 asset_resolutions: self.assets.asset_resolutions.clone(),
+                planned_names: self.assets.planned_names.clone(),
                 minify: minify.unwrap_or(false),
                 bundle: bundle.unwrap_or(false),
                 class_positions: self.positions.clone(),

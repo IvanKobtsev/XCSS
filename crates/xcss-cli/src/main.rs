@@ -70,6 +70,7 @@ fn run() -> Result<(), String> {
     scan(&root, &mut paths)?;
     paths.sort();
     let mut host = AnalysisHost::new();
+    host.set_suffix_length(xcss_resolver::ProjectConfig::load(&root)?.suffix_length)?;
     let mut files = BTreeMap::new();
     for path in paths {
         let module = module_id(&root, &path)?;

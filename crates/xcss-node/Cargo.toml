@@ -10,13 +10,13 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-xcss-resolver = { path = "../xcss-resolver", version = "=0.14.1" }
-xcss-format = { path = "../xcss-format", version = "=0.14.1" }
+xcss-resolver = { path = "../xcss-resolver", version = "=0.15.0" }
+xcss-format = { path = "../xcss-format", version = "=0.15.0" }
 napi.workspace = true
 napi-derive.workspace = true
-xcss-core = { path = "../xcss-core", version = "=0.14.1" }
-xcss-language-service = { path = "../xcss-language-service", version = "=0.14.1" }
-xcss-source = { path = "../xcss-source", version = "=0.14.1" }
+xcss-core = { path = "../xcss-core", version = "=0.15.0" }
+xcss-language-service = { path = "../xcss-language-service", version = "=0.15.0" }
+xcss-source = { path = "../xcss-source", version = "=0.15.0" }
 
 [build-dependencies]
 napi-build.workspace = true

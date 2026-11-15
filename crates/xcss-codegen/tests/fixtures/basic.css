@@ -1,33 +1,33 @@
 /*! XCSS fixture license */
-@property --space-xcss-be401fb696578b0e {
+@property --space_000 {
   syntax: "<length>";
   inherits: true;
   initial-value: 8px;
 }
 
-@property --accent-xcss-be401fb696578b0e {
+@property --accent_000 {
   syntax: "<color>";
   inherits: true;
   initial-value: #0000;
 }
 
-@property --rotation-xcss-be401fb696578b0e {
+@property --rotation_000 {
   syntax: "<angle>";
   inherits: false;
   initial-value: 0deg;
 }
 
-@property --custom-xcss-be401fb696578b0e {
+@property --custom_000 {
   syntax: "*";
   inherits: true
 }
 
-.xcss_bSzT-q_base {
-  color: var(--accent-xcss-be401fb696578b0e);
+.base_000 {
+  color: var(--accent_000);
 }
 
-.xcss_bSzT-q_button {
-  padding: calc(var(--space-xcss-be401fb696578b0e) * 2);
+.button_000 {
+  padding: calc(var(--space_000) * 2);
   transition: display .3s ease allow-discrete, opacity .3s ease;
   border: 2px solid;
   border-radius: 4px;
@@ -37,7 +37,7 @@
   }
 }
 
-.xcss_bSzT-q_button:before {
+.button_000:before {
   content: "";
   width: 1px;
 }
@@ -46,7 +46,7 @@
   color: red;
 }
 
-@keyframes xcss_bSzT-q_spin {
+@keyframes spin_000 {
   from {
     opacity: 0;
   }
@@ -56,6 +56,6 @@
   }
 }
 
-.xcss_bSzT-q_animated {
-  animation: 1s xcss_bSzT-q_spin;
+.animated_000 {
+  animation: 1s spin_000;
 }

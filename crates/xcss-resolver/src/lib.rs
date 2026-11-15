@@ -1,4 +1,6 @@
-//! Filesystem adapter shared by the CLI and Node host. Never used by the language engine.
+//! Filesystem adapter shared by the CLI and Node host.
+mod project;
+pub use project::ProjectConfig;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -17,13 +19,15 @@ struct Config {
 }
 impl Resolver {
     pub fn load(root: &Path, config: Option<&Path>) -> Result<Self, String> {
-        let path = config
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| root.join("tsconfig.json"));
-        if config.is_none() && !path.exists() {
-            return Ok(Self::default());
+        let project = ProjectConfig::load(root)?;
+        let path = config.map(Path::to_path_buf).unwrap_or(project.tsconfig);
+        if config.is_none() && !project.explicit_tsconfig && !path.exists() {
+            let mut resolver = Self::default();
+            resolver.configs.insert(root.join("xcss.config.json"));
+            return Ok(resolver);
         }
         let mut resolver = Self::default();
+        resolver.configs.insert(root.join("xcss.config.json"));
         let loaded = load_config(&path, &mut resolver.configs, &mut BTreeSet::new())?;
         if let Some((directory, paths)) = loaded.paths {
             let base = loaded.base.unwrap_or(directory);
@@ -344,7 +348,7 @@ mod tests {
         }"#).unwrap();
         fs::write(root.join("tsconfig.json"), r#"{"extends":"./config/base"}"#).unwrap();
         let resolver = Resolver::load(&root, None).unwrap();
-        assert_eq!(resolver.configs.len(), 2);
+        assert_eq!(resolver.configs.len(), 3);
         assert_eq!(
             resolver.alias("exact").unwrap(),
             Some(root.join("config/icon.svg"))
@@ -430,5 +434,48 @@ mod extra_tests {
             xcss_core::inspect_project_file(source).assets[0].url,
             "@assets/icon a.svg?x#y"
         );
+    }
+}
+
+#[cfg(test)]
+mod project_tests {
+    use super::*;
+    #[test]
+    fn shared_config_defaults_validation_and_paths() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/project-config-tests");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("xcss.config.json");
+        if path.exists() {
+            fs::remove_file(&path).unwrap();
+        }
+        let defaults = ProjectConfig::load(&root).unwrap();
+        assert_eq!(defaults.suffix_length, 3);
+        assert_eq!(defaults.tsconfig, root.join("tsconfig.json"));
+        fs::write(
+            &path,
+            r#"{"suffixLength":5,"tsconfig":"./app.json","cross-figma":{"output":"figma"}}"#,
+        )
+        .unwrap();
+        let config = ProjectConfig::load(&root).unwrap();
+        assert_eq!(config.suffix_length, 5);
+        assert_eq!(config.tsconfig, root.join("./app.json"));
+        assert_eq!(config.document["cross-figma"]["output"], "figma");
+        for invalid in [
+            r#"{"suffixLength":0}"#,
+            r#"{"suffixLength":17}"#,
+            r#"{"suffixLength":1.5}"#,
+            r#"{"tsconfig":" "}"#,
+            r#"{"tsconfig":null}"#,
+            "[]",
+            "{",
+        ] {
+            fs::write(&path, invalid).unwrap();
+            assert!(
+                ProjectConfig::load(&root)
+                    .unwrap_err()
+                    .contains("xcss.config.json")
+            );
+        }
+        fs::remove_file(path).unwrap();
     }
 }

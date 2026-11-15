@@ -104,11 +104,20 @@ import xcss from '@cross-css/vite'
 
 export default defineConfig({
   plugins: [
-    xcss({ tsconfig: 'tsconfig.app.json' }),
+    xcss(),
     react({ jsxImportSource: '@cross-css/vite/react' }),
   ],
 })
 ```
+
+Create `xcss.config.json` in the project root with shared settings:
+
+```json
+{ "suffixLength": 3, "tsconfig": "./tsconfig.app.json" }
+```
+
+Scoped names use deterministic per-name base-36 counters (`button_000`). Adding or
+removing definitions can renumber names, so rebuild CSS and its consumers together.
 
 In `tsconfig.app.json`, merge these options into your existing configuration.
 

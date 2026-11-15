@@ -8,8 +8,18 @@ pub(super) fn check_project(args: &[String]) -> Result<(), String> {
     } else {
         args
     };
+    let shared =
+        xcss_resolver::ProjectConfig::load(&env::current_dir().map_err(|e| e.to_string())?)?;
     let config = match args {
-        [] => Ok(None),
+        [] => {
+            if shared.explicit_tsconfig || shared.tsconfig.exists() {
+                canonical(&shared.tsconfig)
+                    .map(Some)
+                    .map_err(|e| e.to_string())
+            } else {
+                Ok(None)
+            }
+        }
         [flag, path] if flag == "--project" => canonical(path)
             .map(Some)
             .map_err(|error| format!("{path}: {error}")),
@@ -39,6 +49,7 @@ pub(super) fn check_project(args: &[String]) -> Result<(), String> {
         .into_iter()
         .partition(|path| path.extension().is_some_and(|ext| ext == "xcss"));
     let mut service = LanguageService::new();
+    service.set_suffix_length(xcss_resolver::ProjectConfig::load(root)?.suffix_length)?;
     let mut sources = BTreeMap::new();
     for path in stylesheets {
         let id = module_id(root, &path)?;

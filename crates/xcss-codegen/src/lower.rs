@@ -35,6 +35,7 @@ pub(super) struct Lowerer<'a> {
     pub utilities: BTreeMap<String, Mapped>,
     pub utility_order: Vec<String>,
     pub utility_classes: BTreeMap<String, Vec<String>>,
+    pub utility_names: BTreeMap<String, (String, String)>,
     pub utility_output_identity: &'a str,
     selector: Option<String>,
     conditions: Vec<(Mapped, Location)>,
@@ -66,6 +67,7 @@ impl<'a> Lowerer<'a> {
             utilities: BTreeMap::new(),
             utility_order: Vec::new(),
             utility_classes: BTreeMap::new(),
+            utility_names: BTreeMap::new(),
             utility_output_identity: output_identity,
             selector: None,
             conditions: Vec::new(),
@@ -408,33 +410,14 @@ impl<'a> Lowerer<'a> {
                             .chain(arguments.iter().map(|v| readable(v)))
                             .collect::<Vec<_>>()
                             .join("_");
-                        let duplicate_name = self
-                            .snapshot
-                            .symbols()
-                            .iter()
-                            .filter(|s| {
-                                matches!(s.kind, SymbolKind::Util | SymbolKind::Injection)
-                                    && s.name == symbol.name
-                            })
-                            .count()
-                            > 1;
-                        if duplicate_name
-                            || !symbol
-                                .name
-                                .chars()
-                                .all(|c| c.is_ascii_alphanumeric() || c == '-')
-                            || arguments
-                                .iter()
-                                .any(|v| !v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
-                            || self.snapshot.symbols().iter().any(|s| {
-                                s.kind == SymbolKind::Class
-                                    && s.global
-                                    && s.name == format!("_util_{label}")
-                            })
-                        {
-                            label.push_str(&format!("_{:016x}", stable_hash(&identity)));
+                        let base = format!("_util_{label}");
+                        if !owners.is_empty() {
+                            label.push('_');
+                            label.extend(identity.bytes().map(|byte| format!("{byte:02x}")));
                         }
                         let class = format!("_util_{label}");
+                        self.utility_names
+                            .insert(class.clone(), (base, identity.clone()));
                         let old_output = call_output;
                         if !owners.is_empty() {
                             self.output_identity = self.utility_output_identity;
@@ -768,11 +751,6 @@ fn readable(text: &str) -> String {
             }
         })
         .collect()
-}
-fn stable_hash(text: &str) -> u64 {
-    text.bytes().fold(0xcbf29ce484222325, |hash, b| {
-        (hash ^ u64::from(b)).wrapping_mul(0x100000001b3)
-    })
 }
 fn composition_classes(selector: &str) -> Vec<String> {
     let members = xcss_syntax::analyze_selectors(selector, 0, None);

@@ -8,7 +8,7 @@ import { classProject, hasIntrinsicXClass } from './class-project.js'
 
 const projectSource = /\.(?:xcss|[jt]sx?|[cm][jt]s|json)$/i
 
-export default function xcss(options: { tsconfig?: string } = {}): Plugin {
+export default function xcss(): Plugin {
   const compiler = new Compiler()
   const sources = new Map<string, { source: string; revision: number }>()
   const activeIds = new Set<string>()
@@ -40,8 +40,8 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
     if (shared) server.moduleGraph.invalidateModule(shared)
   }
   async function synchronize(version: number) {
-    const config = options.tsconfig ? resolvePath(root, options.tsconfig) : undefined
-    configFiles = new Set(compiler.configureProject(root, config))
+    configFiles = new Set(compiler.configureProject(root))
+    configFiles.add(normalizePath(join(root, "xcss.config.json")))
     if (devServer) devServer.watcher.add([...configFiles])
     const filenames = await findXcssFiles(root)
     const loaded = await Promise.all(filenames.map(async filename => ({ filename, source: await readFile(filename, 'utf8') })))
@@ -67,7 +67,7 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
     classPlan = undefined
     classError = undefined
     compiler.clearClassSlots()
-    const classConfig = resolvePath(root, options.tsconfig ?? 'tsconfig.json')
+    const classConfig = compiler.projectTsconfig()
     try {
       await stat(classConfig)
       if (version !== projectVersion) return
@@ -92,13 +92,15 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
     configResolved(config) { root = config.root; build = config.command === 'build'; base = config.base; assetsDir = config.build.assetsDir; outDir = config.build.outDir },
     configureServer(server) {
       devServer = server
+      server.watcher.add(join(root, "xcss.config.json"))
       const changed = (file: string) => {
+        if (normalizePath(file) === normalizePath(join(root, "xcss.config.json"))) { void server.restart(); return }
         if (projectSource.test(file) || configFiles.has(normalizePath(file))) {
           invalidate(server)
           server.ws.send({ type: 'full-reload' })
         }
       }
-      const edited = (file: string) => { if (projectSource.test(file) || configFiles.has(normalizePath(file))) invalidate(server) }
+      const edited = changed
       server.watcher.on('add', changed)
       server.watcher.on('unlink', changed)
       server.watcher.on('change', edited)
@@ -114,7 +116,7 @@ export default function xcss(options: { tsconfig?: string } = {}): Plugin {
         sync = undefined
       }
       for (const config of configFiles) this.addWatchFile(config)
-      if (classError && (options.tsconfig || hasIntrinsicXClass(id, code))) this.error(classError.message)
+      if (classError && hasIntrinsicXClass(id, code)) this.error(classError.message)
       const file = idFor(id)
       const diagnostic = classPlan?.diagnostics.find(item => ['XC-001', 'XC-002', 'XC-003', 'XC-009'].includes(item.code) && item.moduleId === file)
       if (diagnostic) this.error({ message: diagnostic.message, id, loc: { file: id, line: diagnostic.line, column: diagnostic.column - 1 } })

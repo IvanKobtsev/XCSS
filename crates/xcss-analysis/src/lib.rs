@@ -25,6 +25,7 @@ pub use variants::{ModuleInterface, ProvidedVariable};
 
 #[derive(Default)]
 struct Database {
+    names: xcss_source::Names,
     generation: u64,
     files: BTreeMap<FileId, Arc<ParseResult>>,
     diagnostics: Vec<Diagnostic>,
@@ -172,6 +173,7 @@ fn analyze(
     generation: u64,
     files: BTreeMap<FileId, Arc<ParseResult>>,
     resolutions: &BTreeMap<(FileId, String), Option<FileId>>,
+    suffix_length: usize,
 ) -> Database {
     let mut db = Database {
         generation,
@@ -393,6 +395,33 @@ fn analyze(
     }
     check_cycles(&mut db, &edges, "binding.injection-cycle");
     validate_utils(&mut db);
+    let mut identities = BTreeSet::new();
+    let mut reserved = BTreeSet::new();
+    for symbol in &db.symbols {
+        let ns = match symbol.kind {
+            SymbolKind::Variable => "variable",
+            SymbolKind::Class => "class",
+            SymbolKind::Keyframe => "keyframe",
+            _ => continue,
+        };
+        if symbol.global {
+            reserved.insert((ns.into(), symbol.name.clone()));
+        } else {
+            identities.insert((
+                ns.into(),
+                symbol.name.clone(),
+                symbol.location.file.0.clone(),
+            ));
+        }
+    }
+    match xcss_source::Names::allocate(suffix_length, identities, &reserved) {
+        Ok(names) => db.names = names,
+        Err(error) => {
+            if let Some(file) = db.files.keys().next().cloned() {
+                db.error("naming.capacity", &file, TextRange::default(), error);
+            }
+        }
+    }
     variants::analyze(&mut db);
     for i in 0..db.expressions.len() {
         let expression = &db.expressions[i];

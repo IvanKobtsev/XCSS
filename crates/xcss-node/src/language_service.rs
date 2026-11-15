@@ -286,6 +286,12 @@ impl LanguageService {
         }
     }
     #[napi]
+    pub fn set_suffix_length(&mut self, length: u32) -> napi::Result<()> {
+        self.inner
+            .set_suffix_length(length as usize)
+            .map_err(napi::Error::from_reason)
+    }
+    #[napi]
     pub fn set_typescript_project(&mut self, config: Option<String>) {
         self.inner.set_typescript_project(config);
     }

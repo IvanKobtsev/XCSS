@@ -9,6 +9,6 @@ readme = "README.md"
 repository.workspace = true
 
 [dependencies]
-xcss-source = { path = "../xcss-source", version = "=0.14.1" }
+xcss-source = { path = "../xcss-source", version = "=0.15.0" }
 raffia.workspace = true
 

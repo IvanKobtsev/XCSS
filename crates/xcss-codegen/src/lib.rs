@@ -5,6 +5,8 @@ pub use xcss_source::scoped_property;
 use xcss_source::{Diagnostic, FileId, Location, Severity, TextRange};
 use xcss_syntax::{Node, NodeKind, ParseResult};
 mod lower;
+mod names;
+pub use names::{ProjectNames, project_names};
 mod mapped;
 mod raw;
 mod registration;
@@ -16,6 +18,8 @@ pub type AssetResolutions = BTreeMap<FileId, BTreeMap<String, Result<String, Str
 
 #[derive(Clone, Debug, Default)]
 pub struct GenerateOptions {
+    /// Host-owned plan, valid only for the current snapshot and class positions.
+    pub planned_names: Option<std::sync::Arc<ProjectNames>>,
     /// Host-resolved URLs, keyed by definition file and decoded URL. Targets use source-root coordinates.
     pub asset_resolutions: AssetResolutions,
     pub minify: bool,
@@ -145,6 +149,7 @@ pub fn generate(
             "Entry module is not loaded",
         )]);
     }
+    let names = project_names(snapshot, options)?;
     let mut required = BTreeSet::from([entry.clone()]);
     let mut changed = true;
     while changed {
@@ -158,7 +163,10 @@ pub fn generate(
     let errors: Vec<_> = snapshot
         .diagnostics()
         .iter()
-        .filter(|d| required.contains(&d.location.file) && d.severity == Severity::Error)
+        .filter(|d| {
+            (required.contains(&d.location.file) || d.code == "naming.capacity")
+                && d.severity == Severity::Error
+        })
         .cloned()
         .collect();
     if !errors.is_empty() {
@@ -255,7 +263,8 @@ pub fn generate(
             utility_sources.extend(lower.sources.iter().cloned());
         }
         diagnostics.extend(lower.diagnostics);
-        let (css, source_map, exports) = backend(snapshot, file, &mapped, options, &lower.globals)?;
+        let (css, source_map, exports) =
+            backend(snapshot, file, &mapped, options, &lower.globals, &names)?;
         let mut classes = BTreeMap::new();
         // Share the static export contract with TS checking, including expanded injections.
         for name in &snapshot.module_interface(file).unwrap().classes {
@@ -268,10 +277,16 @@ pub fn generate(
             let value = classes
                 .entry(owner.clone())
                 .or_insert_with(|| exports.get(owner).cloned().unwrap_or_default());
-            let mut names: Vec<_> = value.split_whitespace().map(str::to_owned).collect();
-            names.extend(utilities.iter().cloned());
+            let mut emitted: Vec<_> = value.split_whitespace().map(str::to_owned).collect();
+            emitted.extend(utilities.iter().map(|name| {
+                names
+                    .global
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| name.clone())
+            }));
             let mut seen = BTreeSet::new();
-            *value = names
+            *value = emitted
                 .into_iter()
                 .filter(|name| seen.insert(name.clone()))
                 .collect::<Vec<_>>()
@@ -309,6 +324,7 @@ pub fn generate(
                 &rule,
                 options,
                 &utility_globals,
+                &names,
             )?;
             rules.insert(key.clone(), GeneratedUtilityRule { css, source_map });
         }
@@ -318,6 +334,7 @@ pub fn generate(
             &mapped,
             options,
             &utility_globals,
+            &names,
         )?;
         Some(GeneratedUtilities {
             css,
@@ -500,6 +517,7 @@ fn backend(
     input: &Mapped,
     options: &GenerateOptions,
     globals: &BTreeMap<String, String>,
+    names: &ProjectNames,
 ) -> Result<(String, String, BTreeMap<String, String>), Vec<Diagnostic>> {
     use lightningcss::{
         css_modules::{Config, Pattern},
@@ -555,9 +573,31 @@ fn backend(
             e.to_string(),
         )]
     })?;
-    if !globals.is_empty() {
+    let mut globals = globals.clone();
+    if let Some(exports) = &result.exports {
+        for name in exports.keys() {
+            if !globals.contains_key(name) {
+                let namespace = if snapshot.symbols().iter().any(|s| {
+                    s.location.file == *file && s.name == *name && s.kind == SymbolKind::Keyframe
+                }) {
+                    "keyframe"
+                } else {
+                    "class"
+                };
+                globals.insert(
+                    name.clone(),
+                    names
+                        .local
+                        .get(&(file.clone(), name.clone()))
+                        .cloned()
+                        .unwrap_or_else(|| snapshot.scoped_name(namespace, file, name)),
+                );
+            }
+        }
+    }
+    if !globals.is_empty() || !names.global.is_empty() {
         use lightningcss::traits::ToCss;
-        let replacements: BTreeMap<_, _> = globals
+        let mut replacements: BTreeMap<_, _> = globals
             .iter()
             .filter_map(|(placeholder, name)| {
                 result
@@ -567,6 +607,7 @@ fn backend(
                     .map(|export| (export.name.clone(), name.clone()))
             })
             .collect();
+        replacements.extend(names.global.clone());
         let printed = xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
             file.clone(),
             0,
@@ -616,7 +657,10 @@ fn backend(
         .exports
         .unwrap_or_default()
         .into_iter()
-        .map(|(name, value)| (name, value.name))
+        .map(|(name, value)| {
+            let output = globals.get(&name).cloned().unwrap_or(value.name);
+            (name, output)
+        })
         .collect();
     let (css, source_map) = raw::restore(snapshot, result.code, source_map, input);
     Ok((css, source_map, exports))
