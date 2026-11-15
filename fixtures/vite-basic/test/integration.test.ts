@@ -62,8 +62,8 @@ describe('Vite integration',()=>{
   const outputs=Array.isArray(result)?result.flatMap(item=>item.output):result.output
   const css=outputs.filter((item):item is Rollup.OutputAsset=>item.type==='asset'&&item.fileName.endsWith('.css')).map(item=>String(item.source)).join('\n')
   const js=outputs.filter((item):item is Rollup.OutputChunk=>item.type==='chunk').map(item=>item.code).join('\n')
-  expect(css).toContain('var(--sidebar)');expect(css).toContain('var(--unit)');expect(css).toContain('border:2px solid');expect(css).toContain('xcss_');expect(css).not.toMatch(/@mixin|@include|@injection/);expect(css).not.toContain('.card{')
-  expect(new Set([...css.matchAll(/--shared-tone-xcss-[0-9a-f]{16}/g)].map(([name])=>name)).size).toBe(2)
+  expect(css).toContain('var(--sidebar)');expect(css).toContain('var(--unit)');expect(css).toContain('border:2px solid');expect(css).toContain('.card_000{');expect(css).not.toMatch(/@mixin|@include|@injection/);expect(css).not.toContain('.card{')
+  expect(new Set([...css.matchAll(/--shared-tone_[0-9a-z]{3}\b/g)].map(([name])=>name))).toEqual(new Set(['--shared-tone_000','--shared-tone_001']))
   expect(js).toContain('var(--space)');expect(outputs.some(item=>item.fileName.endsWith('.svg'))).toBe(true);expect(outputs.filter(item=>item.fileName.endsWith('.css')).length).toBeGreaterThanOrEqual(2)
  })
  it('reports original XCSS diagnostics before downstream processing',async()=>{
