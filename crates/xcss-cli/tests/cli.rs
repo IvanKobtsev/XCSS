@@ -355,3 +355,120 @@ fn cli_requires_explicit_aliases_and_valid_selected_config() {
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("missing.json"));
 }
+
+#[test]
+fn cross_figma_import_overwrites_and_preserves_outputs_on_invalid_input() {
+    let root = sandbox();
+    fs::write(
+        root.join("xcss.config.json"),
+        r#"{"cross-figma":{"output":"src/figma"}}"#,
+    )
+    .unwrap();
+    let snapshot = root.join("snapshot.json");
+    fs::write(&snapshot, r#"{"format":"crossfigma.snapshot","version":1,"collections":[],"variables":[],"styles":{"text":[{"name":"Body","fontName":{"family":"Inter","style":"Regular"},"fontSize":16}],"paint":[],"effect":[],"grid":[]}}"#).unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_xcss"))
+            .current_dir(&root)
+            .args(["cross-figma", "import", "snapshot.json"])
+            .output()
+            .unwrap()
+    };
+    let result = run();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let globals = root.join("src/figma/globals.gen.xcss");
+    fs::write(&globals, "old").unwrap();
+    assert!(run().status.success());
+    assert_eq!(fs::read_to_string(&globals).unwrap(), ":root {\n}\n");
+    fs::write(root.join("entry.xcss"),"@import './src/figma/globals.gen.xcss'; @import './src/figma/themes.xcss'; @import './src/figma/typography.gen.xcss'; .body { @:body; }").unwrap();
+    let compile = Command::new(env!("CARGO_BIN_EXE_xcss"))
+        .current_dir(&root)
+        .args(["compile", "entry.xcss", "--output", "out.css"])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    fs::write(&snapshot, "{}").unwrap();
+    assert!(!run().status.success());
+    assert_eq!(fs::read_to_string(&globals).unwrap(), ":root {\n}\n");
+}
+
+#[test]
+fn cross_figma_receiver_contract() {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::{Duration, Instant};
+    let root = sandbox();
+    fs::write(
+        root.join("xcss.config.json"),
+        r#"{"cross-figma":{"output":"generated"}}"#,
+    )
+    .unwrap();
+    let child = Command::new(env!("CARGO_BIN_EXE_xcss"))
+        .current_dir(&root)
+        .args(["cross-figma", "receive"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    struct Cleanup(std::process::Child);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut cleanup = Cleanup(child);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if TcpStream::connect("127.0.0.1:38473").is_ok() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "receiver did not start");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let send = |method: &str, path: &str, body: &str| {
+        let mut stream = TcpStream::connect("127.0.0.1:38473").unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        write!(stream,"{method} {path} HTTP/1.1\r\nHost: localhost\r\nOrigin: null\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    };
+    let health = send("GET", "/health", "");
+    assert!(
+        health.contains("200 OK")
+            && health.contains("CrossBreeze")
+            && health.contains("protocolVersion"),
+        "{health}"
+    );
+    let options = send("OPTIONS", "/design-tokens", "");
+    assert!(
+        options.contains("204")
+            && options
+                .to_lowercase()
+                .contains("access-control-allow-origin: *"),
+        "{options}"
+    );
+    assert!(send("POST", "/design-tokens", "{}").contains("400"));
+    let body = r#"{"format":"crossfigma.snapshot","version":1,"collections":[],"variables":[],"styles":{"text":[]}}"#;
+    assert!(send("POST", "/design-tokens", body).contains("200 OK"));
+    assert!(root.join("generated/globals.gen.xcss").exists());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(status) = cleanup.0.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}

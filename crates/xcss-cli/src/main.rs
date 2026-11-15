@@ -6,6 +6,7 @@ use std::{
 };
 use xcss_core::{AnalysisHost, FileId, GenerateOptions, Severity};
 mod check;
+mod cross_figma;
 use check::check_project;
 fn main() {
     if let Err(error) = run() {
@@ -15,6 +16,9 @@ fn main() {
 }
 fn run() -> Result<(), String> {
     let args: Vec<_> = env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "cross-figma") {
+        return cross_figma::run(&args[1..]);
+    }
     if args.first().is_some_and(|s| s == "check") {
         return check_project(&args[1..]);
     }
