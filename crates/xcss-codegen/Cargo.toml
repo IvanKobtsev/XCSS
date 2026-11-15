@@ -9,9 +9,9 @@ readme = "README.md"
 repository.workspace = true
 
 [dependencies]
-xcss-source = { path = "../xcss-source", version = "=0.14.0" }
-xcss-syntax = { path = "../xcss-syntax", version = "=0.14.0" }
-xcss-analysis = { path = "../xcss-analysis", version = "=0.14.0" }
+xcss-source = { path = "../xcss-source", version = "=0.14.1" }
+xcss-syntax = { path = "../xcss-syntax", version = "=0.14.1" }
+xcss-analysis = { path = "../xcss-analysis", version = "=0.14.1" }
 lightningcss.workspace = true
 parcel_sourcemap.workspace = true
 serde_json.workspace = true

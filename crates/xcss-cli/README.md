@@ -59,3 +59,20 @@ Typography lengths use pixels; percentage line height becomes a ratio and
 percentage letter spacing becomes em. Font size and paragraph indent variable
 bindings are retained. Other bindings, unsupported Figma-only typography
 properties, and paint/effect/grid styles produce warnings.
+
+## CrossFigma update
+
+Run `xcss cross-figma update design.crossfigma.json`, or run
+`xcss cross-figma update` to receive the snapshot from Figma. Both accept
+`--root <directory>`. Imports and updates save `.cross-figma.json` in the
+output directory; keep this ID-to-name manifest with the generated files.
+For existing projects, import the previous snapshot once before updating.
+
+Update regenerates outputs and renames imported custom properties throughout
+project `.xcss` files in two in-memory passes (old names to ID tokens, then
+ID tokens to new names). Swaps and rename cycles preserve variable identity.
+Comments and strings are preserved. Dependency, build, and version-control
+directories and symlinks are skipped. Deleted IDs produce warnings and their
+references remain unchanged. Conflicting destination declarations fail before
+writing. Source changes, generated files, and metadata are committed together
+with rollback on installation failure. Obsolete generated files are not deleted.

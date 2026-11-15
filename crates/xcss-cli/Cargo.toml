@@ -15,9 +15,12 @@ path = "src/main.rs"
 [dependencies]
 serde.workspace = true
 tiny_http = "0.12"
-xcss-resolver = { path = "../xcss-resolver", version = "=0.14.0" }
-xcss-core = { path = "../xcss-core", version = "=0.14.0" }
-xcss-language-service = { path = "../xcss-language-service", version = "=0.14.0" }
+xcss-resolver = { path = "../xcss-resolver", version = "=0.14.1" }
+xcss-core = { path = "../xcss-core", version = "=0.14.1" }
+xcss-language-service = { path = "../xcss-language-service", version = "=0.14.1" }
 
 serde_json.workspace = true
 pathdiff = "=0.2.3"
+
+xcss-syntax = { path = "../xcss-syntax", version = "=0.14.1" }
+xcss-source = { path = "../xcss-source", version = "=0.14.1" }

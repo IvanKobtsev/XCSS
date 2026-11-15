@@ -469,26 +469,171 @@ fn generate(snapshot: &Value, config: &Config) -> Result<BTreeMap<String, String
     }
     Ok(files)
 }
-fn import(bytes: &[u8], config: &Config, root: &Path) -> Result<()> {
-    let snapshot: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    let files = generate(&snapshot, config)?;
-    let output = root.join(&config.output);
-    fs::create_dir_all(&output).map_err(|e| e.to_string())?;
-    for (name, body) in files {
-        let path = output.join(name);
-        fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
-        println!("Generated {}", path.display());
+const MANIFEST: &str = ".cross-figma.json";
+#[derive(serde::Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Manifest {
+    version: u32,
+    names: BTreeMap<String, String>,
+}
+fn rewrite(text: &str, names: &BTreeMap<String, String>) -> String {
+    let parsed = xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
+        xcss_source::FileId("update.xcss".into()),
+        0,
+        text.to_owned(),
+    )));
+    let mut result = String::new();
+    let mut cursor = 0;
+    for token in parsed.tokens.iter() {
+        if token.kind != xcss_syntax::TokenKind::Word {
+            continue;
+        }
+        let word = &text[token.range.start..token.range.end];
+        if let Some(replacement) = names.get(word) {
+            result.push_str(&text[cursor..token.range.start]);
+            result.push_str(replacement);
+            cursor = token.range.end;
+        }
+    }
+    result.push_str(&text[cursor..]);
+    result
+}
+fn scan_sources(root: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(root).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
+            if [
+                "node_modules",
+                ".git",
+                ".cache",
+                "dist",
+                "target",
+                "coverage",
+                ".xcss",
+            ]
+            .iter()
+            .any(|n| entry.file_name() == *n)
+            {
+                continue;
+            }
+            scan_sources(&entry.path(), files)?;
+        } else if kind.is_file() && entry.path().extension().is_some_and(|e| e == "xcss") {
+            files.push(entry.path());
+        }
     }
     Ok(())
 }
+fn import(bytes: &[u8], config: &Config, root: &Path, update: bool) -> Result<()> {
+    let snapshot: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    let files = generate(&snapshot, config)?;
+    let names = Model::new(&snapshot, config)?.names;
+    let output = root.join(&config.output);
+    let manifest_path = output.join(MANIFEST);
+    let mut writes = BTreeMap::new();
+    if update {
+        let previous: Manifest =
+            serde_json::from_slice(&fs::read(&manifest_path).map_err(|e| {
+                format!(
+                    "{}: {e}; import the previous snapshot first to establish variable IDs",
+                    manifest_path.display()
+                )
+            })?)
+            .map_err(|e| e.to_string())?;
+        if previous.version != 1 {
+            return Err("Unsupported CrossFigma manifest version".into());
+        }
+        let mut sources = Vec::new();
+        scan_sources(root, &mut sources)?;
+        let mut texts = Vec::new();
+        for path in sources {
+            if files.keys().any(|n| output.join(n) == path) {
+                continue;
+            }
+            let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            texts.push((path, text));
+        }
+        let mut first = BTreeMap::new();
+        let mut second = BTreeMap::new();
+        for (id, old) in &previous.names {
+            let Some(new) = names.get(id) else {
+                eprintln!("warning: deleted variable --{old} ({id}); references preserved");
+                continue;
+            };
+            if old == new {
+                continue;
+            }
+            let encoded = id
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
+            let mut temporary = format!("--xcss-update-id-{encoded}");
+            while texts.iter().any(|(_, t)| t.contains(&temporary))
+                || names.values().any(|n| format!("--{n}") == temporary)
+                || second.contains_key(&temporary)
+            {
+                temporary.push('x');
+            }
+            first.insert(format!("--{old}"), temporary.clone());
+            second.insert(temporary, format!("--{new}"));
+        }
+        // A destination already declared outside the set being renamed is ambiguous.
+        for (_, text) in &texts {
+            let parsed = xcss_syntax::parse(std::sync::Arc::new(xcss_source::SourceFile::new(
+                xcss_source::FileId("update.xcss".into()),
+                0,
+                text.clone(),
+            )));
+            let tokens: Vec<_> = parsed
+                .tokens
+                .iter()
+                .filter(|t| {
+                    !matches!(
+                        t.kind,
+                        xcss_syntax::TokenKind::Whitespace | xcss_syntax::TokenKind::Comment
+                    )
+                })
+                .collect();
+            for pair in tokens.windows(2) {
+                let word = &text[pair[0].range.start..pair[0].range.end];
+                if &text[pair[1].range.start..pair[1].range.end] == ":"
+                    && second.values().any(|n| n == word)
+                    && !first.contains_key(word)
+                {
+                    return Err(format!("Variable destination already declared: {word}"));
+                }
+            }
+        }
+        for (path, text) in texts {
+            let next = rewrite(&rewrite(&text, &first), &second);
+            if next != text {
+                writes.insert(path, next);
+            }
+        }
+    }
+    for (name, body) in files {
+        writes.insert(output.join(name), body);
+    }
+    writes.insert(
+        manifest_path,
+        serde_json::to_string_pretty(&Manifest { version: 1, names }).map_err(|e| e.to_string())?,
+    );
+    super::write_transaction(writes.into_iter().collect())
+}
 pub fn run(args: &[String]) -> Result<()> {
-    let usage = "usage: xcss cross-figma import <snapshot.json> [--root <directory>] | xcss cross-figma receive [--root <directory>]";
+    let usage = "usage: xcss cross-figma import <snapshot.json> [--root <directory>] | xcss cross-figma receive [--root <directory>] | xcss cross-figma update [snapshot.json] [--root <directory>]";
     let command = args.first().ok_or(usage)?;
     let mut index = 1;
-    let input = if command == "import" {
+    let input = if command == "import"
+        || (command == "update" && args.get(1).is_some_and(|a| a != "--root"))
+    {
         index = 2;
         Some(args.get(1).ok_or(usage)?)
-    } else if command == "receive" {
+    } else if command == "receive" || command == "update" {
         None
     } else {
         return Err(usage.into());
@@ -511,11 +656,16 @@ pub fn run(args: &[String]) -> Result<()> {
         return Err("cross-figma.output must not be empty".into());
     }
     if let Some(input) = input {
-        return import(&fs::read(input).map_err(|e| e.to_string())?, &config, &root);
+        return import(
+            &fs::read(input).map_err(|e| e.to_string())?,
+            &config,
+            &root,
+            command == "update",
+        );
     }
-    receive(&config, &root)
+    receive(&config, &root, command == "update")
 }
-fn receive(config: &Config, root: &Path) -> Result<()> {
+fn receive(config: &Config, root: &Path, update: bool) -> Result<()> {
     use tiny_http::{Header, Response, Server, StatusCode};
     let servers = vec![
         Server::http("127.0.0.1:38473").map_err(|e| e.to_string())?,
@@ -555,7 +705,7 @@ fn receive(config: &Config, root: &Path) -> Result<()> {
                             } else {
                                 match read
                                     .map_err(|e| e.to_string())
-                                    .and_then(|_| import(&bytes, config, root))
+                                    .and_then(|_| import(&bytes, config, root, update))
                                 {
                                     Ok(()) => {
                                         success = true;
@@ -602,6 +752,60 @@ mod tests {
     }
     fn config() -> Config {
         serde_json::from_value(serde_json::json!({"output":"generated","screens":{"tablet":{"media":"(width < 1000px)","modes":{"Tokens":"Small"}}},"themes":{"compact":{"modes":{"Tokens":"Small"}}},"units":{"prefix":{"Spacing/":"px"}}})).unwrap()
+    }
+    #[test]
+    fn update_swaps_names_and_preserves_deleted_references() {
+        let root = std::env::temp_dir().join(format!("xcss-update-{}", std::process::id()));
+        fs::create_dir_all(root.join("src")).unwrap();
+        let cfg = config();
+        let old = fixture();
+        import(&serde_json::to_vec(&old).unwrap(), &cfg, &root, false).unwrap();
+        let source = ".a { width: --spacing-base; height: var(--spacing-alias); content: \"--spacing-base\"; /* --spacing-base */ padding: --spacing-base-extra; }";
+        fs::write(root.join("src/a.xcss"), source).unwrap();
+        let mut next = old.clone();
+        next["variables"][0]["name"] = "Spacing/Alias".into();
+        next["variables"][1]["name"] = "Spacing/Base".into();
+        let bytes = serde_json::to_vec(&next).unwrap();
+        import(&bytes, &cfg, &root, true).unwrap();
+        let changed = fs::read_to_string(root.join("src/a.xcss")).unwrap();
+        assert!(changed.contains("width: --spacing-alias; height: var(--spacing-base)"));
+        assert!(changed.contains("\"--spacing-base\"; /* --spacing-base */"));
+        assert!(changed.contains("--spacing-base-extra"));
+        import(&bytes, &cfg, &root, true).unwrap();
+        assert_eq!(
+            changed,
+            fs::read_to_string(root.join("src/a.xcss")).unwrap()
+        );
+        next["variables"].as_array_mut().unwrap().pop();
+        import(&serde_json::to_vec(&next).unwrap(), &cfg, &root, true).unwrap();
+        assert_eq!(
+            changed,
+            fs::read_to_string(root.join("src/a.xcss")).unwrap()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn update_requires_baseline_and_rejects_destination_conflicts() {
+        let root = std::env::temp_dir().join(format!("xcss-update-errors-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let bytes = serde_json::to_vec(&fixture()).unwrap();
+        assert!(
+            import(&bytes, &config(), &root, true)
+                .unwrap_err()
+                .contains("previous snapshot")
+        );
+        import(&bytes, &config(), &root, false).unwrap();
+        let text = ":root { --new-name: 1; } .a { width: --spacing-base; }";
+        fs::write(root.join("a.xcss"), text).unwrap();
+        let mut next = fixture();
+        next["variables"][0]["name"] = "new-name".into();
+        assert!(
+            import(&serde_json::to_vec(&next).unwrap(), &config(), &root, true)
+                .unwrap_err()
+                .contains("already declared")
+        );
+        assert_eq!(fs::read_to_string(root.join("a.xcss")).unwrap(), text);
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn generates_modes_aliases_and_typography() {
