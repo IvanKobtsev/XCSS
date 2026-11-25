@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
-import xcss from '@cross-css/vite'
+import xcss from '@cross-css/vite/react-plugin'
 
 test('xClass positions determine cross-module specificity', async ({ page }) => {
   const root = fileURLToPath(new URL('../../../packages/vite-plugin/test/fixtures/react/', import.meta.url))

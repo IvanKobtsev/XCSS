@@ -47,7 +47,7 @@ Add the plugin to `vite.config.ts` (or `vite.config.js`).
 
 ```ts
 import { defineConfig } from 'vite'
-import xcss from '@cross-css/vite'
+import xcss from '@cross-css/vite/react-plugin'
 export default defineConfig({ plugins: [xcss()] })
 ```
 
@@ -100,7 +100,7 @@ TypeScript. Keep XCSS before plugins that rewrite JSX.
 ```ts
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import xcss from '@cross-css/vite'
+import xcss from '@cross-css/vite/react-plugin'
 
 export default defineConfig({
   plugins: [
@@ -283,3 +283,26 @@ corepack pnpm --filter xcss-vite-fixture test:browser
 See [architecture](docs/architecture.md), [language](docs/language.md),
 [generation](docs/generation.md), and [release instructions](RELEASING.md).
 The compiler is early-stage; generated formatting and public APIs are evolving.
+
+### SolidJS 2
+
+Use Node.js 22.12 or later and install solid-js 2, @solidjs/web 2, and
+@solidjs/vite-plugin 3 alongside Vite 8. Configure XCSS before Solid:
+
+```ts
+import { defineConfig } from 'vite'
+import solid from '@solidjs/vite-plugin'
+import xcss from '@cross-css/vite/solidjs-plugin'
+export default defineConfig({ plugins: [xcss(), solid()] })
+```
+
+Keep TypeScript JSX preserved with jsxImportSource set to @solidjs/web.
+Add @cross-css/vite/solidjs to compilerOptions.types (alongside vite/client
+and @cross-css/vite/client) for xClass and xVars declarations.
+Intrinsic elements accept reactive xClass and xVars expressions with the same
+class analysis and fixed-tuple rules as React. Existing class bindings are
+preserved; xVars overrides matching style properties. Component props are
+passed through for forwarding to intrinsic elements.
+
+The package root no longer exports a Vite plugin. React applications should
+import their plugin from @cross-css/vite/react-plugin.

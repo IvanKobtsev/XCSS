@@ -4,7 +4,7 @@ Compile `.xcss` into scoped CSS and JavaScript class exports with Vite 8.
 
 ```ts
 import { defineConfig } from 'vite'
-import xcss from '@cross-css/vite'
+import xcss from '@cross-css/vite/react-plugin'
 export default defineConfig({ plugins: [xcss()] })
 ```
 
@@ -185,3 +185,26 @@ not coordinate names. Exhausting the suffix space produces an error; increase
 This replaces the previous hashed output names and the plugin's `tsconfig` option.
 The existing `cross-figma` section can coexist with these settings. CLI `--project`
 remains available as a one-off TypeScript project override.
+
+### SolidJS 2
+
+Use Node.js 22.12 or later and install solid-js 2, @solidjs/web 2, and
+@solidjs/vite-plugin 3 alongside Vite 8. Configure XCSS before Solid:
+
+```ts
+import { defineConfig } from 'vite'
+import solid from '@solidjs/vite-plugin'
+import xcss from '@cross-css/vite/solidjs-plugin'
+export default defineConfig({ plugins: [xcss(), solid()] })
+```
+
+Keep TypeScript JSX preserved with jsxImportSource set to @solidjs/web.
+Add @cross-css/vite/solidjs to compilerOptions.types (alongside vite/client
+and @cross-css/vite/client) for xClass and xVars declarations.
+Intrinsic elements accept reactive xClass and xVars expressions with the same
+class analysis and fixed-tuple rules as React. Existing class bindings are
+preserved; xVars overrides matching style properties. Component props are
+passed through for forwarding to intrinsic elements.
+
+The package root no longer exports a Vite plugin. React applications should
+import their plugin from @cross-css/vite/react-plugin.

@@ -133,7 +133,7 @@ try {
      compiler.setFile('a.xcss', 1, source);
      const result = compiler.compile('a.xcss');
      if (!result.success || !result.artifacts[0].css.includes('calc(var(--size) * 2)')) throw new Error(JSON.stringify(result));
-     const plugin = (await import('@cross-css/vite')).default();
+     const plugin = (await import('@cross-css/vite/react-plugin')).default();
      if (plugin.name !== 'cross-css' || plugin.enforce !== 'pre') throw new Error('packed Vite plugin did not load correctly');`,
     testRoot,
   ], testRoot)

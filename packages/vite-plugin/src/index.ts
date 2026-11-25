@@ -5,10 +5,11 @@ import type { NativeArtifact, NativeClassPlan, NativeCompilation } from '@cross-
 import { normalizePath, type Plugin, type ModuleNode, type ViteDevServer } from 'vite'
 import { createCssId, createVirtualId, cssAssetUrls, isCrossCssId, parseVirtualId } from './internal.js'
 import { classProject, hasIntrinsicXClass } from './class-project.js'
+import { transformSolid } from './solid-transform.js'
 
 const projectSource = /\.(?:xcss|[jt]sx?|[cm][jt]s|json)$/i
 
-export default function xcss(): Plugin {
+export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
   const compiler = new Compiler()
   const sources = new Map<string, { source: string; revision: number }>()
   const activeIds = new Set<string>()
@@ -128,10 +129,11 @@ export default function xcss(): Plugin {
       const sites = classPlan?.sites.filter(site => site.moduleId === file)
       if (!sites?.length) {
         if (hasIntrinsicXClass(id, code)) this.error('The XCSS TypeScript project must include this JSX file')
+        if (framework === 'solid') return transformSolid(code, id)
         return
       }
       const jsxSource = /@jsxImportSource\s+([^\s*]+)/.exec(code)?.[1]
-      if (jsxSource && jsxSource !== '@cross-css/vite/react') {
+      if (framework === 'react' && jsxSource && jsxSource !== '@cross-css/vite/react') {
         this.error('xClass requires the @cross-css/vite/react JSX runtime')
       }
       const imports = new Set<string>()
@@ -157,7 +159,8 @@ export default function xcss(): Plugin {
         }))
         output = output.slice(0, site.offset) + ' __xcssClassSlots={' + JSON.stringify(slots) + '} ' + output.slice(site.offset)
       }
-      const prefix = jsxSource ? '' : '/** @jsxImportSource @cross-css/vite/react */\n'
+      if (framework === 'solid') output = transformSolid(output, id)?.code ?? output
+      const prefix = framework === 'solid' || jsxSource ? '' : '/** @jsxImportSource @cross-css/vite/react */\n'
       const firstLine = output.startsWith('#!') ? output.indexOf('\n') + 1 : 0
       const importStatements = [...imports].map(path => 'import ' + JSON.stringify(path) + ';')
       return {
