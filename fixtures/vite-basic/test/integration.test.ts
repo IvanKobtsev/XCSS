@@ -94,7 +94,7 @@ describe('Vite integration',()=>{
    await writeFile(library,'@injection '+injection+' { width: 17px; }')
    await expect.poll(async()=> (await server.transformRequest(cssUrl))?.code.includes('17px'),{timeout:10000}).toBe(true)
    await writeFile(duplicate,'@injection '+injection+' { width: 22px; }')
-   await expect.poll(async()=> {try{await server.transformRequest(cssUrl);return false}catch(error){return String((error as { message?: string }).message ?? error).includes('Ambiguous injection')}},{timeout:10000}).toBe(true)
+   await expect.poll(async()=> {try{await server.transformRequest(cssUrl);return ''}catch(error){return String((error as { message?: string }).message ?? error)}},{timeout:10000}).toContain('Ambiguous callable `'+injection+'`')
    await rm(duplicate)
    await expect.poll(async()=> {try{return (await server.transformRequest(cssUrl))?.code.includes('17px')}catch{return false}},{timeout:10000}).toBe(true)
   } finally {
