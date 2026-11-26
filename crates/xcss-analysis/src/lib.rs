@@ -424,7 +424,13 @@ fn analyze(
     }
     variants::analyze(&mut db);
     for i in 0..db.expressions.len() {
-        let expression = &db.expressions[i];
+        let expression = db.expressions[i].clone();
+        constants::validate_arithmetic(
+            &mut db,
+            &expression.location.file,
+            &expression.syntax,
+            true,
+        );
         let value_type = expression_type(&db, &expression.location.file, &expression.syntax);
         db.expressions[i].value_type = value_type;
     }
@@ -643,29 +649,7 @@ fn expression_type(db: &Database, file: &FileId, value: &Value) -> ValueType {
                     } => {
                         let a = arithmetic_type(db, file, left);
                         let b = arithmetic_type(db, file, right);
-                        let numeric = |t: &ValueType| matches!(t, ValueType::Named(n) if n == "number" || n == "integer");
-                        let dimensional = |t: &ValueType| matches!(t, ValueType::Named(n) if matches!(n.as_str(), "length" | "length-percentage" | "percentage" | "angle" | "time" | "frequency" | "resolution" | "flex"));
-                        let length_percentage = |t: &ValueType| matches!(t, ValueType::Named(n) if matches!(n.as_str(), "length" | "percentage" | "length-percentage"));
-                        if a == ValueType::Unknown || b == ValueType::Unknown {
-                            return ValueType::Unknown;
-                        }
-                        match operator {
-                            '+' | '-' if a == b && (numeric(&a) || dimensional(&a)) => a,
-                            '+' | '-' if numeric(&a) && numeric(&b) => ValueType::named("number"),
-                            '+' | '-' if length_percentage(&a) && length_percentage(&b) => {
-                                ValueType::named("length-percentage")
-                            }
-                            '*' if numeric(&b) && (numeric(&a) || dimensional(&a)) => a,
-                            '*' if numeric(&a) && dimensional(&b) => b,
-                            '/' if numeric(&b) && (numeric(&a) || dimensional(&a)) => {
-                                if numeric(&a) {
-                                    ValueType::named("number")
-                                } else {
-                                    a
-                                }
-                            }
-                            _ => ValueType::Unknown,
-                        }
+                        types::binary_type(*operator, &a, &b)
                     }
                 }
             }
@@ -821,6 +805,7 @@ fn validate_call(db: &mut Database, call: &Call, target: SymbolId) {
     }
     for (value, param) in args.iter().zip(&signature.parameters) {
         let actual = expression_type(db, &call.file, value);
+        constants::validate_arithmetic(db, &call.file, value, true);
         if !param.value_type.accepts(&actual)
             && !types::numeric_zero(&param.value_type, parse.slice(value.range))
         {

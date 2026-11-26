@@ -26,6 +26,22 @@ fn css_layout() {
     );
 }
 #[test]
+fn parameter_unions_are_spaced_without_changing_namespace_selectors() {
+    let text = formatted(
+        "@injection f($p:percentage|number=0,$q:length|percentage=0px){opacity:$p;} @util g($p:percentage|number){opacity:$p;} svg|a{color:red;}",
+        &FormatOptions::default(),
+    );
+    assert!(text.contains("$p: percentage | number = 0"), "{text}");
+    assert!(text.contains("$q: length | percentage = 0px"), "{text}");
+    assert!(text.contains("@util g($p: percentage | number)"), "{text}");
+    assert!(text.contains("svg|a"), "{text}");
+    let comments = formatted(
+        "@util f($p:percentage/* member */|number){opacity:$p;}",
+        &FormatOptions::default(),
+    );
+    assert!(comments.contains("/* member */"), "{comments}");
+}
+#[test]
 fn variant_groups() {
     assert_eq!(
         formatted(

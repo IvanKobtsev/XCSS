@@ -556,7 +556,18 @@ impl ParseResult {
     fn annotation_initial(&self, range: TextRange) -> (Option<&str>, Option<&str>) {
         let tokens = self.significant(range);
         let annotation = if tokens.first().is_some_and(|t| self.token_text(t) == ":") {
-            tokens.get(1).map(|t| self.token_text(t))
+            let end = tokens
+                .iter()
+                .position(|t| self.token_text(t) == "=")
+                .unwrap_or(tokens.len());
+            Some(if end > 1 {
+                self.slice(TextRange::new(
+                    tokens[1].range.start,
+                    tokens[end - 1].range.end,
+                ))
+            } else {
+                self.slice(TextRange::new(tokens[0].range.end, tokens[0].range.end))
+            })
         } else {
             None
         };

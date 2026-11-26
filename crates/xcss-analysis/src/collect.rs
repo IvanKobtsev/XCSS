@@ -143,7 +143,7 @@ pub(super) fn collect(
                 let value_type = if initial.is_some_and(|v| v.contains('$')) {
                     ValueType::Unknown
                 } else {
-                    checked_type(db, file, range, parameter.annotation, initial)
+                    types::checked_parameter_type(db, file, range, parameter.annotation, initial)
                 };
                 if optional_seen && initial.is_none() {
                     db.error(

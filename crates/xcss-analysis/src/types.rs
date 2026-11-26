@@ -42,18 +42,54 @@ pub(super) fn checked_type(
     annotation: Option<&str>,
     initial: Option<&str>,
 ) -> ValueType {
+    checked_annotation(db, file, range, annotation, initial, false)
+}
+
+pub(super) fn checked_parameter_type(
+    db: &mut Database,
+    file: &FileId,
+    range: TextRange,
+    annotation: Option<&str>,
+    initial: Option<&str>,
+) -> ValueType {
+    checked_annotation(db, file, range, annotation, initial, true)
+}
+
+fn checked_annotation(
+    db: &mut Database,
+    file: &FileId,
+    range: TextRange,
+    annotation: Option<&str>,
+    initial: Option<&str>,
+    allow_union: bool,
+) -> ValueType {
     let actual = initial.map(infer_type).unwrap_or(ValueType::Unknown);
     if let Some(annotation) = annotation {
-        if !VALUE_KINDS.contains(&annotation) {
+        let cleaned = without_comments(annotation);
+        let members: Vec<_> = cleaned.split('|').map(str::trim).collect();
+        if !allow_union && members.len() > 1 {
             db.error(
                 "type.unknown-type",
                 file,
                 range,
-                format!("Unknown type `{annotation}`"),
+                "Union type annotations are only allowed on @injection and @util parameters",
             );
             return ValueType::Unknown;
         }
-        let expected = ValueType::named(annotation);
+        if let Some(invalid) = members.iter().find(|member| !VALUE_KINDS.contains(member)) {
+            db.error(
+                "type.unknown-type",
+                file,
+                range,
+                if invalid.is_empty() {
+                    "Expected a type name in parameter annotation".into()
+                } else {
+                    format!("Unknown type `{invalid}`")
+                },
+            );
+            return ValueType::Unknown;
+        }
+        let expected = ValueType::union(members.into_iter().map(ValueType::named));
         if !expected.accepts(&actual) && !initial.is_some_and(|v| numeric_zero(&expected, v)) {
             db.error(
                 "type.mismatch",
@@ -75,6 +111,47 @@ pub(super) fn checked_type(
         actual
     }
 }
+pub(super) fn binary_type(operator: char, a: &ValueType, b: &ValueType) -> ValueType {
+    if let ValueType::Union(members) = a {
+        return ValueType::union(
+            members
+                .iter()
+                .map(|member| binary_type(operator, member, b)),
+        );
+    }
+    if let ValueType::Union(members) = b {
+        return ValueType::union(
+            members
+                .iter()
+                .map(|member| binary_type(operator, a, member)),
+        );
+    }
+    if a == &ValueType::Unknown || b == &ValueType::Unknown {
+        return ValueType::Unknown;
+    }
+    let numeric =
+        |t: &ValueType| matches!(t, ValueType::Named(n) if n == "number" || n == "integer");
+    let dimensional = |t: &ValueType| matches!(t, ValueType::Named(n) if matches!(n.as_str(), "length" | "length-percentage" | "percentage" | "angle" | "time" | "frequency" | "resolution" | "flex"));
+    let length_percentage = |t: &ValueType| matches!(t, ValueType::Named(n) if matches!(n.as_str(), "length" | "percentage" | "length-percentage"));
+    match operator {
+        '+' | '-' if a == b && (numeric(a) || dimensional(a)) => a.clone(),
+        '+' | '-' if numeric(a) && numeric(b) => ValueType::named("number"),
+        '+' | '-' if length_percentage(a) && length_percentage(b) => {
+            ValueType::named("length-percentage")
+        }
+        '*' if numeric(b) && (numeric(a) || dimensional(a)) => a.clone(),
+        '*' if numeric(a) && dimensional(b) => b.clone(),
+        '/' if numeric(b) && (numeric(a) || dimensional(a)) => {
+            if numeric(a) {
+                ValueType::named("number")
+            } else {
+                a.clone()
+            }
+        }
+        _ => ValueType::Unknown,
+    }
+}
+
 pub fn infer_type(value: &str) -> ValueType {
     let cleaned = without_comments(value);
     let value = cleaned.trim();
@@ -164,6 +241,9 @@ pub fn infer_type(value: &str) -> ValueType {
 }
 
 pub(super) fn numeric_zero(expected: &ValueType, value: &str) -> bool {
+    if let ValueType::Union(members) = expected {
+        return members.iter().any(|member| numeric_zero(member, value));
+    }
     matches!(expected, ValueType::Named(n) if n == "integer" || n == "number")
         && without_comments(value).trim() == "0"
 }

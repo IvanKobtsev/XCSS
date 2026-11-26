@@ -12,9 +12,12 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                     let start = default.as_ptr() as usize - parse.source.text().as_ptr() as usize;
                     let value = parse.value(TextRange::new(start, start + default.len()));
                     let actual = expression_type(db, file, &value);
+                    validate_arithmetic(db, file, &value, true);
                     let expected = parameter
                         .annotation
-                        .map(|a| checked_type(db, file, parameter.range, Some(a), None))
+                        .map(|a| {
+                            types::checked_parameter_type(db, file, parameter.range, Some(a), None)
+                        })
                         .unwrap_or_else(|| actual.clone());
                     if parameter.annotation.is_none() && actual == ValueType::Unknown {
                         db.error(
@@ -75,7 +78,7 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                     .push(db.symbols[old.0].location.clone());
             }
             let actual = expression_type(db, file, &constant.initial);
-            validate_constant_arithmetic(db, file, &constant.initial);
+            validate_arithmetic(db, file, &constant.initial, false);
             let expected = if let Some(annotation) = constant.annotation {
                 checked_type(db, file, constant.range, Some(annotation), None)
             } else {
@@ -122,7 +125,12 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
         }
     }
 }
-fn validate_constant_arithmetic(db: &mut Database, file: &FileId, value: &Value) {
+pub(super) fn validate_arithmetic(
+    db: &mut Database,
+    file: &FileId,
+    value: &Value,
+    union_only: bool,
+) {
     use xcss_syntax::ast::{ArithmeticExpression, ArithmeticKind};
     fn known_operands(db: &Database, file: &FileId, tree: &ArithmeticExpression) -> bool {
         match &tree.kind {
@@ -143,13 +151,22 @@ fn validate_constant_arithmetic(db: &mut Database, file: &FileId, value: &Value)
                 ArithmeticKind::Binary { .. } | ArithmeticKind::Unary { .. }
             )
             && known_operands(db, file, &tree)
+            && (!union_only
+                || part
+                    .descendants()
+                    .iter()
+                    .any(|v| matches!(expression_type(db, file, v), ValueType::Union(_))))
             && expression_type(db, file, part) == ValueType::Unknown
         {
             db.error(
                 "type.arithmetic",
                 file,
                 part.range,
-                "Incompatible types in constant arithmetic",
+                if union_only {
+                    "Incompatible types in union arithmetic"
+                } else {
+                    "Incompatible types in constant arithmetic"
+                },
             );
             break;
         }

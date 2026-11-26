@@ -7,6 +7,52 @@ fn at(source: &str, needle: &str) -> Position {
         .unwrap()
 }
 #[test]
+fn parameter_unions_have_readable_hover_and_separate_type_tokens() {
+    for keyword in ["injection", "util"] {
+        let source = format!(
+            "@{keyword} fade($p: percentage /* member */ | number = 50%) {{ opacity: $p; }} .a {{ @:fade(red); }}"
+        );
+        let file = FileId("a.xcss".into());
+        let mut host = LanguageService::new();
+        host.set_file(file.clone(), 1, source.clone()).unwrap();
+        let snapshot = host.snapshot();
+        assert!(
+            snapshot
+                .hover(&file, at(&source, "fade(red)"))
+                .unwrap()
+                .text
+                .contains("$p: percentage | number = 50%")
+        );
+        assert!(
+            snapshot
+                .hover(&file, at(&source, "$p;"))
+                .unwrap()
+                .text
+                .contains("percentage | number")
+        );
+        for name in ["percentage", "number"] {
+            let position = at(&source, name);
+            assert!(
+                snapshot
+                    .semantic_tokens(&file)
+                    .iter()
+                    .any(|token| TOKEN_TYPES[token.token_type] == "type"
+                        && token.line == position.line
+                        && token.character == position.character
+                        && token.length == name.len())
+            );
+        }
+        assert!(
+            snapshot
+                .diagnostics(&file)
+                .iter()
+                .any(|d| d.diagnostic.message.contains("percentage | number"))
+        );
+        let declarations = snapshot.css_declarations(&file);
+        assert!(!declarations.declarations[0].checkable);
+    }
+}
+#[test]
 fn raw_contents_are_excluded_from_editor_queries() {
     let source = "@raw { .raw { unknown: $missing; } @:missing; } .normal { color: red; }";
     let file = FileId("a.xcss".into());

@@ -483,6 +483,7 @@ impl Printer<'_> {
                     } else {
                         let operator = matches!(text, "=" | "+" | "*" | "/")
                             || matches!(p, "=" | "+" | "*" | "/")
+                            || !selector && (text == "|" || p == "|")
                             || (text == "-" || p == "-") && !gap.is_empty();
                         let colon = p == ":"
                             && !selector

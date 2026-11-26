@@ -336,8 +336,8 @@ impl ServiceSnapshot {
             .map(|r| &r.location)
             .unwrap_or(&symbol.location);
         let mut text = format!("{:?} {}", symbol.kind, symbol.name);
-        if let ValueType::Named(kind) = &symbol.value_type {
-            text.push_str(&format!(": {kind}"));
+        if symbol.value_type != ValueType::Unknown {
+            text.push_str(&format!(": {}", symbol.value_type));
         }
         if let Some(signature) = self.0.signature(symbol.id) {
             let parameters: Vec<_> = signature
@@ -345,10 +345,7 @@ impl ServiceSnapshot {
                 .iter()
                 .map(|p| {
                     let name = &self.0.symbol(p.symbol).unwrap().name;
-                    let ty = match &p.value_type {
-                        ValueType::Unknown => "unknown",
-                        ValueType::Named(name) => name,
-                    };
+                    let ty = &p.value_type;
                     format!(
                         "{name}: {ty}{}",
                         p.default
@@ -471,7 +468,13 @@ impl ServiceSnapshot {
                 );
             for name in annotation {
                 let start = name.as_ptr() as usize - parse.source.text().as_ptr() as usize;
-                candidates.push((TextRange::new(start, start + name.len()), 4, false, 2));
+                for token in parse.tokens.iter().filter(|token| {
+                    token.kind == xcss_syntax::TokenKind::Word
+                        && token.range.start >= start
+                        && token.range.end <= start + name.len()
+                }) {
+                    candidates.push((token.range, 4, false, 2));
+                }
             }
         }
         for selector in selectors::raw_selectors(parse) {

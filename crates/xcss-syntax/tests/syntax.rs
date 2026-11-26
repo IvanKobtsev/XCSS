@@ -10,6 +10,27 @@ fn parsed(text: &str) -> xcss_syntax::ParseResult {
     )))
 }
 #[test]
+fn parameter_annotations_retain_full_unions_and_defaults() {
+    for keyword in ["injection", "util"] {
+        let p = parsed(&format!(
+            "@{keyword} f($a:percentage|number,$b: length /* member */ | percentage = 1px) {{}}"
+        ));
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+        let definition = p.injection(&p.tree.children[0]).unwrap();
+        assert_eq!(definition.parameters.len(), 2);
+        assert_eq!(
+            definition.parameters[0].annotation,
+            Some("percentage|number")
+        );
+        assert_eq!(definition.parameters[0].default, None);
+        assert_eq!(
+            definition.parameters[1].annotation,
+            Some("length /* member */ | percentage")
+        );
+        assert_eq!(definition.parameters[1].default, Some("1px"));
+    }
+}
+#[test]
 fn raw_blocks_are_opaque_and_preserve_ranges() {
     for body in [
         "",

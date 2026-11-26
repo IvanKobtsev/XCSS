@@ -4,6 +4,27 @@ use xcss_source::FileId;
 fn id(name: &str) -> FileId {
     FileId(name.into())
 }
+#[test]
+fn parameter_unions_substitute_arguments_defaults_and_forwarded_values() {
+    let result = compile(&[("a.xcss", "@injection fade($p: percentage | number) { opacity: $p; --supplied: $p; } @util faded($p: number | percentage = 50%) { @:fade($p); } .number { @:faded(0.5); } .percent { @:faded(75%); } .default { @:faded; } .forced { @:faded(25%) as injection; }")], "a.xcss", &[]).unwrap();
+    let css = format!(
+        "{}\n{}",
+        result.modules[0].css,
+        result.utilities.as_ref().unwrap().css
+    );
+    for expected in [
+        "opacity: .5",
+        "opacity: .75",
+        "--supplied: 75%",
+        "--supplied: 50%",
+        "--supplied: 25%",
+    ] {
+        assert!(css.contains(expected), "{expected}: {css}");
+    }
+    assert!(!css.contains("@property"));
+    assert!(!css.contains("@util"));
+    assert!(!css.contains("@injection"));
+}
 
 #[test]
 fn provided_variable_exports_match_scoped_css() {

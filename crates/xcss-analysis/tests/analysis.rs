@@ -4,6 +4,162 @@ use xcss_source::FileId;
 fn id(name: &str) -> FileId {
     FileId(name.into())
 }
+
+#[test]
+fn parameter_unions_accept_members_defaults_and_forwarding() {
+    for keyword in ["injection", "util"] {
+        let source = format!(
+            "$default = 25%;
+             @{keyword} take($p: percentage | number) {{ opacity: $p; }}
+             @{keyword} forward($p: number | percentage = $default) {{ @:take($p); }}
+             @{keyword} subset($p: integer) {{ @:take($p); }}
+             @{keyword} defaults($p: percentage /* type */ | number = 0) {{ opacity: $p; }}
+             @{keyword} many($p: percentage | number | color | number) {{}}
+             .a {{ @:take(50%); @:take(0.5); @:take(2); @:take(-1); @:take(0); @:forward; @:subset(1); @:defaults; @:many(red); }}"
+        );
+        let mut h = host(&[("a.xcss", &source)]);
+        let snapshot = h.snapshot();
+        assert!(
+            snapshot.diagnostics().is_empty(),
+            "{keyword}: {:?}",
+            snapshot.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn parameter_unions_reject_incompatible_arguments_and_defaults() {
+    for (source, code) in [
+        (
+            "@injection f($p: percentage | number) {} .a { @:f(red); }",
+            "type.argument-mismatch",
+        ),
+        ("@util f($p: percentage | number = red) {}", "type.mismatch"),
+        (
+            "$c = red; @injection f($p: percentage | number = $c) {}",
+            "type.mismatch",
+        ),
+        (
+            "@injection f($p: percentage) {} @util g($p: percentage | number = 50%) { @:f($p); }",
+            "type.argument-mismatch",
+        ),
+        (
+            "@util g($p: percentage | number) { $n: percentage = $p; }",
+            "type.mismatch",
+        ),
+    ] {
+        let mut h = host(&[("a.xcss", source)]);
+        let snapshot = h.snapshot();
+        assert!(
+            snapshot.diagnostics().iter().any(|d| d.code == code),
+            "{source}: {:?}",
+            snapshot.diagnostics()
+        );
+        assert!(
+            snapshot
+                .diagnostics()
+                .iter()
+                .all(|d| !d.message.contains("Named("))
+        );
+    }
+}
+
+#[test]
+fn union_annotations_are_parameter_only_and_validate_every_member() {
+    for source in [
+        "$p: percentage | number = 50%;",
+        "@vars { --p: percentage | number = 50%; }",
+        "@vars { @provided --p: percentage | number; }",
+        "@injection f($p: percentage | missing) {}",
+        "@injection f($p: percentage || number) {}",
+        "@util f($p: | number) {}",
+        "@util f($p: number |) {}",
+        "@util f($p:) {}",
+        "@injection f($p: (percentage | number)) {}",
+    ] {
+        let mut h = host(&[("a.xcss", source)]);
+        let snapshot = h.snapshot();
+        assert!(!snapshot.diagnostics().is_empty(), "{source}");
+    }
+    let mut h = host(&[(
+        "a.xcss",
+        "@util bad($p: number || percentage) {} @util later($p: percentage | number) {} .a { @:later(red); }",
+    )]);
+    assert!(
+        h.snapshot()
+            .diagnostics()
+            .iter()
+            .any(|d| d.code == "type.argument-mismatch")
+    );
+}
+
+#[test]
+fn union_arithmetic_checks_all_member_combinations() {
+    let mut h = host(&[(
+        "a.xcss",
+        "@injection take($n: number | percentage) {} @util f($p: percentage | number) { $twice = $p * 2; $half = $twice / 2; @:take($half); opacity: $p * 2; }",
+    )]);
+    let snapshot = h.snapshot();
+    assert!(
+        snapshot.diagnostics().is_empty(),
+        "{:?}",
+        snapshot.diagnostics()
+    );
+    assert_eq!(
+        snapshot
+            .symbols()
+            .iter()
+            .find(|s| s.name == "$half")
+            .unwrap()
+            .value_type
+            .to_string(),
+        "percentage | number"
+    );
+    for source in [
+        "@util f($p: percentage | number) { $bad = $p + 2; }",
+        "@util f($p: percentage | number) { opacity: $p + 2; }",
+        "@injection take($n: number) {} @util f($p: percentage | number) { @:take($p + 2); }",
+        "@util f($p: percentage | number) { $bad = $p * $p; }",
+    ] {
+        let mut h = host(&[("a.xcss", source)]);
+        let snapshot = h.snapshot();
+        assert!(
+            snapshot
+                .diagnostics()
+                .iter()
+                .any(|d| d.code == "type.arithmetic"),
+            "{source}: {:?}",
+            snapshot.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn union_types_normalize_and_compare_member_compatibility() {
+    let union = ValueType::union([
+        ValueType::named("percentage"),
+        ValueType::union([ValueType::named("number"), ValueType::named("percentage")]),
+    ]);
+    assert_eq!(union.to_string(), "percentage | number");
+    assert!(union.accepts(&ValueType::named("integer")));
+    assert!(union.accepts(&ValueType::union([
+        ValueType::named("number"),
+        ValueType::named("percentage")
+    ])));
+    assert!(!ValueType::named("percentage").accepts(&union));
+    assert!(!union.accepts(&ValueType::union([
+        ValueType::named("number"),
+        ValueType::named("color")
+    ])));
+    assert_eq!(
+        ValueType::union([ValueType::named("number"), ValueType::named("number")]),
+        ValueType::named("number")
+    );
+    assert_eq!(
+        ValueType::union([union, ValueType::Unknown]),
+        ValueType::Unknown
+    );
+}
 #[test]
 fn raw_contents_have_no_semantics() {
     let mut host = AnalysisHost::new();

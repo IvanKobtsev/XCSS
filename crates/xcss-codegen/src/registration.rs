@@ -8,6 +8,14 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
     let kind = match &symbol.value_type {
         ValueType::Named(name) => name.as_str(),
         ValueType::Unknown => "*",
+        ValueType::Union(_) => {
+            return Err(vec![Diagnostic::error(
+                "generate.property-initial",
+                file,
+                variable.location.range,
+                "Union types cannot be registered as custom properties",
+            )]);
+        }
     };
     let default = match kind {
         "number" | "integer" => "0",

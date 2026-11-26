@@ -111,6 +111,39 @@ declarations produce the same key, compilation reports an error. Each provided
 variable needs a type annotation or an initializer whose type XCSS can infer.
 `local` controls inheritance in both declaration forms.
 
+## Injection and util parameter unions
+
+Parameters of `@injection` and `@util` can accept multiple CSS types separated by
+`|`:
+
+```xcss
+@injection fade($opacity: percentage | number) {
+  opacity: $opacity;
+}
+
+@util faded($opacity: percentage | number = 50%) {
+  @:fade($opacity);
+}
+
+.card { @:faded(0.5); }
+.overlay { @:fade(75%); }
+```
+
+Arguments and defaults must match at least one member. Existing compatibility
+rules still apply, so `number` also accepts integers. Numbers are not converted
+to percentages or restricted to the range 0–1. Supplied values are emitted as
+written.
+
+A parameter retains its declared union even when it has a default. Forwarding
+it to another parameter requires that every possible member be accepted.
+Arithmetic must work for every combination of member types: multiplying
+`percentage | number` by a number works, but adding a number does not.
+
+Union annotations are supported only on injection and util parameters, not on
+constants, custom properties, or provided variables. Local constants can infer
+a union from a parameter. Unions contain existing type names; type aliases,
+parenthesized types, literal types, and numeric ranges are not supported.
+
 ## Zero inference and comments
 
 An unannotated literal `0` defaults to `length`, so `@vars { --gap = 0; }`

@@ -28,20 +28,65 @@ pub struct VariableRegistration {
 pub enum ValueType {
     Unknown,
     Named(String),
+    Union(Vec<ValueType>),
 }
 impl std::fmt::Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unknown => f.write_str("unknown"),
             Self::Named(name) => f.write_str(name),
+            Self::Union(members) => {
+                for (index, member) in members.iter().enumerate() {
+                    if index != 0 {
+                        f.write_str(" | ")?;
+                    }
+                    write!(f, "{member}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
 impl ValueType {
+    /// Flatten and deduplicate alternatives in source order. Unknown propagates
+    /// so an invalid or unresolved branch cannot masquerade as a known type.
+    pub fn union(members: impl IntoIterator<Item = Self>) -> Self {
+        fn insert(member: ValueType, unique: &mut Vec<ValueType>) -> bool {
+            match member {
+                ValueType::Unknown => false,
+                ValueType::Union(members) => {
+                    members.into_iter().all(|member| insert(member, unique))
+                }
+                member => {
+                    if !unique.contains(&member) {
+                        unique.push(member);
+                    }
+                    true
+                }
+            }
+        }
+        let mut unique = Vec::new();
+        for member in members {
+            if !insert(member, &mut unique) {
+                return Self::Unknown;
+            }
+        }
+        match unique.len() {
+            0 => Self::Unknown,
+            1 => unique.pop().unwrap(),
+            _ => Self::Union(unique),
+        }
+    }
     pub fn named(name: &str) -> Self {
         Self::Named(name.into())
     }
     pub fn accepts(&self, actual: &Self) -> bool {
+        if let Self::Union(members) = actual {
+            return members.iter().all(|member| self.accepts(member));
+        }
+        if let Self::Union(members) = self {
+            return members.iter().any(|member| member.accepts(actual));
+        }
         self == &Self::Unknown
             || actual == &Self::Unknown
             || self == actual
