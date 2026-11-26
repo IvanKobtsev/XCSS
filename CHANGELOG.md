@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Breaking: language-service API v7 replaces hover `text` with structured symbol, type, signature, variable, constant-value, and declaration data. Consumers must format their own hover hints; diagnostic messages are unchanged.
+
 ## 0.12.0
 
 - Resolve XCSS recipe imports and `url()` asset aliases from project `tsconfig.paths` in both CLI and Vite; CLI compile now accepts `--project`.

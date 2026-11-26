@@ -1,5 +1,66 @@
 # Language service
 
+## Structured hover data (API v7)
+
+Breaking change: `hover(uri, position)` returns semantic data instead of `text`.
+Consumers of API v6, including CrossBreeze's Rust renderer, must replace access
+to `hover.text` with their own formatting when adopting API v7. There is no
+compatibility text field. Diagnostics retain their existing messages.
+
+The result is `null` (Rust `None`) when no supported symbol resolves. Otherwise:
+
+| Field | Meaning |
+| --- | --- |
+| `range` | Hovered occurrence's original zero-based UTF-16 range in the queried file; qualified references include the namespace prefix. |
+| `kind` | `namespace`, `keyframe`, `variable`, `injection`, `function`, `util`, `parameter`, `constant`, or `class`. |
+| `name` | Analyzer spelling, retaining sigils such as `$` and `--`. |
+| `declaration` | Resolved declaration's location (`uri` and UTF-16 `range`), possibly in another file. |
+| `valueType` | Structured analyzed type; for a function, its return type. |
+| `signature` | For callables, ordered `parameters` and boolean `acceptsContent`; present even with zero parameters. |
+| `variable` | For registered variables, boolean `inherits` and optional `initialValue`. |
+| `constantValue` | For constants, the trimmed initializer source, without evaluation. |
+
+A type is `{ kind: 'unknown' }`, `{ kind: 'named', name }`, or
+`{ kind: 'union', members }`, with recursively structured members in analyzer
+order. Unknown types are explicit, not missing. Each parameter has `name`,
+`valueType`, and optional `defaultValue`. Defaults and initial values are XCSS
+source strings without presentation labels. Inapplicable optional fields are
+absent in Node results and `None` in Rust.
+
+Rust exposes owned `Hover`, `HoverSymbolKind`, `HoverType`, `HoverSignature`,
+`HoverParameter`, and `HoverVariable` types. Rust kinds and types are enums;
+fields use snake_case and declaration locations use `file` instead of `uri`.
+Internal analyzer symbol IDs do not cross the interface.
+
+Hosts control all presentation. For example, a Node consumer can build a plain
+signature from the data, then choose its own markup and escaping:
+
+```js
+function formatType(type) {
+  switch (type.kind) {
+    case 'unknown': return 'unknown'
+    case 'named': return type.name
+    case 'union': return type.members.map(formatType).join(' | ')
+  }
+}
+
+function formatHover(hover) {
+  if (!hover) return null
+  if (hover.signature) {
+    const parameters = hover.signature.parameters.map(parameter =>
+      `${parameter.name}: ${formatType(parameter.valueType)}` +
+      (parameter.defaultValue === undefined ? '' : ` = ${parameter.defaultValue}`))
+    const content = hover.signature.acceptsContent ? ' { @content }' : ''
+    const result = hover.kind === 'function' ? `: ${formatType(hover.valueType)}` : ''
+    return `@${hover.kind} ${hover.name}(${parameters.join(', ')})${content}${result}`
+  }
+  return `${hover.name}: ${formatType(hover.valueType)}`
+}
+```
+
+The hover target coverage and snapshot semantics are unchanged. This API does
+not compile CSS, evaluate initializers, or add TypeScript hover targets.
+
 ## TypeScript editor integration (API v6)
 
 The editor resolves named XCSS imports through the TypeScript project.
@@ -80,7 +141,7 @@ access, or a protocol dependency. Hosts provide normalized file identities, text
 monotonically increasing revisions, and explicit import resolutions.
 
 `LanguageService::snapshot()` retains an immutable project view. Queries return
-owned diagnostics, definitions, references, hover text, and semantic tokens. Symbol
+owned diagnostics, definitions, references, hover data, and semantic tokens. Symbol
 IDs never cross this interface. All editor ranges use zero-based UTF-16 positions;
 the parser and analyzer continue using original UTF-8 byte ranges.
 
@@ -88,8 +149,8 @@ The published `@cross-css/native` package exposes `LanguageService` with `setFil
 `removeFile`, `setResolution`, `document`, `definition`, `references`, and `hover`.
 `languageServiceCapabilities()` supplies the API version and the ordered token legend.
 `document()` returns a project revision, structured diagnostics, and absolute
-token positions. Adapters encode tokens for their protocol. Hover text is plain
-text.
+token positions. Adapters encode tokens for their protocol and format structured
+hover data for their UI.
 
 Diagnostics include a stable numeric `code`, a readable `label`, and the
 specific `message`. Stylesheet codes use `XC-1xx` for syntax, `XC-2xx` for

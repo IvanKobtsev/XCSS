@@ -59,7 +59,7 @@ test('stylesheet diagnostics and TypeScript setup warnings are independent', () 
 
 test('editor API returns UTF-16 facts without invoking compilation', () => {
   const service = new LanguageService()
-  assert.equal(languageServiceCapabilities().apiVersion, 6)
+  assert.equal(languageServiceCapabilities().apiVersion, 7)
   const uri = 'file:///app.xcss'
   const source = '/* 😀 */ @import lib from "./lib"; .a { @:lib.paint(); color: --global; }'
   service.setFile('file:///lib.xcss', 1, '@injection paint($p: color = red) { color: $p; }')
@@ -70,7 +70,9 @@ test('editor API returns UTF-16 facts without invoking compilation', () => {
   assert.deepEqual(document.diagnostics, [])
   assert.equal(service.definition(uri, position)[0].uri, 'file:///lib.xcss')
   assert.equal(service.references(uri, position, false).length, 1)
-  assert.match(service.hover(uri, position).text, /\$p: color = red/)
+  assert.deepEqual(service.hover(uri, position).signature.parameters, [
+    { name: '$p', valueType: { kind: 'named', name: 'color' }, defaultValue: 'red' },
+  ])
   const legend = languageServiceCapabilities().tokenTypes
   assert(document.tokens.some(token => legend[token.tokenType] === 'namespace'))
   for (let i = 1; i < document.tokens.length; i++) {
@@ -91,5 +93,5 @@ test('line comments do not create symbols or editor tokens', () => {
  assert.deepEqual(document.diagnostics, [])
  assert(!document.tokens.some(token => token.line === 0))
  assert(!document.tokens.some(token => token.line === 2 && token.character >= 6))
- assert.match(service.hover(uri, { line: 1, character: 11 }).text, /length/)
+ assert.deepEqual(service.hover(uri, { line: 1, character: 11 }).valueType, { kind: 'named', name: 'length' })
 })

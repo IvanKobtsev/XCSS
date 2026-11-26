@@ -112,7 +112,57 @@ pub struct Selectors {
 #[napi(object)]
 pub struct EditorHover {
     pub range: EditorRange,
-    pub text: String,
+    #[napi(
+        ts_type = "'namespace' | 'keyframe' | 'variable' | 'injection' | 'function' | 'util' | 'parameter' | 'constant' | 'class'"
+    )]
+    pub kind: String,
+    pub name: String,
+    pub declaration: EditorLocation,
+    pub value_type: HoverType,
+    pub signature: Option<HoverSignature>,
+    pub variable: Option<HoverVariable>,
+    pub constant_value: Option<String>,
+}
+#[napi(object)]
+pub struct HoverType {
+    #[napi(ts_type = "'unknown' | 'named' | 'union'")]
+    pub kind: String,
+    pub name: Option<String>,
+    pub members: Option<Vec<HoverType>>,
+}
+#[napi(object)]
+pub struct HoverParameter {
+    pub name: String,
+    pub value_type: HoverType,
+    pub default_value: Option<String>,
+}
+#[napi(object)]
+pub struct HoverSignature {
+    pub parameters: Vec<HoverParameter>,
+    pub accepts_content: bool,
+}
+#[napi(object)]
+pub struct HoverVariable {
+    pub inherits: bool,
+    pub initial_value: Option<String>,
+}
+impl From<service::HoverType> for HoverType {
+    fn from(value: service::HoverType) -> Self {
+        let (kind, name, members) = match value {
+            service::HoverType::Unknown => ("unknown", None, None),
+            service::HoverType::Named(name) => ("named", Some(name), None),
+            service::HoverType::Union(members) => (
+                "union",
+                None,
+                Some(members.into_iter().map(Self::from).collect()),
+            ),
+        };
+        Self {
+            kind: kind.into(),
+            name,
+            members,
+        }
+    }
 }
 #[napi(object)]
 pub struct EditorDefinitionDetails {
@@ -491,7 +541,38 @@ impl LanguageService {
             .hover(&FileId(uri), input(position))
             .map(|h| EditorHover {
                 range: range(h.range),
-                text: h.text,
+                kind: match h.kind {
+                    service::HoverSymbolKind::Namespace => "namespace",
+                    service::HoverSymbolKind::Keyframe => "keyframe",
+                    service::HoverSymbolKind::Variable => "variable",
+                    service::HoverSymbolKind::Injection => "injection",
+                    service::HoverSymbolKind::Function => "function",
+                    service::HoverSymbolKind::Util => "util",
+                    service::HoverSymbolKind::Parameter => "parameter",
+                    service::HoverSymbolKind::Constant => "constant",
+                    service::HoverSymbolKind::Class => "class",
+                }
+                .into(),
+                name: h.name,
+                declaration: location(h.declaration),
+                value_type: h.value_type.into(),
+                signature: h.signature.map(|signature| HoverSignature {
+                    parameters: signature
+                        .parameters
+                        .into_iter()
+                        .map(|parameter| HoverParameter {
+                            name: parameter.name,
+                            value_type: parameter.value_type.into(),
+                            default_value: parameter.default_value,
+                        })
+                        .collect(),
+                    accepts_content: signature.accepts_content,
+                }),
+                variable: h.variable.map(|variable| HoverVariable {
+                    inherits: variable.inherits,
+                    initial_value: variable.initial_value,
+                }),
+                constant_value: h.constant_value,
             })
     }
 }

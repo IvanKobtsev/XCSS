@@ -108,7 +108,35 @@ selectors: Array<Selector>
 
 export interface EditorHover {
 range: EditorRange
-text: string
+kind: 'namespace' | 'keyframe' | 'variable' | 'injection' | 'function' | 'util' | 'parameter' | 'constant' | 'class'
+name: string
+declaration: EditorLocation
+valueType: HoverType
+signature?: HoverSignature
+variable?: HoverVariable
+constantValue?: string
+}
+
+export interface HoverType {
+kind: 'unknown' | 'named' | 'union'
+name?: string
+members?: Array<HoverType>
+}
+
+export interface HoverParameter {
+name: string
+valueType: HoverType
+defaultValue?: string
+}
+
+export interface HoverSignature {
+parameters: Array<HoverParameter>
+acceptsContent: boolean
+}
+
+export interface HoverVariable {
+inherits: boolean
+initialValue?: string
 }
 
 export interface EditorDefinitionDetails {

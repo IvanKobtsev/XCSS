@@ -48,6 +48,19 @@ tokens; `definition`, `references`, and `hover` accept zero-based UTF-16 positio
 These APIs do not compile CSS or read files. See the repository's
 [language-service contract](https://github.com/IvanKobtsev/XCSS/blob/main/docs/language-service.md).
 
+### Structured hovers (API v7)
+
+`hover(uri, position)` returns `null` or a data object with `range`, `kind`,
+`name`, `declaration`, and structured `valueType`. Callable `signature` data
+contains ordered parameters (names, types, optional source defaults) and
+`acceptsContent`. Registered `variable` data contains `inherits` and optional
+`initialValue`; constants expose their initializer source as `constantValue`.
+Types distinguish `unknown`, `named`, and `union` with ordered members.
+
+Breaking: `text` was removed. Consumers such as CrossBreeze must format these
+fields themselves; XCSS provides no hover prose or markup. Diagnostics are
+unchanged. See the [schema and formatting example](../../docs/language-service.md#structured-hover-data-api-v7).
+
 
 
 ## CSS declaration validation inputs (API v2, native 0.3.2)

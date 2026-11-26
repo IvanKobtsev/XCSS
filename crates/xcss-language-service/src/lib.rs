@@ -4,7 +4,7 @@ use xcss_source::{Diagnostic, FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind};
 
 pub use xcss_analysis::UpdateError;
-pub const API_VERSION: u32 = 6;
+pub const API_VERSION: u32 = 7;
 use std::{
     collections::BTreeMap,
     sync::{Arc, OnceLock},
@@ -25,6 +25,8 @@ mod css;
 mod warnings;
 pub use warnings::Warning;
 mod diagnostic_catalog;
+mod hover;
+pub use hover::{Hover, HoverParameter, HoverSignature, HoverSymbolKind, HoverType, HoverVariable};
 mod editor;
 pub use editor::{Completion, DefinitionDetails, ExportedSymbol};
 mod values;
@@ -74,12 +76,6 @@ pub struct EditorDiagnostic {
     pub legacy_code: Option<&'static str>,
     pub location: EditorLocation,
     pub related: Vec<EditorLocation>,
-}
-#[derive(Clone, Debug)]
-pub struct Hover {
-    pub range: Range,
-    /// Plain text, deliberately not untrusted Markdown.
-    pub text: String,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticToken {
@@ -323,77 +319,6 @@ impl ServiceSnapshot {
         locations.sort_by_key(|l| (l.file.clone(), l.range.start.line, l.range.start.character));
         locations.dedup();
         locations
-    }
-    pub fn hover(&self, file: &FileId, position: Position) -> Option<Hover> {
-        let offset = self.offset(file, position)?;
-        let symbol = self.0.symbol_at(file, offset)?;
-        let occurrence = self
-            .0
-            .references()
-            .iter()
-            .filter(|r| r.location.file == *file && r.location.range.contains(offset))
-            .min_by_key(|r| r.location.range.end - r.location.range.start)
-            .map(|r| &r.location)
-            .unwrap_or(&symbol.location);
-        let mut text = format!("{:?} {}", symbol.kind, symbol.name);
-        if symbol.value_type != ValueType::Unknown {
-            text.push_str(&format!(": {}", symbol.value_type));
-        }
-        if let Some(signature) = self.0.signature(symbol.id) {
-            let parameters: Vec<_> = signature
-                .parameters
-                .iter()
-                .map(|p| {
-                    let name = &self.0.symbol(p.symbol).unwrap().name;
-                    let ty = &p.value_type;
-                    format!(
-                        "{name}: {ty}{}",
-                        p.default
-                            .as_ref()
-                            .map(|v| format!(" = {v}"))
-                            .unwrap_or_default()
-                    )
-                })
-                .collect();
-            text = format!(
-                "@{} {}({}){}",
-                if symbol.kind == SymbolKind::Function {
-                    "function"
-                } else if symbol.kind == SymbolKind::Util {
-                    "util"
-                } else {
-                    "injection"
-                },
-                symbol.name,
-                parameters.join(", "),
-                if signature.accepts_content {
-                    " { @content }"
-                } else {
-                    ""
-                }
-            );
-        }
-        if symbol.kind == SymbolKind::Function {
-            text.push_str(&format!(": {}", symbol.value_type));
-        }
-        if let Some(variable) = self.0.variable_registration(symbol.id) {
-            text.push_str(if variable.inherits {
-                "\ninherits: true"
-            } else {
-                "\ninherits: false (local)"
-            });
-            if let Some(initial) = variable.initial {
-                text.push_str(&format!("\ninitial: {initial}"));
-            }
-        }
-        if let Some((parse, initial)) = self.0.constant_initializer(symbol.id) {
-            text.push_str(&format!("\nvalue: {}", parse.slice(initial.range).trim()));
-        }
-        text.push_str(&format!("\n{}", symbol.location.file.0));
-        Some(Hover {
-            range: self.location(occurrence)?.range,
-            text,
-        })
     }
     pub fn semantic_tokens(&self, file: &FileId) -> Vec<SemanticToken> {
         let Some(parse) = self.0.syntax(file) else {

@@ -1,4 +1,6 @@
-use xcss_language_service::{LanguageService, TOKEN_TYPES};
+use xcss_language_service::{
+    HoverParameter, HoverSymbolKind, HoverType, LanguageService, TOKEN_TYPES,
+};
 use xcss_source::{FileId, Position, SourceFile};
 
 fn at(source: &str, needle: &str) -> Position {
@@ -7,7 +9,7 @@ fn at(source: &str, needle: &str) -> Position {
         .unwrap()
 }
 #[test]
-fn parameter_unions_have_readable_hover_and_separate_type_tokens() {
+fn parameter_unions_have_structured_hover_and_separate_type_tokens() {
     for keyword in ["injection", "util"] {
         let source = format!(
             "@{keyword} fade($p: percentage /* member */ | number = 50%) {{ opacity: $p; }} .a {{ @:fade(red); }}"
@@ -16,20 +18,23 @@ fn parameter_unions_have_readable_hover_and_separate_type_tokens() {
         let mut host = LanguageService::new();
         host.set_file(file.clone(), 1, source.clone()).unwrap();
         let snapshot = host.snapshot();
-        assert!(
-            snapshot
-                .hover(&file, at(&source, "fade(red)"))
-                .unwrap()
-                .text
-                .contains("$p: percentage | number = 50%")
+        let union = HoverType::Union(vec![
+            HoverType::Named("percentage".into()),
+            HoverType::Named("number".into()),
+        ]);
+        let hover = snapshot.hover(&file, at(&source, "fade(red)")).unwrap();
+        assert_eq!(
+            hover.signature.unwrap().parameters,
+            vec![HoverParameter {
+                name: "$p".into(),
+                value_type: union.clone(),
+                default_value: Some("50%".into()),
+            }]
         );
-        assert!(
-            snapshot
-                .hover(&file, at(&source, "$p;"))
-                .unwrap()
-                .text
-                .contains("percentage | number")
-        );
+        let parameter = snapshot.hover(&file, at(&source, "$p;")).unwrap();
+        assert_eq!(parameter.kind, HoverSymbolKind::Parameter);
+        assert_eq!(parameter.value_type, union);
+        assert!(parameter.signature.is_none());
         for name in ["percentage", "number"] {
             let position = at(&source, name);
             assert!(
@@ -82,10 +87,17 @@ fn utilities_have_signatures_hover_navigation_and_tokens() {
     let snapshot = host.snapshot();
     let position = at(source, "trim(2)");
     let hover = snapshot.hover(&file, position).unwrap();
-    assert!(
-        hover.text.contains("@util trim($n: integer = 3)"),
-        "{}",
-        hover.text
+    assert_eq!(hover.kind, HoverSymbolKind::Util);
+    assert_eq!(hover.name, "trim");
+    let signature = hover.signature.unwrap();
+    assert!(!signature.accepts_content);
+    assert_eq!(
+        signature.parameters,
+        vec![HoverParameter {
+            name: "$n".into(),
+            value_type: HoverType::Named("integer".into()),
+            default_value: Some("3".into()),
+        }]
     );
     assert_eq!(snapshot.definition(&file, position).len(), 1);
     assert_eq!(snapshot.references(&file, position, true).len(), 2);
@@ -107,12 +119,12 @@ fn constants_have_types_navigation_tokens_and_revisioned_values() {
     let old = host.snapshot();
     let position = at(source, "$size;");
     let hover = old.hover(&file, position).unwrap();
-    assert!(
-        hover.text.contains("Constant $size: length"),
-        "{}",
-        hover.text
-    );
-    assert!(hover.text.contains("56px"));
+    assert_eq!(hover.kind, HoverSymbolKind::Constant);
+    assert_eq!(hover.name, "$size");
+    assert_eq!(hover.value_type, HoverType::Named("length".into()));
+    assert_eq!(hover.constant_value.as_deref(), Some("56px"));
+    assert!(hover.signature.is_none());
+    assert!(hover.variable.is_none());
     assert_eq!(old.definition(&file, position).len(), 1);
     assert_eq!(old.references(&file, position, true).len(), 2);
     let tokens = old.semantic_tokens(&file);
@@ -136,6 +148,21 @@ fn constants_have_types_navigation_tokens_and_revisioned_values() {
         .unwrap();
     assert!(!host.snapshot().diagnostics(&file).is_empty());
     assert!(old.diagnostics(&file).is_empty());
+    assert_eq!(
+        host.snapshot()
+            .hover(&file, position)
+            .unwrap()
+            .constant_value
+            .as_deref(),
+        Some("red")
+    );
+    assert_eq!(
+        old.hover(&file, position)
+            .unwrap()
+            .constant_value
+            .as_deref(),
+        Some("56px")
+    );
 }
 #[test]
 fn multifile_queries_and_immutable_results() {
@@ -154,11 +181,22 @@ fn multifile_queries_and_immutable_results() {
     let old = host.snapshot();
     assert!(old.diagnostics(&file).is_empty());
     assert_eq!(old.definition(&file, at(source, "paint"))[0].file, lib);
-    assert!(
-        old.hover(&file, at(source, "paint"))
-            .unwrap()
-            .text
-            .contains("$color: color = red")
+    let hover = old.hover(&file, at(source, "paint")).unwrap();
+    assert_eq!(hover.kind, HoverSymbolKind::Injection);
+    assert_eq!(hover.range.start, at(source, "lib.paint"));
+    assert_eq!(
+        hover.range.end.character,
+        hover.range.start.character + "lib.paint".len()
+    );
+    assert_eq!(
+        hover.declaration,
+        old.definition(&file, at(source, "paint"))[0]
+    );
+    assert_eq!(
+        hover.signature.unwrap().parameters[0]
+            .default_value
+            .as_deref(),
+        Some("red")
     );
     assert_eq!(old.references(&file, at(source, "paint"), false).len(), 1);
     assert_eq!(old.references(&file, at(source, "paint"), true).len(), 2);
@@ -209,13 +247,12 @@ fn classifications_recovery_escapes_and_utf16() {
                 && d.label == "Unknown injection"
                 && d.legacy_code == Some("binding.unknown-injection"))
     );
-    assert!(
-        snapshot
-            .hover(&file, at(text, "--size;"))
-            .unwrap()
-            .text
-            .contains("inherits: false")
-    );
+    let hover = snapshot.hover(&file, at(text, "--size;")).unwrap();
+    assert_eq!(hover.kind, HoverSymbolKind::Variable);
+    let variable = hover.variable.unwrap();
+    assert!(!variable.inherits);
+    assert_eq!(variable.initial_value.as_deref(), Some("1px"));
+    assert!(snapshot.hover(&file, at(text, "missing()")).is_none());
     assert!(
         snapshot
             .definition(
@@ -251,12 +288,16 @@ fn functions_have_return_signatures_navigation_and_value_types() {
     );
     let position = at(source, "size(3px)");
     let hover = snapshot.hover(&file, position).unwrap();
-    assert!(
-        hover
-            .text
-            .contains("@function size($n: length = 2px): length"),
-        "{}",
-        hover.text
+    assert_eq!(hover.kind, HoverSymbolKind::Function);
+    assert_eq!(hover.name, "size");
+    assert_eq!(hover.value_type, HoverType::Named("length".into()));
+    assert_eq!(
+        hover.signature.unwrap().parameters,
+        vec![HoverParameter {
+            name: "$n".into(),
+            value_type: HoverType::Named("length".into()),
+            default_value: Some("2px".into()),
+        }]
     );
     assert_eq!(snapshot.definition(&file, position).len(), 1);
     assert_eq!(snapshot.references(&file, position, true).len(), 2);
