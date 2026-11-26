@@ -828,7 +828,7 @@ fn validate_call(db: &mut Database, call: &Call, target: SymbolId) {
                 "type.argument-mismatch",
                 &call.file,
                 call.node.header,
-                format!("Argument does not match {:?}", param.value_type),
+                format!("Argument does not match {}", param.value_type),
             );
         }
     }

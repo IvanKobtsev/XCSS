@@ -29,7 +29,7 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                             "type.mismatch",
                             file,
                             value.range,
-                            format!("Expected {expected:?}, found {actual:?}"),
+                            format!("Expected {expected}, found {actual}"),
                         );
                     }
                     if let Some(id) = db
@@ -95,7 +95,7 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                     "type.mismatch",
                     file,
                     constant.initial.range,
-                    format!("Expected {expected:?}, found {actual:?}"),
+                    format!("Expected {expected}, found {actual}"),
                 );
             }
             db.symbols[id.0].value_type = expected;

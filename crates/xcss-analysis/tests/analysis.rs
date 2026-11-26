@@ -186,6 +186,47 @@ fn host(files: &[(&str, &str)]) -> AnalysisHost {
     host
 }
 #[test]
+fn type_mismatch_diagnostics_show_plain_type_names() {
+    for (source, code, message) in [
+        (
+            "@vars { --hello: percentage = #ae9c9c; }",
+            "type.mismatch",
+            "Expected percentage, found color",
+        ),
+        (
+            "$hello: percentage = #ae9c9c;",
+            "type.mismatch",
+            "Expected percentage, found color",
+        ),
+        (
+            "$hello = #ae9c9c; @injection f($p: percentage = $hello) {}",
+            "type.mismatch",
+            "Expected percentage, found color",
+        ),
+        (
+            "@injection f($p: percentage) {} .a { @:f(#ae9c9c); }",
+            "type.argument-mismatch",
+            "Argument does not match percentage",
+        ),
+    ] {
+        let mut h = host(&[("a.xcss", source)]);
+        let snapshot = h.snapshot();
+        let diagnostics: Vec<_> = snapshot
+            .diagnostics()
+            .iter()
+            .filter(|d| d.code == code)
+            .collect();
+        assert!(
+            !diagnostics.is_empty(),
+            "{source}: {:?}",
+            snapshot.diagnostics()
+        );
+        for diagnostic in diagnostics {
+            assert_eq!(diagnostic.message, message, "{source}");
+        }
+    }
+}
+#[test]
 fn resolves_injections_parameters_vars_and_classes() {
     let mut h = host(&[
         (

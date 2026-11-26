@@ -59,7 +59,7 @@ pub(super) fn checked_type(
                 "type.mismatch",
                 file,
                 range,
-                format!("Expected {annotation}, found {actual:?}"),
+                format!("Expected {expected}, found {actual}"),
             );
         }
         expected

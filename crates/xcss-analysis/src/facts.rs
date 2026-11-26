@@ -29,6 +29,14 @@ pub enum ValueType {
     Unknown,
     Named(String),
 }
+impl std::fmt::Display for ValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unknown => f.write_str("unknown"),
+            Self::Named(name) => f.write_str(name),
+        }
+    }
+}
 impl ValueType {
     pub fn named(name: &str) -> Self {
         Self::Named(name.into())
