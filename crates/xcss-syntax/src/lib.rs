@@ -37,6 +37,7 @@ pub enum NodeKind {
     Variable,
     Constant,
     Injection,
+    Function,
     Util,
     Call,
     Import,
@@ -506,6 +507,7 @@ impl Parser<'_> {
                 "provided" => NodeKind::Provided,
                 "variants" => NodeKind::Variants,
                 "injection" => NodeKind::Injection,
+                "function" => NodeKind::Function,
                 "util" => NodeKind::Util,
                 ":" => NodeKind::Call,
                 "import" => NodeKind::Import,
@@ -534,22 +536,8 @@ impl Parser<'_> {
                 ));
             }
             let forbidden = [
-                "@mixin",
-                "@include",
-                "@use",
-                "@forward",
-                "@if",
-                "@else",
-                "@for",
-                "@each",
-                "@while",
-                "@function",
-                "@return",
-                "@extend",
-                "@debug",
-                "@warn",
-                "@error",
-                "@at-root",
+                "@mixin", "@include", "@use", "@forward", "@if", "@else", "@for", "@each",
+                "@while", "@return", "@extend", "@debug", "@warn", "@error", "@at-root",
             ];
             if forbidden.iter().any(|s| {
                 raw.strip_prefix(s).is_some_and(|tail| {
@@ -608,7 +596,11 @@ impl Parser<'_> {
                     || self.cursor < self.tokens.len() && self.token(self.cursor) != "}"
                     || matches!(
                         kind,
-                        NodeKind::Injection | NodeKind::Util | NodeKind::Vars | NodeKind::Rule
+                        NodeKind::Injection
+                            | NodeKind::Function
+                            | NodeKind::Util
+                            | NodeKind::Vars
+                            | NodeKind::Rule
                     ))
             {
                 missing.push(';');
@@ -663,6 +655,7 @@ fn validate_fragments(result: &mut ParseResult) {
         }
         let raw = node.header_text(&result.source);
         let invalid_shape = match node.kind {
+            NodeKind::Function => result.function(node).is_none(),
             NodeKind::Variants => node.block.is_some() || result.variants(node).is_none(),
             NodeKind::Constant => node.block.is_some() || result.constant(node).is_none(),
             NodeKind::Injection | NodeKind::Util => {
@@ -702,6 +695,50 @@ fn validate_fragments(result: &mut ParseResult) {
             ));
             continue;
         }
+        for root in result.values(node) {
+            let parts = root.descendants();
+            for token in result.significant(root.range).windows(2) {
+                if result.token_text(token[0]) == "@" && result.token_text(token[1]) == ":"
+                    && !parts.iter().any(|v| v.range.start == token[0].range.start && matches!(v.kind, ast::ValueKind::Call { .. }))
+                    && !parts.iter().any(|v| matches!(&v.kind, ast::ValueKind::Function { name, .. } if name.eq_ignore_ascii_case("url")) && v.range.contains(token[0].range.start))
+                {
+                    diagnostics.push(Diagnostic::error("syntax.invalid-construct", &result.source.id, token[0].range, "Expected a function call with parentheses"));
+                }
+            }
+            for part in parts {
+                if let ast::ValueKind::Call { name, .. } = &part.kind {
+                    let valid_name = name.split('.').all(|name| {
+                        raffia::ParserBuilder::new(name)
+                            .syntax(raffia::Syntax::Css)
+                            .build()
+                            .parse::<raffia::ast::Ident>()
+                            .is_ok()
+                    });
+                    let text = result.slice(part.range);
+                    let open = text.find('(').unwrap();
+                    let inside = TextRange::new(
+                        part.range.start + open + 1,
+                        part.range
+                            .end
+                            .saturating_sub(1)
+                            .max(part.range.start + open + 1),
+                    );
+                    let empty_argument = !result.significant(inside).is_empty()
+                        && result
+                            .split_ranges(inside, ",")
+                            .iter()
+                            .any(|r| result.significant(*r).is_empty());
+                    if !valid_name || !text.ends_with(')') || empty_argument {
+                        diagnostics.push(Diagnostic::error(
+                            "syntax.invalid-construct",
+                            &result.source.id,
+                            part.range,
+                            "Invalid function call",
+                        ));
+                    }
+                }
+            }
+        }
         let cleaned = mask_line_comments(raw);
         let mut parser = raffia::ParserBuilder::new(&cleaned)
             .syntax(raffia::Syntax::Css)
@@ -712,6 +749,7 @@ fn validate_fragments(result: &mut ParseResult) {
             }
             NodeKind::Declaration
                 if !raw.contains('$')
+                    && !raw.contains("@:")
                     && result.declaration(node).is_some_and(|d| {
                         !d.value.descendants().iter().any(|v| {
                             matches!(

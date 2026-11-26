@@ -378,6 +378,36 @@ impl ServiceSnapshot {
         offset: usize,
     ) -> Option<Vec<xcss_typescript::Completion>> {
         let parse = self.0.syntax(file)?;
+        if let Some(start) = parse.source.text().get(..offset)?.rfind("@:") {
+            let prefix = &parse.source.text()[start + 2..offset];
+            let opaque = parse.tokens.iter().any(|t| {
+                matches!(
+                    t.kind,
+                    TokenKind::String | TokenKind::Comment | TokenKind::Raw
+                ) && t.range.contains(start)
+            });
+            let in_value = parse.tree.descendants().flat_map(|n| parse.values(n)).any(|v| v.range.start <= start && offset <= v.range.end && !v.descendants().iter().any(|v| matches!(&v.kind, xcss_syntax::ast::ValueKind::Function { name, .. } if name.eq_ignore_ascii_case("url")) && v.range.contains(start)));
+            if !opaque
+                && in_value
+                && prefix
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))
+            {
+                return Some(
+                    self.0
+                        .visible_functions(file)
+                        .into_iter()
+                        .filter(|(name, _)| name.starts_with(prefix))
+                        .map(|(name, _)| xcss_typescript::Completion {
+                            label: name.clone(),
+                            kind: "function",
+                            range: TextRange::new(start + 2, offset),
+                            new_text: name,
+                        })
+                        .collect(),
+                );
+            }
+        }
         let node = parse
             .tree
             .descendants()

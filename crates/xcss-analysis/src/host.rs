@@ -175,6 +175,99 @@ impl AnalysisSnapshot {
         })?;
         Some((parse, node))
     }
+    pub fn function_definition(&self, id: SymbolId) -> Option<(&ParseResult, &Node)> {
+        let symbol = self.symbol(id)?;
+        if symbol.kind != SymbolKind::Function {
+            return None;
+        }
+        let parse = self.syntax(&symbol.location.file)?;
+        let node = parse.tree.descendants().find(|n| {
+            parse
+                .function(n)
+                .is_some_and(|f| f.signature.name_range == symbol.location.range)
+        })?;
+        Some((parse, node))
+    }
+    pub fn function_signature(&self, id: SymbolId) -> Option<FunctionSignature> {
+        let symbol = self.symbol(id)?;
+        if symbol.kind != SymbolKind::Function {
+            return None;
+        }
+        Some(FunctionSignature {
+            symbol: id,
+            parameters: self.signature(id)?.parameters.clone(),
+            return_type: symbol.value_type.clone(),
+        })
+    }
+    /// Function names visible through local definitions, imports, or unique global lookup.
+    pub fn visible_functions(&self, file: &FileId) -> Vec<(String, SymbolId)> {
+        let mut names = BTreeMap::new();
+        for symbol in self
+            .symbols()
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Function)
+        {
+            let imported = self.imports().iter().find(|i| {
+                i.location.file == *file
+                    && !i
+                        .symbol
+                        .and_then(|id| self.symbol(id))
+                        .is_some_and(|s| s.kind == SymbolKind::Namespace)
+                    && self.syntax(file).is_some_and(|p| {
+                        decode_identifier(p.slice(i.location.range)) == symbol.name
+                    })
+            });
+            let candidates: Vec<_> = self
+                .symbols()
+                .iter()
+                .filter(|s| {
+                    matches!(
+                        s.kind,
+                        SymbolKind::Injection | SymbolKind::Util | SymbolKind::Function
+                    ) && s.name == symbol.name
+                })
+                .collect();
+            let target = self
+                .0
+                .callable(file, &symbol.name)
+                .or_else(|| imported.and_then(|i| i.symbol))
+                .or_else(|| {
+                    if imported.is_none() && candidates.len() == 1 {
+                        Some(candidates[0].id)
+                    } else {
+                        None
+                    }
+                });
+            if target == Some(symbol.id) {
+                names.insert(symbol.name.clone(), symbol.id);
+            }
+        }
+        for import in self.imports().iter().filter(|i| i.location.file == *file) {
+            if let Some(namespace) = import
+                .symbol
+                .and_then(|id| self.symbol(id))
+                .filter(|s| s.kind == SymbolKind::Namespace)
+            {
+                for symbol in self.symbols().iter().filter(|s| {
+                    s.kind == SymbolKind::Function
+                        && Some(&s.location.file) == import.target_file.as_ref()
+                }) {
+                    names.insert(format!("{}.{}", namespace.name, symbol.name), symbol.id);
+                }
+            }
+        }
+        names.into_iter().collect()
+    }
+    pub fn resolved_value_call(&self, file: &FileId, value: &Value) -> Option<SymbolId> {
+        let ValueKind::Call { name_range, .. } = &value.kind else {
+            return None;
+        };
+        self.0
+            .references
+            .iter()
+            .find(|r| r.location.file == *file && r.location.range == *name_range)
+            .and_then(|r| r.target)
+    }
     pub fn revision(&self) -> u64 {
         self.0.generation
     }

@@ -10,6 +10,7 @@ pub enum SymbolKind {
     Keyframe,
     Variable,
     Injection,
+    Function,
     Util,
     Parameter,
     Constant,
@@ -137,6 +138,12 @@ pub struct Parameter {
     pub default: Option<String>,
 }
 #[derive(Clone, Debug)]
+pub struct FunctionSignature {
+    pub symbol: SymbolId,
+    pub parameters: Vec<Parameter>,
+    pub return_type: ValueType,
+}
+#[derive(Clone, Debug)]
 pub struct InjectionSignature {
     pub symbol: SymbolId,
     pub parameters: Vec<Parameter>,
@@ -161,6 +168,7 @@ pub struct Expression {
 pub enum DependencyKind {
     Import,
     Injection,
+    Function,
 }
 #[derive(Clone, Debug)]
 pub struct Dependency {

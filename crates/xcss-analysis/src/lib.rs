@@ -10,6 +10,7 @@ use xcss_syntax::{Node, NodeKind, ParseResult, TokenKind};
 mod collect;
 mod constants;
 mod facts;
+mod functions;
 mod host;
 mod registration;
 mod types;
@@ -54,6 +55,7 @@ struct Call {
     file: FileId,
     node: Node,
     owner: Option<SymbolId>,
+    expression: bool,
 }
 #[derive(Default)]
 struct Collected {
@@ -66,6 +68,7 @@ impl Database {
     fn callable(&self, file: &FileId, name: &str) -> Option<SymbolId> {
         self.local(file, name, SymbolKind::Util)
             .or_else(|| self.local(file, name, SymbolKind::Injection))
+            .or_else(|| self.local(file, name, SymbolKind::Function))
     }
 
     fn error(
@@ -114,6 +117,14 @@ impl Database {
                                 (s.kind, kind),
                                 (SymbolKind::Injection, SymbolKind::Util)
                                     | (SymbolKind::Util, SymbolKind::Injection)
+                                    | (
+                                        SymbolKind::Function,
+                                        SymbolKind::Injection | SymbolKind::Util
+                                    )
+                                    | (
+                                        SymbolKind::Injection | SymbolKind::Util,
+                                        SymbolKind::Function
+                                    )
                             ))
                 })
         {
@@ -274,7 +285,7 @@ fn analyze(
                     "binding.missing-export",
                     &import.file,
                     *range,
-                    format!("Injection `{name}` is not exported"),
+                    format!("Callable `{name}` is not exported"),
                 );
             }
             if named
@@ -302,7 +313,7 @@ fn analyze(
     for parse in &parsed {
         analyze_references(&mut db, &collected, parse);
     }
-    analyze_constants(&mut db, &parsed);
+
     let mut edges = Vec::new();
     for call in &collected.calls {
         let parsed = db.files[&call.file].clone();
@@ -348,16 +359,23 @@ fn analyze(
                 .symbols
                 .iter()
                 .filter(|s| {
-                    matches!(s.kind, SymbolKind::Injection | SymbolKind::Util) && s.name == name
+                    matches!(
+                        s.kind,
+                        SymbolKind::Injection | SymbolKind::Util | SymbolKind::Function
+                    ) && s.name == name
                 })
                 .map(|s| s.id)
                 .collect();
             if candidates.len() > 1 {
                 db.error(
-                    "binding.ambiguous-injection",
+                    if call.expression {
+                        "binding.ambiguous-function"
+                    } else {
+                        "binding.ambiguous-injection"
+                    },
                     &call.file,
                     range,
-                    format!("Ambiguous injection `{name}`"),
+                    format!("Ambiguous callable `{name}`"),
                 );
                 suppressed = true;
                 None
@@ -378,19 +396,45 @@ fn analyze(
             db.dependencies.push(Dependency {
                 from: call.file.clone(),
                 to: db.symbols[target.0].location.file.clone(),
-                kind: DependencyKind::Injection,
+                kind: if db.symbols[target.0].kind == SymbolKind::Function {
+                    DependencyKind::Function
+                } else {
+                    DependencyKind::Injection
+                },
             });
             if let Some(owner) = call.owner {
                 edges.push((owner, target));
             }
-            validate_call(&mut db, call, target);
         } else if !suppressed {
             db.error(
-                "binding.unknown-injection",
+                if call.expression {
+                    "binding.unknown-function"
+                } else {
+                    "binding.unknown-injection"
+                },
                 &call.file,
                 range,
-                format!("Unknown injection `{name}`"),
+                format!("Unknown callable `{name}`"),
             );
+        }
+    }
+    functions::analyze_types(&mut db, &parsed);
+    analyze_constants(&mut db, &parsed);
+    for call in &collected.calls {
+        let parse = &db.files[&call.file];
+        if let Some(syntax) = parse.call(&call.node) {
+            if let Some(target) = db
+                .references
+                .iter()
+                .find(|r| r.location.file == call.file && r.location.range == syntax.name_range)
+                .and_then(|r| r.target)
+            {
+                if call.expression != (db.symbols[target.0].kind == SymbolKind::Function) {
+                    db.error("binding.callable-kind", &call.file, syntax.name_range, "Functions must be called in values; injections and utils must be called as statements");
+                } else {
+                    validate_call(&mut db, call, target);
+                }
+            }
         }
     }
     check_cycles(&mut db, &edges, "binding.injection-cycle");
@@ -609,6 +653,13 @@ fn ambiguous_arithmetic(value: &str) -> bool {
 }
 fn expression_type(db: &Database, file: &FileId, value: &Value) -> ValueType {
     match &value.kind {
+        ValueKind::Call { name_range, .. } => db
+            .references
+            .iter()
+            .find(|r| r.location.file == *file && r.location.range == *name_range)
+            .and_then(|r| r.target)
+            .map(|id| db.symbols[id.0].value_type.clone())
+            .unwrap_or(ValueType::Unknown),
         ValueKind::Parameter(_) | ValueKind::CustomProperty(_) => db
             .references
             .iter()
@@ -934,6 +985,29 @@ fn analyze_references(db: &mut Database, state: &Collected, parse: &ParseResult)
         } else {
             db.local(file, &name, SymbolKind::Variable)
         };
+        if let Some(target) = target.filter(|id| db.symbols[id.0].kind == SymbolKind::Parameter) {
+            let in_default = parse
+                .tree
+                .descendants()
+                .filter_map(|n| parse.injection(n))
+                .any(|i| {
+                    i.parameters.iter().any(|p| {
+                        p.default.is_some_and(|text| {
+                            let start =
+                                text.as_ptr() as usize - parse.source.text().as_ptr() as usize;
+                            start <= range.start && range.end <= start + text.len()
+                        })
+                    })
+                });
+            if in_default && db.symbols[target.0].location.range.start >= range.start {
+                db.error(
+                    "binding.parameter-scope",
+                    file,
+                    range,
+                    "Defaults may only reference earlier parameters",
+                );
+            }
+        }
         if name.starts_with('$') && target.is_none() {
             db.error(
                 "binding.parameter-scope",
@@ -955,48 +1029,9 @@ fn analyze_references(db: &mut Database, state: &Collected, parse: &ParseResult)
 }
 fn reference_value_position(parse: &ParseResult, range: TextRange) -> bool {
     let contains = |r: TextRange| r.start <= range.start && r.end >= range.end;
-    for node in parse.tree.descendants().filter(|n| contains(n.header)) {
-        let value = if let Some(c) = parse.constant(node) {
-            Some(c.initial)
-        } else {
-            parse.declaration(node).map(|d| d.value)
-        };
-        if let Some(value) = value.filter(|v| contains(v.range)) {
-            return !value.descendants().iter().any(|v| {
-                matches!(&v.kind,
-                ValueKind::Function { name, .. } if name.eq_ignore_ascii_case("url"))
-                    && contains(v.range)
-            });
-        }
-        if parse
-            .call(node)
-            .is_some_and(|c| c.arguments.iter().any(|v| contains(v.range)))
-        {
-            return true;
-        }
-        if parse.injection(node).is_some_and(|i| {
-            i.parameters.iter().any(|p| {
-                p.default.is_some_and(|v| {
-                    let start = v.as_ptr() as usize - parse.source.text().as_ptr() as usize;
-                    contains(TextRange::new(start, start + v.len()))
-                })
-            })
-        }) {
-            return true;
-        }
-        if node.kind == NodeKind::AtRule {
-            let keyword = parse
-                .slice(node.header)
-                .split(|c: char| c.is_whitespace() || c == '(')
-                .next()
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            if matches!(keyword.as_str(), "@media" | "@supports" | "@container") {
-                return true;
-            }
-        }
-    }
-    false
+    parse.tree.descendants().filter(|n| contains(n.header)).flat_map(|n| parse.values(n)).any(|value| {
+        contains(value.range) && !value.descendants().iter().any(|v| matches!(&v.kind, ValueKind::Function { name, .. } if name.eq_ignore_ascii_case("url")) && contains(v.range))
+    })
 }
 fn check_cycles(db: &mut Database, edges: &[(SymbolId, SymbolId)], code: &'static str) {
     for symbol in edges.iter().map(|(from, _)| *from).collect::<BTreeSet<_>>() {

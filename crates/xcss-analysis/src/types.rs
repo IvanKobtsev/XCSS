@@ -248,7 +248,7 @@ pub(super) fn numeric_zero(expected: &ValueType, value: &str) -> bool {
         && without_comments(value).trim() == "0"
 }
 
-fn without_comments(value: &str) -> String {
+pub(super) fn without_comments(value: &str) -> String {
     if !value.contains("/*") && !value.contains("//") {
         return value.to_owned();
     }

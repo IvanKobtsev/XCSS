@@ -308,7 +308,11 @@ impl<'a> Lowerer<'a> {
                         }
                     }
                 }
-                NodeKind::Injection | NodeKind::Util | NodeKind::Constant | NodeKind::Variants => {}
+                NodeKind::Injection
+                | NodeKind::Function
+                | NodeKind::Util
+                | NodeKind::Constant
+                | NodeKind::Variants => {}
                 NodeKind::Import if parse.injection_import(node).is_some() => {}
                 NodeKind::Call => {
                     let Some(target) = self.snapshot.resolved_call(file, node) else {

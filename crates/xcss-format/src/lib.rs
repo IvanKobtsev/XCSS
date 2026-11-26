@@ -481,6 +481,12 @@ impl Printer<'_> {
                             Doc::Line
                         });
                     } else {
+                        let arrow = p == "=" && text == ">";
+                        let call_colon = p == ":"
+                            && index >= 2
+                            && self
+                                .slice(tokens[index - 2].range.start, tokens[index - 2].range.end)
+                                == "@";
                         let operator = matches!(text, "=" | "+" | "*" | "/")
                             || matches!(p, "=" | "+" | "*" | "/")
                             || !selector && (text == "|" || p == "|")
@@ -491,7 +497,7 @@ impl Printer<'_> {
                         let gap = !gap.is_empty()
                             && !matches!(text, "," | ":" | "." | ")" | "]")
                             && !matches!(p, "@" | "$" | ".");
-                        if operator || colon || gap {
+                        if !arrow && !call_colon && (operator || colon || gap || p == ">") {
                             docs.push(Doc::Text(" ".into()));
                         }
                     }
@@ -559,8 +565,11 @@ fn known_at_rule(header: &str) -> bool {
 fn xcss_expression(value: &xcss_syntax::ast::Value) -> bool {
     use xcss_syntax::ast::ValueKind;
     match &value.kind {
-        ValueKind::Operator(_) | ValueKind::Group(_) => true,
-        ValueKind::Sequence(values) => values.iter().any(xcss_expression),
+        ValueKind::Call { .. } | ValueKind::Operator(_) | ValueKind::Group(_) => true,
+        ValueKind::Sequence(values)
+        | ValueKind::Function {
+            arguments: values, ..
+        } => values.iter().any(xcss_expression),
         // Native CSS function internals are handled by the CSS printer, including URLs.
         _ => false,
     }

@@ -193,6 +193,9 @@ impl ServiceSnapshot {
                 false
             }
         };
+        if matches!(value.kind, xcss_syntax::ast::ValueKind::Call { .. }) {
+            return typed(&self.0.value_type(file, value), out);
+        }
         match &value.kind {
             ValueKind::Parameter(_) | ValueKind::CustomProperty(_) => {
                 return self

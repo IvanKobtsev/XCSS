@@ -56,13 +56,22 @@ pub(super) fn collect(
                     "Expected custom property name",
                 );
             }
-            let value_type = if variable.annotation.is_none() && variable.initial.is_none() {
+            let value_type = if variable.annotation.is_none()
+                && (variable.initial.is_none()
+                    || variable.initial.is_some_and(|v| v.contains("@:")))
+            {
                 ValueType::Unknown
             } else {
-                checked_type(db, file, range, variable.annotation, variable.initial)
+                checked_type(
+                    db,
+                    file,
+                    range,
+                    variable.annotation,
+                    variable.initial.filter(|v| !v.contains("@:")),
+                )
             };
             if value_type != ValueType::Unknown
-                && let Some(initial) = variable.initial
+                && let Some(initial) = variable.initial.filter(|v| !v.contains("@:"))
                 && (!registration_initial_is_independent(initial)
                     || !xcss_syntax::valid_css_value(initial))
             {
@@ -85,27 +94,31 @@ pub(super) fn collect(
                 false,
             );
         }
-        NodeKind::Injection | NodeKind::Util => {
+        NodeKind::Injection | NodeKind::Util | NodeKind::Function => {
             let Some(injection) = parse.injection(node) else {
                 return;
             };
             let decoded = decode_identifier(injection.name);
             let name = decoded.as_str();
+            let (kind, placement_code, placement_message) = match node.kind {
+                NodeKind::Function => (
+                    SymbolKind::Function,
+                    "syntax.function-placement",
+                    "Function definitions must be top-level",
+                ),
+                NodeKind::Util => (
+                    SymbolKind::Util,
+                    "syntax.util-placement",
+                    "Util definitions must be top-level",
+                ),
+                _ => (
+                    SymbolKind::Injection,
+                    "syntax.injection-placement",
+                    "Injection definitions must be top-level",
+                ),
+            };
             if db.scopes[scope.0].parent.is_some() {
-                db.error(
-                    if node.kind == NodeKind::Util {
-                        "syntax.util-placement"
-                    } else {
-                        "syntax.injection-placement"
-                    },
-                    file,
-                    node.header,
-                    if node.kind == NodeKind::Util {
-                        "Util definitions must be top-level"
-                    } else {
-                        "Injection definitions must be top-level"
-                    },
-                );
+                db.error(placement_code, file, node.header, placement_message);
             }
             let id = db.declare(
                 Location {
@@ -113,11 +126,7 @@ pub(super) fn collect(
                     range: injection.name_range,
                 },
                 name.into(),
-                if node.kind == NodeKind::Util {
-                    SymbolKind::Util
-                } else {
-                    SymbolKind::Injection
-                },
+                kind,
                 scope,
                 ValueType::Unknown,
                 false,
@@ -140,7 +149,7 @@ pub(super) fn collect(
                 }
                 let initial = parameter.default;
                 // Reference-dependent defaults are checked after lexical binding.
-                let value_type = if initial.is_some_and(|v| v.contains('$')) {
+                let value_type = if initial.is_some_and(|v| v.contains('$') || v.contains("@:")) {
                     ValueType::Unknown
                 } else {
                     types::checked_parameter_type(db, file, range, parameter.annotation, initial)
@@ -209,6 +218,7 @@ pub(super) fn collect(
                 file: file.clone(),
                 node: node.clone(),
                 owner,
+                expression: false,
             });
             if node.block.is_some() {
                 child_scope = db.scope(file, node.range, Some(scope));
@@ -384,6 +394,25 @@ pub(super) fn collect(
             }
         }
         _ => {}
+    }
+    for value in parse.values(node) {
+        for part in value.descendants() {
+            if let ValueKind::Call { .. } = &part.kind {
+                state.calls.push(Call {
+                    file: file.clone(),
+                    owner: child_owner,
+                    expression: true,
+                    node: Node {
+                        kind: NodeKind::Call,
+                        range: part.range,
+                        header: part.range,
+                        children: vec![],
+                        missing: vec![],
+                        block: None,
+                    },
+                });
+            }
+        }
     }
     state
         .scopes

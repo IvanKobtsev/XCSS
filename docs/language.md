@@ -38,6 +38,54 @@ properties remain global. Dynamic values have unknown types, not type errors.
 Mutable Sass variables, interpolation, module directives, mixins and control
 flow are rejected. CSS Modules classes are local unless marked `:global`.
 
+## Functions
+
+Functions return one value expression and expand at compile time:
+
+```xcss
+@function transparentize($color: color, $opacity: percentage | number): color
+    => rgb(from $color r g b / $opacity);
+
+@function equalColumns($columns: integer)
+    => repeat($columns, minmax(0, 1fr));
+
+.box {
+  background: @:transparentize(#000, 0.5);
+  grid-template-columns: @:equalColumns(3);
+}
+```
+
+Definitions must be top-level and end with a semicolon. Parentheses are required
+on definitions and calls, including calls without arguments. The optional return
+annotation follows the parameter list and accepts the same type names and unions
+as parameters. Without an annotation, XCSS infers the return type from the body
+and declared parameter types; dynamic CSS values can retain an unknown type.
+Known incompatible annotated returns are errors.
+
+Functions share callable names, imports, namespaces, forward lookup, and resolution
+precedence with injections and utils. Duplicate names are errors. Functions are
+called in values; injections and utils are called as statements.
+
+Calls can appear in declarations, variable initializers, constants, parameter
+defaults, callable arguments, other function bodies, and supported at-rule
+conditions. Native CSS functions can contain XCSS calls. For example:
+
+```xcss
+@function scale($size: length, $factor: number = 2): length => $size * $factor;
+$gap = @:scale(4px);
+.card { padding: @:scale($gap, 3); }
+```
+
+Explicit arguments use caller scope. Bodies and defaults capture definition-site
+constants; defaults can reference earlier parameters. Parameters support the same
+type checks, unions, and default ordering as injections. Recursive functions and
+cycles through constants or defaults are errors, and expansion is bounded.
+
+Definitions disappear from generated CSS. Returned values use ordinary XCSS
+arithmetic lowering, scoping, asset rebasing, and CSS optimization. This can simplify
+relative colors or constant math in the final output. Block bodies, `@return`,
+control flow, keyword arguments, and variadic parameters are not supported.
+
 ## Path aliases
 
 CLI compilation/checking and the Vite plugin use the selected project's
@@ -139,7 +187,7 @@ it to another parameter requires that every possible member be accepted.
 Arithmetic must work for every combination of member types: multiplying
 `percentage | number` by a number works, but adding a number does not.
 
-Union annotations are supported only on injection and util parameters, not on
+Union annotations are supported on callable parameters and function returns, not on
 constants, custom properties, or provided variables. Local constants can infer
 a union from a parameter. Unions contain existing type names; type aliases,
 parenthesized types, literal types, and numeric ranges are not supported.

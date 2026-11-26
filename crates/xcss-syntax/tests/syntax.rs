@@ -282,3 +282,31 @@ fn line_comments_do_not_change_raw_or_semicolon_rules() {
     let p = parsed(".a { color: red // no semicolon\n width: 1px; }");
     assert!(!p.diagnostics.is_empty());
 }
+
+#[test]
+fn expression_function_views_and_malformed_calls() {
+    let p = parsed("@function f($x: length = min(1px, 2px)): length => max($x, @:ns.g(3px));");
+    assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+    let f = p.function(&p.tree.children[0]).unwrap();
+    assert_eq!(f.signature.parameters[0].default, Some("min(1px, 2px)"));
+    assert_eq!(f.return_annotation, Some("length"));
+    assert!(f.body.descendants().iter().any(|v| matches!(&v.kind, ValueKind::Call { name, arguments, .. } if name == "ns.g" && arguments.len() == 1)));
+    for source in [
+        "@function f() => ;",
+        "@function f() => red",
+        "@function f() { @return red; }",
+        ".a { color: @:f; }",
+        "@function f() => @:g(,red);",
+        "@function f() => @:g(",
+        "@function f() => @:g(]",
+        "@function f() => @:g(red,);",
+        "@function f() => @:g(,);",
+    ] {
+        assert!(!parsed(source).diagnostics.is_empty(), "{source}");
+    }
+    assert!(
+        parsed("@function f() => url(https://example.com/@:literal); .a { content: '@:literal'; }")
+            .diagnostics
+            .is_empty()
+    );
+}

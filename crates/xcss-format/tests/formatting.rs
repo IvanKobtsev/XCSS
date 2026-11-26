@@ -188,3 +188,24 @@ fn line_comments_are_preserved_and_force_line_breaks() {
     );
     assert!(output.contains(".a   {color:   red;}"), "{output}");
 }
+
+#[test]
+fn expression_functions_preserve_arrow_and_calls() {
+    for width in [40, 80] {
+        let options = FormatOptions {
+            print_width: width,
+            ..Default::default()
+        };
+        let text = formatted(
+            "@function fade($c:color,$p:percentage|number=50%):color=>rgb(from $c r g b / $p); .a{background:@:fade(red,@:opacity());}",
+            &options,
+        );
+        assert!(text.contains("=>"), "{text}");
+        assert!(text.contains("@:fade("), "{text}");
+        assert!(text.contains("@:opacity()"), "{text}");
+        formatted(
+            "@function f(/* param */ $x: length): length\n // result\n => $x;",
+            &options,
+        );
+    }
+}

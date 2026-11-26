@@ -8,11 +8,13 @@ const ENTRIES: &[(&str, &str, &str)] = &[
     ("XC-007", "XC-007", "Unknown xVars key"),
     ("XC-008", "XC-008", "Invalid xVars value"),
     ("XC-009", "XC-009", "Invalid xClass value"),
+    ("binding.ambiguous-function", "XC-216", "Ambiguous function"),
     (
         "binding.ambiguous-injection",
         "XC-200",
         "Ambiguous injection",
     ),
+    ("binding.callable-kind", "XC-214", "Invalid callable kind"),
     (
         "binding.constant-position",
         "XC-204",
@@ -25,6 +27,11 @@ const ENTRIES: &[(&str, &str, &str)] = &[
     ),
     ("binding.content-scope", "XC-206", "Invalid content scope"),
     ("binding.duplicate", "XC-207", "Duplicate declaration"),
+    (
+        "binding.function-cycle",
+        "XC-215",
+        "Cyclic value expression",
+    ),
     ("binding.import-conflict", "XC-208", "Conflicting import"),
     ("binding.injection-cycle", "XC-209", "Injection cycle"),
     ("binding.missing-export", "XC-210", "Missing export"),
@@ -33,6 +40,7 @@ const ENTRIES: &[(&str, &str, &str)] = &[
         "XC-211",
         "Invalid parameter scope",
     ),
+    ("binding.unknown-function", "XC-217", "Unknown function"),
     ("binding.unknown-injection", "XC-212", "Unknown injection"),
     (
         "binding.unresolved-import",
@@ -44,6 +52,11 @@ const ENTRIES: &[(&str, &str, &str)] = &[
         "syntax.depth",
         "XC-101",
         "Stylesheet nesting limit exceeded",
+    ),
+    (
+        "syntax.function-placement",
+        "XC-123",
+        "Invalid function placement",
     ),
     (
         "syntax.injection-placement",
@@ -140,6 +153,7 @@ const ENTRIES: &[(&str, &str, &str)] = &[
         "XC-312",
         "Provided variable requires a type",
     ),
+    ("type.return-mismatch", "XC-313", "Return type mismatch"),
     (
         "type.transition-group",
         "XC-309",

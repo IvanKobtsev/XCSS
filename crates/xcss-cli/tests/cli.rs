@@ -472,3 +472,27 @@ fn cross_figma_receiver_contract() {
         std::thread::sleep(Duration::from_millis(25));
     }
 }
+
+#[test]
+fn compiles_imported_value_functions() {
+    let root = sandbox();
+    fs::write(
+        root.join("functions.xcss"),
+        "@function columns($n: integer) => repeat($n, minmax(0, 1fr));",
+    )
+    .unwrap();
+    fs::write(root.join("main.xcss"), "@import { columns } from './functions.xcss'; .grid { grid-template-columns: @:columns(3); }").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_xcss"))
+        .current_dir(&root)
+        .args(["compile", "main.xcss", "-o", "out.css"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let css = fs::read_to_string(root.join("out.css")).unwrap();
+    assert!(css.contains("repeat(3, minmax(0, 1fr))"), "{css}");
+    assert!(!css.contains("@function"));
+}

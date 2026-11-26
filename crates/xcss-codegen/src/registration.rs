@@ -32,9 +32,38 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
         "flex" => "0fr",
         _ => "",
     };
-    let initial = variable
+    let expanded = if variable
         .initial
         .as_deref()
+        .filter(|v| v.contains("@:"))
+        .is_some()
+    {
+        let parse = lower.snapshot.syntax(file).unwrap();
+        let syntax = parse
+            .tree
+            .descendants()
+            .find_map(|n| {
+                parse
+                    .variable(n)
+                    .filter(|v| v.range == variable.location.range)
+            })
+            .unwrap();
+        let original = syntax.initial.unwrap();
+        let start = original.as_ptr() as usize - parse.source.text().as_ptr() as usize;
+        Some(crate::values::render(
+            lower,
+            parse,
+            &parse.value(TextRange::new(start, start + original.len())),
+            &crate::lower::Frame::default(),
+            crate::values::Context::default(),
+        )?)
+    } else {
+        None
+    };
+    let initial = expanded
+        .as_ref()
+        .map(|m| m.text.as_str())
+        .or(variable.initial.as_deref())
         .or_else(|| (kind != "*").then_some(default));
     let browser_kind = if matches!(kind, "frequency" | "flex") {
         let mut warning = Diagnostic::error(
@@ -87,7 +116,7 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
         &origin,
     );
     if let Some(initial) = initial {
-        let initial = if initial.trim().starts_with("url(") {
+        let initial = if expanded.is_none() && initial.trim().starts_with("url(") {
             let raw = initial
                 .trim()
                 .trim_start_matches("url(")
@@ -98,7 +127,13 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
         } else {
             initial.to_owned()
         };
-        out.push(&format!("initial-value: {initial};\n"), &origin);
+        if let Some(mapped) = &expanded {
+            out.push("initial-value: ", &origin);
+            out.append(mapped);
+            out.push(";\n", &origin);
+        } else {
+            out.push(&format!("initial-value: {initial};\n"), &origin);
+        }
     }
     out.push("}\n", &origin);
     Ok(out)

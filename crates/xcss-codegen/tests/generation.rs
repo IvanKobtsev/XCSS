@@ -925,3 +925,97 @@ fn global_names_are_reserved_and_capacity_errors_are_project_wide() {
     .unwrap_err();
     assert!(errors.iter().any(|d| d.code == "naming.capacity"));
 }
+
+#[test]
+fn expression_functions_expand_and_compose() {
+    let source = r#"
+        @function transparentize($color: color, $opacity: percentage | number): color
+            => rgb(from $color r g b / $opacity);
+        @function equalColumns($columns: integer) => repeat($columns, minmax(0, 1fr));
+        @function identity($value: length): length => $value;
+        @function twice($value: length = 2px): length => $value * 2;
+        $gap = @:identity(@:twice());
+        @injection padded($p: length = @:identity(3px)) { padding: $p; }
+        .box { background: @:transparentize(#000, 0.5); grid-template-columns: @:equalColumns(3); margin: $gap; @:padded(); --pair: @:identity(1px) @:identity(2px); }
+        @media (width > @:identity(20px)) { .wide { color: red; } }
+    "#;
+    let result = compile(&[("a.xcss", source)], "a.xcss", &[]).unwrap();
+    let css = &result.modules[0].css;
+    for text in [
+        "background: #00000080",
+        "repeat(3, minmax(0, 1fr))",
+        "margin: 4px",
+        "padding: 3px",
+        "--pair: 1px 2px",
+        "width > 20px",
+    ] {
+        assert!(css.contains(text), "{text}: {css}");
+    }
+    assert!(!css.contains("@function"));
+    assert!(!css.contains("@:"));
+}
+
+#[test]
+fn functions_keep_definition_and_argument_origins() {
+    let result = compile(&[
+        ("lib/functions.xcss", r#"$size = 7px; @vars { --accent: color = red; } @function size(): length => $size; @function image(): url => url('./image.png'); @function paint($c: color = --accent): color => $c;"#),
+        ("app/main.xcss", r#"@import fn from '../lib/functions.xcss'; @import { size } from '../lib/functions.xcss'; .box { width: @:size(); background: @:fn.image(); color: @:fn.paint(); }"#),
+    ], "app/main.xcss", &[("app/main.xcss", "../lib/functions.xcss", "lib/functions.xcss")]).unwrap();
+    let module = result
+        .modules
+        .iter()
+        .find(|m| m.module_id == id("app/main.xcss"))
+        .unwrap();
+    assert!(module.css.contains("width: 7px"), "{}", module.css);
+    assert!(module.css.contains("../lib/image.png"), "{}", module.css);
+    assert!(module.css.contains("var(--accent_"), "{}", module.css);
+}
+
+#[test]
+fn functions_preserve_arithmetic_grouping_and_register_initializers() {
+    let result = compile(&[("a.xcss", "@function plus($n: length) => $n + 2px; @vars { @provided --gap = @:plus(3px); } .a { width: 2 * @:plus(3px); height: --gap; }")], "a.xcss", &[]).unwrap();
+    let css = &result.modules[0].css;
+    assert!(css.contains("width: 10px"), "{css}");
+    assert!(
+        css.contains("initial-value: 5px") || css.contains("initial-value: calc(3px + 2px)"),
+        "{css}"
+    );
+    assert!(css.contains("syntax: \"<length>\""), "{css}");
+    assert!(result.modules[0].css_vars.contains_key("gap"));
+}
+
+#[test]
+fn function_expansion_is_bounded_and_maps_keep_argument_origins() {
+    let library = "@function f($size: length) => min($size, 10vw);";
+    let caller = ".a { width: @:f(9px); }";
+    let result = compile(&[("lib.xcss", library), ("a.xcss", caller)], "a.xcss", &[]).unwrap();
+    let module = &result.modules[0];
+    assert!(module.source_dependencies.contains(&id("lib.xcss")));
+    let mut map = parcel_sourcemap::SourceMap::from_json("/", &module.source_map).unwrap();
+    let generated = xcss_source::SourceFile::new(id("css"), 0, module.css.clone());
+    for (text, file, original) in [
+        ("min(", "lib.xcss", library.find("min(").unwrap()),
+        ("9px", "a.xcss", caller.find("9px").unwrap()),
+    ] {
+        let position = generated
+            .byte_to_utf16(module.css.find(text).unwrap())
+            .unwrap();
+        let mapping = map
+            .find_closest_mapping(position.line as u32, position.character as u32)
+            .unwrap()
+            .original
+            .unwrap();
+        assert_eq!(map.get_source(mapping.source).unwrap(), file);
+        assert_eq!(mapping.original_column as usize, original, "{text}");
+    }
+    let mut source = String::new();
+    for i in 0..130 {
+        source.push_str(&format!("@function f{i}(): length => @:f{}();", i + 1));
+    }
+    source.push_str("@function f130(): length => 1px; .a { width: @:f0(); }");
+    let errors = compile(&[("a.xcss", &source)], "a.xcss", &[]).unwrap_err();
+    assert!(
+        errors.iter().any(|d| d.code == "generate.expansion-limit"),
+        "{errors:?}"
+    );
+}

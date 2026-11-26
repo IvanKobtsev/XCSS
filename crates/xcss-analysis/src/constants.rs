@@ -6,7 +6,10 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
         for node in parse.tree.descendants() {
             if let Some(injection) = parse.injection(node) {
                 for parameter in injection.parameters {
-                    let Some(default) = parameter.default.filter(|v| v.contains('$')) else {
+                    let Some(default) = parameter
+                        .default
+                        .filter(|v| v.contains('$') || v.contains("@:"))
+                    else {
                         continue;
                     };
                     let start = default.as_ptr() as usize - parse.source.text().as_ptr() as usize;

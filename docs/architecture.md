@@ -13,8 +13,9 @@ Source owns immutable revisions, file identity, original byte ranges, line index
 UTF-16 conversion, and diagnostics. Syntax owns trivia-preserving tokens,
 recovering trees, typed AST views, arithmetic precedence, and selector inspection.
 Raffia stays private to syntax. Analysis owns scopes, symbols, bindings, types,
-injection targets/bodies, constant initializers, registrations, keyframes, and dependencies.
+injection targets/bodies, value-function signatures/bodies, constant initializers, registrations, keyframes, and dependencies.
 Code generation consumes those facts, expands injections into an origin-aware IR,
+substitutes expression functions with caller/definition source ownership,
 lowers extensions, then uses pinned Lightning CSS privately for scoping/printing.
 The independent `xcss-language-service` consumes source, syntax, analysis, and
 the isolated `xcss-typescript` integration.
@@ -42,7 +43,7 @@ objects.
 `AnalysisHost` accepts source additions/replacements/removals with increasing
 revisions, plus explicit import-resolution updates. Deletion revisions are retained.
 Project changes reuse unchanged parse trees and invalidate semantic analysis.
-The next snapshot rebuilds semantic facts, including the global injection index.
+The next snapshot rebuilds semantic facts, including the global callable index.
 Immutable snapshots remain valid after subsequent edits. Symbol/scope IDs belong
 to one snapshot. Positions use zero-based UTF-16 units; byte ranges use UTF-8.
 

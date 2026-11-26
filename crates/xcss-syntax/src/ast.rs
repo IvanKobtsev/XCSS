@@ -77,10 +77,18 @@ pub struct Value {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ValueKind {
     Literal,
+    Call {
+        name: String,
+        name_range: TextRange,
+        arguments: Vec<Value>,
+    },
     CustomProperty(String),
     Parameter(String),
     Operator(char),
-    Function { name: String, arguments: Vec<Value> },
+    Function {
+        name: String,
+        arguments: Vec<Value>,
+    },
     Group(Vec<Value>),
     Sequence(Vec<Value>),
 }
@@ -161,8 +169,13 @@ impl Value {
     }
     pub fn descendants(&self) -> Vec<&Value> {
         let mut values = vec![self];
+        if matches!(&self.kind, ValueKind::Function { name, .. } if name.eq_ignore_ascii_case("url"))
+        {
+            return values;
+        }
         match &self.kind {
             ValueKind::Function { arguments, .. }
+            | ValueKind::Call { arguments, .. }
             | ValueKind::Group(arguments)
             | ValueKind::Sequence(arguments) => {
                 for value in arguments {
@@ -179,6 +192,12 @@ pub struct Declaration<'a> {
     pub property: &'a str,
     pub property_range: TextRange,
     pub value: Value,
+}
+#[derive(Clone, Debug)]
+pub struct Function<'a> {
+    pub signature: Injection<'a>,
+    pub return_annotation: Option<&'a str>,
+    pub body: Value,
 }
 #[derive(Clone, Debug)]
 pub struct Injection<'a> {
@@ -322,6 +341,9 @@ impl ParseResult {
         })
     }
     pub fn injection<'a>(&'a self, node: &Node) -> Option<Injection<'a>> {
+        if node.kind == NodeKind::Function {
+            return self.function(node).map(|f| f.signature);
+        }
         if !matches!(node.kind, NodeKind::Injection | NodeKind::Util) {
             return None;
         }
@@ -361,6 +383,101 @@ impl ParseResult {
             name_range: name.range,
             parameters,
         })
+    }
+    pub fn function<'a>(&'a self, node: &Node) -> Option<Function<'a>> {
+        if node.kind != NodeKind::Function || node.block.is_some() {
+            return None;
+        }
+        let tokens = self.significant(node.header);
+        let text = |i: usize| tokens.get(i).map(|t| self.token_text(t));
+        if tokens.get(2)?.kind != TokenKind::Word || text(3)? != "(" {
+            return None;
+        }
+        if raffia::ParserBuilder::new(self.token_text(tokens[2]))
+            .syntax(raffia::Syntax::Css)
+            .build()
+            .parse::<raffia::ast::Ident>()
+            .is_err()
+        {
+            return None;
+        }
+        let mut depth = 0usize;
+        let close = (3..tokens.len()).find(|&i| {
+            match text(i).unwrap() {
+                "(" => depth += 1,
+                ")" => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            depth == 0
+        })?;
+        let mut signature_node = node.clone();
+        signature_node.kind = NodeKind::Injection;
+        signature_node.header.end = tokens[close].range.end;
+        let signature = self.injection(&signature_node)?;
+        let arrow = (close + 1..tokens.len())
+            .find(|&i| text(i) == Some("=") && text(i + 1) == Some(">"))?;
+        if tokens[arrow].range.end != tokens[arrow + 1].range.start {
+            return None;
+        }
+        let return_annotation = if arrow == close + 1 {
+            None
+        } else {
+            if text(close + 1)? != ":" || arrow <= close + 2 {
+                return None;
+            }
+            Some(self.slice(TextRange::new(
+                tokens[close + 2].range.start,
+                tokens[arrow - 1].range.end,
+            )))
+        };
+        let body_start = tokens.get(arrow + 2)?.range.start;
+        Some(Function {
+            signature,
+            return_annotation,
+            body: self.value(TextRange::new(body_start, node.header.end)),
+        })
+    }
+    /// Original-source value roots in each supported expression context.
+    pub fn values(&self, node: &Node) -> Vec<Value> {
+        let mut out = Vec::new();
+        if let Some(f) = self.function(node) {
+            out.push(f.body);
+        }
+        if let Some(c) = self.constant(node) {
+            out.push(c.initial);
+        }
+        if let Some(d) = self.declaration(node) {
+            out.push(d.value);
+        }
+        if let Some(v) = self.variable(node) {
+            if let Some(initial) = v.initial {
+                let start = initial.as_ptr() as usize - self.source.text().as_ptr() as usize;
+                out.push(self.value(TextRange::new(start, start + initial.len())));
+            }
+        }
+        if let Some(c) = self.call(node) {
+            out.extend(c.arguments);
+        }
+        if let Some(i) = self.injection(node) {
+            for p in i.parameters {
+                if let Some(default) = p.default {
+                    let start = default.as_ptr() as usize - self.source.text().as_ptr() as usize;
+                    out.push(self.value(TextRange::new(start, start + default.len())));
+                }
+            }
+        }
+        if node.kind == NodeKind::AtRule
+            && matches!(
+                self.significant(node.header)
+                    .get(1)
+                    .map(|t| self.token_text(t).to_ascii_lowercase())
+                    .as_deref(),
+                Some("media" | "supports" | "container")
+            )
+        {
+            out.push(self.value(node.header));
+        }
+        out
     }
     pub fn variable<'a>(&'a self, node: &Node) -> Option<Variable<'a>> {
         if node.kind != NodeKind::Variable {
@@ -416,7 +533,7 @@ impl ParseResult {
                 .unwrap_or(node.header.end);
             self.split_ranges(TextRange::new(tokens[open].range.end, end), ",")
                 .into_iter()
-                .filter(|r| !self.slice(*r).trim().is_empty())
+                .filter(|r| !self.significant(*r).is_empty())
                 .map(|r| self.value(r))
                 .collect()
         } else {
@@ -479,7 +596,57 @@ impl ParseResult {
             }
             let start = token.range.start;
             let mut end = token.range.end;
-            let kind = if text == "(" || text == "[" {
+            let kind = if text == "@"
+                && tokens
+                    .get(*cursor + 1)
+                    .is_some_and(|t| self.token_text(t) == ":")
+            {
+                let first = *cursor + 2;
+                let open = (first..tokens.len()).find(|&i| self.token_text(tokens[i]) == "(");
+                if let Some(open) = open.filter(|&i| {
+                    i == first + 1 || i == first + 3 && self.token_text(tokens[first + 1]) == "."
+                }) {
+                    let name_range =
+                        TextRange::new(tokens[first].range.start, tokens[open - 1].range.end);
+                    let name = decode_identifier(self.slice(name_range));
+                    *cursor = open + 1;
+                    let children = self.components(tokens, cursor, depth + 1);
+                    let close_start = tokens
+                        .get(*cursor)
+                        .map(|t| t.range.start)
+                        .unwrap_or_else(|| tokens.last().unwrap().range.end);
+                    end = close_start;
+                    if let Some(close) = tokens.get(*cursor) {
+                        end = close.range.end;
+                        *cursor += 1;
+                    }
+                    let arguments = self
+                        .split_ranges(TextRange::new(tokens[open].range.end, close_start), ",")
+                        .into_iter()
+                        .filter(|r| !self.slice(*r).trim().is_empty())
+                        .map(|range| Value {
+                            range,
+                            kind: ValueKind::Sequence(
+                                children
+                                    .iter()
+                                    .filter(|v| {
+                                        v.range.start >= range.start && v.range.end <= range.end
+                                    })
+                                    .cloned()
+                                    .collect(),
+                            ),
+                        })
+                        .collect();
+                    ValueKind::Call {
+                        name,
+                        name_range,
+                        arguments,
+                    }
+                } else {
+                    *cursor += 1;
+                    ValueKind::Literal
+                }
+            } else if text == "(" || text == "[" {
                 *cursor += 1;
                 let children = self.components(tokens, cursor, depth + 1);
                 if let Some(close) = tokens.get(*cursor) {

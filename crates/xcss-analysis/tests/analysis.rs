@@ -701,3 +701,107 @@ fn provided_variables_require_a_type_and_unique_export_names() {
         2
     );
 }
+
+#[test]
+fn functions_infer_returns_in_dependency_order() {
+    let mut h = host(&[(
+        "a.xcss",
+        "$base = 2px; $answer = @:outer(); @function outer() => @:inner($base); @function inner($n: length) => $n * 2; @function union($n: percentage | number): percentage | number => $n; .a { width: $answer; opacity: @:union(0.5); }",
+    )]);
+    let s = h.snapshot();
+    assert!(s.diagnostics().is_empty(), "{:?}", s.diagnostics());
+    for name in ["outer", "inner", "$answer"] {
+        let symbol = s.symbols().iter().find(|s| s.name == name).unwrap();
+        assert_eq!(symbol.value_type, ValueType::named("length"));
+    }
+}
+
+#[test]
+fn functions_reject_invalid_calls_returns_and_cycles() {
+    for (source, code) in [
+        (
+            "@function f($x: color) => $x; .a { color: @:f(2px); }",
+            "type.argument-mismatch",
+        ),
+        (
+            "@function f($x: color) => $x; .a { color: @:f(); }",
+            "type.argument-count",
+        ),
+        ("@function f(): length => red;", "type.return-mismatch"),
+        (
+            "@function f(): color | length => 1s;",
+            "type.return-mismatch",
+        ),
+        (
+            "@function f() => red; .a { @:f(); }",
+            "binding.callable-kind",
+        ),
+        (
+            "@injection f() {} .a { color: @:f(); }",
+            "binding.callable-kind",
+        ),
+        (
+            "@function f() => @:g(); @function g() => @:f();",
+            "binding.function-cycle",
+        ),
+        (
+            "$a: length = @:f(); @function f(): length => $a;",
+            "binding.function-cycle",
+        ),
+        ("@function f() => red; @util f() {}", "binding.duplicate"),
+        (".a { @function f() => red; }", "syntax.function-placement"),
+    ] {
+        let mut h = host(&[("a.xcss", source)]);
+        let s = h.snapshot();
+        assert!(
+            s.diagnostics().iter().any(|d| d.code == code),
+            "{source}: {:?}",
+            s.diagnostics()
+        );
+    }
+}
+
+#[test]
+fn function_defaults_and_invalid_return_annotations_are_checked() {
+    for (source, code) in [
+        (
+            "@function f($x: length = $later, $later: length = 1px) => $x;",
+            "binding.parameter-scope",
+        ),
+        (
+            "$a: length = @:f(); @function f($x: length = $a): length => 1px;",
+            "binding.function-cycle",
+        ),
+        ("@function f(): nonsense => 1px;", "type.unknown-type"),
+        (
+            "@function f($n: percentage | number) => $n + 1;",
+            "type.arithmetic",
+        ),
+        (
+            "@function f($n: number = @:g()) => $n; @function g() => red;",
+            "type.mismatch",
+        ),
+        (
+            "@function f() => red; @vars { --x: length = @:f(); }",
+            "type.mismatch",
+        ),
+        (".a { color: @:missing(); }", "binding.unknown-function"),
+    ] {
+        let mut h = host(&[("a.xcss", source)]);
+        let s = h.snapshot();
+        assert!(
+            s.diagnostics().iter().any(|d| d.code == code),
+            "{source}: {:?}",
+            s.diagnostics()
+        );
+    }
+    let mut h = host(&[(
+        "a.xcss",
+        "@function f($a: length = 1px, $b: length = $a): length => $b; .a { width: @:f(/* default */); }",
+    )]);
+    assert!(
+        h.snapshot().diagnostics().is_empty(),
+        "{:?}",
+        h.snapshot().diagnostics()
+    );
+}

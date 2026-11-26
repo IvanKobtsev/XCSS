@@ -1,6 +1,6 @@
 # XCSS (CrossCSS)
 
-XCSS compiles modern CSS with shorthand values, typed constants, typed custom properties, and
+XCSS compiles modern CSS with shorthand values, typed constants, typed custom properties, functions, and
 injections into **scoped CSS and class-export mappings**. It preserves native
 CSS nesting and runs without Sass.
 

@@ -236,3 +236,89 @@ fn classifications_recovery_escapes_and_utf16() {
     .unwrap();
     assert!(!host.snapshot().semantic_tokens(&file).is_empty());
 }
+
+#[test]
+fn functions_have_return_signatures_navigation_and_value_types() {
+    let file = FileId("a.xcss".into());
+    let source = "@function size($n: length = 2px): length => $n; .a { width: @:size(3px); }";
+    let mut host = LanguageService::new();
+    host.set_file(file.clone(), 1, source.into()).unwrap();
+    let snapshot = host.snapshot();
+    assert!(
+        snapshot.diagnostics(&file).is_empty(),
+        "{:?}",
+        snapshot.diagnostics(&file)
+    );
+    let position = at(source, "size(3px)");
+    let hover = snapshot.hover(&file, position).unwrap();
+    assert!(
+        hover
+            .text
+            .contains("@function size($n: length = 2px): length"),
+        "{}",
+        hover.text
+    );
+    assert_eq!(snapshot.definition(&file, position).len(), 1);
+    assert_eq!(snapshot.references(&file, position, true).len(), 2);
+    assert!(
+        snapshot
+            .semantic_tokens(&file)
+            .iter()
+            .any(|t| t.character == position.character && TOKEN_TYPES[t.token_type] == "function")
+    );
+    let declarations = snapshot.css_declarations(&file);
+    assert!(declarations.declarations[0].checkable);
+    assert!(
+        declarations.declarations[0]
+            .parts
+            .iter()
+            .any(|p| p.value_type.as_deref() == Some("length"))
+    );
+    assert!(
+        snapshot
+            .css_values(&file)
+            .values
+            .iter()
+            .any(|v| v.text == "$n")
+    );
+}
+
+#[test]
+fn function_completions_and_revisions_follow_resolution() {
+    let file = FileId("a.xcss".into());
+    let source = "@import lib from './lib.xcss'; .a { width: @:lib.si; }";
+    let mut host = LanguageService::new();
+    host.set_file(
+        FileId("lib.xcss".into()),
+        1,
+        "@function size(): length => 2px;".into(),
+    )
+    .unwrap();
+    host.set_file(file.clone(), 1, source.into()).unwrap();
+    host.set_resolution(
+        file.clone(),
+        "./lib.xcss".into(),
+        Some(FileId("lib.xcss".into())),
+    );
+    let snapshot = host.snapshot();
+    let position = at(source, "; }");
+    assert!(
+        snapshot
+            .completion(&file, position)
+            .iter()
+            .any(|item| item.label == "lib.size")
+    );
+    host.set_file(
+        FileId("lib.xcss".into()),
+        2,
+        "@function scale(): length => 3px;".into(),
+    )
+    .unwrap();
+    assert!(
+        snapshot
+            .completion(&file, position)
+            .iter()
+            .any(|item| item.label == "lib.size")
+    );
+    assert!(host.snapshot().completion(&file, position).is_empty());
+}

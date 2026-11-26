@@ -51,6 +51,80 @@ pub(super) fn render(
     };
     let mut out = Mapped::default();
     match &value.kind {
+        ValueKind::Call { arguments, .. } => {
+            let target = lower
+                .snapshot
+                .resolved_value_call(&origin.file, value)
+                .ok_or_else(|| {
+                    vec![Diagnostic::error(
+                        "generate.unresolved-call",
+                        &origin.file,
+                        value.range,
+                        "Function call has no analyzed target",
+                    )]
+                })?;
+            let (definition, node) =
+                lower.snapshot.function_definition(target).ok_or_else(|| {
+                    vec![Diagnostic::error(
+                        "binding.callable-kind",
+                        &origin.file,
+                        value.range,
+                        "Expected a value function",
+                    )]
+                })?;
+            let function = definition.function(node).unwrap();
+            let signature = lower.snapshot.signature(target).unwrap();
+            if lower.constant_depth >= 128 || lower.constant_expansions >= 100_000 {
+                return Err(vec![Diagnostic::error(
+                    "generate.expansion-limit",
+                    &origin.file,
+                    value.range,
+                    "Function expansion exceeds the depth or value limit",
+                )]);
+            }
+            lower.constant_depth += 1;
+            lower.constant_expansions += 1;
+            lower.sources.insert(definition.source.id.clone());
+            let result = (|| {
+                let mut call_frame = Frame::default();
+                for (index, parameter) in signature.parameters.iter().enumerate() {
+                    let replacement = if let Some(argument) = arguments.get(index) {
+                        render(lower, parse, argument, frame, Context::default())?
+                    } else {
+                        let default =
+                            function.signature.parameters[index]
+                                .default
+                                .ok_or_else(|| {
+                                    vec![Diagnostic::error(
+                                        "generate.argument",
+                                        &origin.file,
+                                        value.range,
+                                        "Missing required function argument",
+                                    )]
+                                })?;
+                        let start =
+                            default.as_ptr() as usize - definition.source.text().as_ptr() as usize;
+                        render(
+                            lower,
+                            definition,
+                            &definition.value(TextRange::new(start, start + default.len())),
+                            &call_frame,
+                            Context::default(),
+                        )?
+                    };
+                    call_frame.parameters.insert(parameter.symbol, replacement);
+                }
+                render(
+                    lower,
+                    definition,
+                    &function.body,
+                    &call_frame,
+                    Context::default(),
+                )
+            })();
+            lower.constant_depth -= 1;
+            out.append(&result?);
+        }
         ValueKind::CustomProperty(name) => {
             let name = property_name(lower, &parse.source.id, name, value.range);
             out.push(

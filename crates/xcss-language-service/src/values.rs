@@ -49,6 +49,9 @@ impl ServiceSnapshot {
         if let Some(d) = parse.declaration(node) {
             self.value_context(file, parse, &d.value, Some(d.property.to_string()), out);
         }
+        if let Some(f) = parse.function(node) {
+            self.value_context(file, parse, &f.body, None, out);
+        }
         if let Some(c) = parse.constant(node) {
             self.value_context(file, parse, &c.initial, None, out);
         }
@@ -117,7 +120,12 @@ impl ServiceSnapshot {
                     }
                 }
             }
-            ValueKind::Sequence(children) | ValueKind::Group(children) => {
+            ValueKind::Call {
+                arguments: children,
+                ..
+            }
+            | ValueKind::Sequence(children)
+            | ValueKind::Group(children) => {
                 for child in children {
                     self.value_functions(file, parse, child, out);
                 }
