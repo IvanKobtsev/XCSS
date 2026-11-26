@@ -5,9 +5,15 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const version = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version
+const requireFromPlugin = createRequire(join(root, 'packages', 'vite-plugin', 'package.json'))
+const viteManifestPath = requireFromPlugin.resolve('vite/package.json')
+const viteVersion = requireFromPlugin('vite/package.json').version
+const rolldownVersion = createRequire(viteManifestPath)('rolldown/package.json').version
+const typescriptVersion = requireFromPlugin('typescript/package.json').version
 const libc = process.platform === 'linux'
   ? process.report?.getReport?.().header?.glibcVersionRuntime ? 'gnu' : 'musl'
   : ''
@@ -35,6 +41,7 @@ function run(command, args, cwd = root, expectedStatus = 0) {
   const env = { ...process.env }
   delete env.npm_config_verify_deps_before_run
   delete env.npm_config__jsr_registry
+  delete env.npm_config_link_workspace_packages
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
@@ -70,7 +77,13 @@ try {
     join(tarballDir, `${platformTarName}-${version}.tgz`),
   ]
   const manifestPath = join(testRoot, 'package.json')
-  await writeFile(manifestPath, JSON.stringify({ private: true }))
+  // Use the versions installed by the frozen workspace lockfile. Otherwise npm
+  // resolves the Vite peer and its Rolldown dependency afresh from the registry.
+  await writeFile(manifestPath, JSON.stringify({
+    private: true,
+    dependencies: { vite: viteVersion, typescript: typescriptVersion },
+    overrides: { rolldown: rolldownVersion },
+  }))
   run('npm', ['install', '--ignore-scripts', '--no-package-lock', ...tarballs], testRoot)
 
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
