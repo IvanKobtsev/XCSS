@@ -449,11 +449,11 @@ impl ParseResult {
         if let Some(d) = self.declaration(node) {
             out.push(d.value);
         }
-        if let Some(v) = self.variable(node) {
-            if let Some(initial) = v.initial {
-                let start = initial.as_ptr() as usize - self.source.text().as_ptr() as usize;
-                out.push(self.value(TextRange::new(start, start + initial.len())));
-            }
+        if let Some(v) = self.variable(node)
+            && let Some(initial) = v.initial
+        {
+            let start = initial.as_ptr() as usize - self.source.text().as_ptr() as usize;
+            out.push(self.value(TextRange::new(start, start + initial.len())));
         }
         if let Some(c) = self.call(node) {
             out.extend(c.arguments);

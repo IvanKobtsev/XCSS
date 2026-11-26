@@ -422,18 +422,17 @@ fn analyze(
     analyze_constants(&mut db, &parsed);
     for call in &collected.calls {
         let parse = &db.files[&call.file];
-        if let Some(syntax) = parse.call(&call.node) {
-            if let Some(target) = db
+        if let Some(syntax) = parse.call(&call.node)
+            && let Some(target) = db
                 .references
                 .iter()
                 .find(|r| r.location.file == call.file && r.location.range == syntax.name_range)
                 .and_then(|r| r.target)
-            {
-                if call.expression != (db.symbols[target.0].kind == SymbolKind::Function) {
-                    db.error("binding.callable-kind", &call.file, syntax.name_range, "Functions must be called in values; injections and utils must be called as statements");
-                } else {
-                    validate_call(&mut db, call, target);
-                }
+        {
+            if call.expression != (db.symbols[target.0].kind == SymbolKind::Function) {
+                db.error("binding.callable-kind", &call.file, syntax.name_range, "Functions must be called in values; injections and utils must be called as statements");
+            } else {
+                validate_call(&mut db, call, target);
             }
         }
     }

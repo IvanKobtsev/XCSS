@@ -5,26 +5,25 @@ pub(super) fn analyze_types(db: &mut Database, parsed: &[Arc<ParseResult>]) {
     let mut values = BTreeMap::<SymbolId, (Vec<Value>, Option<String>)>::new();
     for parse in parsed {
         for node in parse.tree.descendants() {
-            if let Some(f) = parse.function(node) {
-                if let Some(id) = db.local(
+            if let Some(f) = parse.function(node)
+                && let Some(id) = db.local(
                     &parse.source.id,
                     &decode_identifier(f.signature.name),
                     SymbolKind::Function,
-                ) {
-                    values.insert(
-                        id,
-                        (parse.values(node), f.return_annotation.map(str::to_owned)),
-                    );
-                }
+                )
+            {
+                values.insert(
+                    id,
+                    (parse.values(node), f.return_annotation.map(str::to_owned)),
+                );
             }
-            if let Some(c) = parse.constant(node) {
-                if let Some(s) = db
+            if let Some(c) = parse.constant(node)
+                && let Some(s) = db
                     .symbols
                     .iter()
                     .find(|s| s.location.file == parse.source.id && s.location.range == c.range)
-                {
-                    values.insert(s.id, (vec![c.initial], c.annotation.map(str::to_owned)));
-                }
+            {
+                values.insert(s.id, (vec![c.initial], c.annotation.map(str::to_owned)));
             }
             if let Some(i) = parse.injection(node) {
                 for p in i.parameters {
@@ -45,22 +44,22 @@ pub(super) fn analyze_types(db: &mut Database, parsed: &[Arc<ParseResult>]) {
                     }
                 }
             }
-            if let Some(v) = parse.variable(node) {
-                if let Some(initial) = v.initial.filter(|v| v.contains("@:")) {
-                    let start = initial.as_ptr() as usize - parse.source.text().as_ptr() as usize;
-                    if let Some(s) = db
-                        .symbols
-                        .iter()
-                        .find(|s| s.location.file == parse.source.id && s.location.range == v.range)
-                    {
-                        values.insert(
-                            s.id,
-                            (
-                                vec![parse.value(TextRange::new(start, start + initial.len()))],
-                                v.annotation.map(str::to_owned),
-                            ),
-                        );
-                    }
+            if let Some(v) = parse.variable(node)
+                && let Some(initial) = v.initial.filter(|v| v.contains("@:"))
+            {
+                let start = initial.as_ptr() as usize - parse.source.text().as_ptr() as usize;
+                if let Some(s) = db
+                    .symbols
+                    .iter()
+                    .find(|s| s.location.file == parse.source.id && s.location.range == v.range)
+                {
+                    values.insert(
+                        s.id,
+                        (
+                            vec![parse.value(TextRange::new(start, start + initial.len()))],
+                            v.annotation.map(str::to_owned),
+                        ),
+                    );
                 }
             }
         }
