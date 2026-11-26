@@ -6,7 +6,7 @@
     "skipLibCheck": true,
     "jsx": "preserve",
     "jsxImportSource": "@solidjs/web",
-    "types": ["@cross-css/vite/solidjs"]
+    "types": []
   },
-  "include": ["*.tsx", "../../../client.d.ts"]
+  "include": ["*.tsx", "*.d.ts", "../../../client.d.ts"]
 }

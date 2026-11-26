@@ -28,6 +28,9 @@
     "./client": {
       "types": "./client.d.ts"
     },
+    "./types": {
+      "types": "./dist/types.d.ts"
+    },
     "./units": {
       "types": "./dist/units.d.ts",
       "import": "./dist/units.js"
@@ -35,14 +38,6 @@
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js"
-    },
-    "./react/jsx-runtime": {
-      "types": "./dist/react/jsx-runtime.d.ts",
-      "import": "./dist/react/jsx-runtime.js"
-    },
-    "./react/jsx-dev-runtime": {
-      "types": "./dist/react/jsx-dev-runtime.d.ts",
-      "import": "./dist/react/jsx-dev-runtime.js"
     },
     "./react-plugin": {
       "types": "./dist/react-plugin.d.ts",

@@ -79,23 +79,30 @@ injection definitions and caller-owned arguments/content.
 
 ## Provided variables in React
 
-Keep `xcss()` in the Vite plugins and select the XCSS automatic JSX runtime in
-your app's TypeScript configuration.
+Keep `xcss()` in the Vite plugins and load the React prop types in your app's
+TypeScript configuration. Keep your existing JSX runtime configuration.
 
 ```json
 {
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "@cross-css/vite/react",
     "types": ["@cross-css/vite/client"]
   }
 }
 ```
 
-When using `@vitejs/plugin-react`, pass
-`react({ jsxImportSource: '@cross-css/vite/react' })`. For a JavaScript Vite
-project without that plugin, set
-`oxc.jsx: { runtime: 'automatic', importSource: '@cross-css/vite/react' }`.
+Load the prop augmentation in a declaration file included by your project, such as
+`react-env.d.ts`:
+
+```ts
+import type {} from '@cross-css/vite/react'
+```
+
+XCSS lowers affected native JSX elements before React's JSX compiler, using
+React's public `createElement` API. No `jsxImportSource` override or React plugin
+configuration is needed. Attribute expressions and spreads evaluate once with
+React's automatic JSX ordering and key precedence; later ordinary props win.
+Custom components keep their original JSX and props.
 
 ```xcss
 @vars {
@@ -136,7 +143,7 @@ slots. Booleans, `null`, and `undefined` leave the slot empty. Use `className`
 for global classes.
 
 ```tsx
-import type { ClassName } from '@cross-css/vite/react'
+import type { ClassName } from '@cross-css/vite/types'
 import { styles } from './Box.xcss'
 
 export function Box({ active, className }: { active: boolean; className?: ClassName }) {
@@ -153,6 +160,17 @@ config with `xcss check --project`.
 
 Use `@util` for shared styles. XCSS rejects `composes` declarations and passes
 CSS within `@raw` through to the stylesheet.
+
+Shared class types are available from `@cross-css/vite/types` for both React and
+Solid JS:
+
+```ts
+import type { ClassName, XClass } from '@cross-css/vite/types'
+```
+
+Breaking change: `ClassName` is no longer exported from `@cross-css/vite/react`
+or `@cross-css/vite/solidjs`. Update those type imports to use `/types`.
+Framework-specific JSX augmentations still load from `/react` and `/solidjs`.
 
 ## Shared utilities
 

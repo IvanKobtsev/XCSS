@@ -1,5 +1,7 @@
+import type { ClassName } from '@cross-css/vite/types'
 import { styles } from './box.xcss'
 export { styles }
 export function App() {
-  return <div class="existing" xClass={styles.box} xVars={{ '--width': '24px' }} />
+  const className: ClassName = styles.box
+  return <div class="existing" xClass={className} xVars={{ '--width': '24px' }} />
 }

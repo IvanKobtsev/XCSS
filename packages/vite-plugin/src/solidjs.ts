@@ -1,9 +1,8 @@
 import type { JSX } from '@solidjs/web'
 import { normalizeProps } from './react/props.js'
-import type { XClass } from './react/class-name.js'
-export type { ClassName } from './react/class-name.js'
+import type { XClass } from './types.js'
 
-declare module '@solidjs/web' {
+declare module '@solidjs/web/jsx-runtime' {
   namespace JSX {
     interface HTMLAttributes<T> {
       xClass?: XClass

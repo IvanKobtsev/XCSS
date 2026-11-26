@@ -6,6 +6,7 @@ import { normalizePath, type Plugin, type ModuleNode, type ViteDevServer } from 
 import { createCssId, createVirtualId, cssAssetUrls, isCrossCssId, parseVirtualId } from './internal.js'
 import { classProject, hasIntrinsicXClass } from './class-project.js'
 import { transformSolid } from './solid-transform.js'
+import { transformReact } from './react-transform.js'
 
 const projectSource = /\.(?:xcss|[jt]sx?|[cm][jt]s|json)$/i
 
@@ -129,12 +130,7 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
       const sites = classPlan?.sites.filter(site => site.moduleId === file)
       if (!sites?.length) {
         if (hasIntrinsicXClass(id, code)) this.error('The XCSS TypeScript project must include this JSX file')
-        if (framework === 'solid') return transformSolid(code, id)
-        return
-      }
-      const jsxSource = /@jsxImportSource\s+([^\s*]+)/.exec(code)?.[1]
-      if (framework === 'react' && jsxSource && jsxSource !== '@cross-css/vite/react') {
-        this.error('xClass requires the @cross-css/vite/react JSX runtime')
+        return framework === 'solid' ? transformSolid(code, id) : transformReact(code, id)
       }
       const imports = new Set<string>()
       const modules = new Map<string, NativeArtifact>()
@@ -159,12 +155,10 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
         }))
         output = output.slice(0, site.offset) + ' __xcssClassSlots={' + JSON.stringify(slots) + '} ' + output.slice(site.offset)
       }
-      if (framework === 'solid') output = transformSolid(output, id)?.code ?? output
-      const prefix = framework === 'solid' || jsxSource ? '' : '/** @jsxImportSource @cross-css/vite/react */\n'
-      const firstLine = output.startsWith('#!') ? output.indexOf('\n') + 1 : 0
+      output = (framework === 'solid' ? transformSolid(output, id) : transformReact(output, id))?.code ?? output
       const importStatements = [...imports].map(path => 'import ' + JSON.stringify(path) + ';')
       return {
-        code: output.slice(0, firstLine) + prefix + output.slice(firstLine) + '\n' + importStatements.join('\n'),
+        code: output + '\n' + importStatements.join('\n'),
         map: null,
       }
     },

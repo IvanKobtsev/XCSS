@@ -5,8 +5,7 @@
     "strict": true,
     "skipLibCheck": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "@cross-css/vite/react",
     "types": []
   },
-  "include": ["*.tsx", "../../../client.d.ts"]
+  "include": ["*.tsx", "*.d.ts", "../../../client.d.ts"]
 }

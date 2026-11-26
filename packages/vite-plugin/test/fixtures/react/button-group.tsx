@@ -1,4 +1,4 @@
-import type { ClassName } from '@cross-css/vite/react'
+import type { ClassName } from '@cross-css/vite/types'
 import { styles } from './buttons.xcss'
 import type { Variants } from './button-variants.xcss'
 

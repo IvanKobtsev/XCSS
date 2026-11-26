@@ -2,6 +2,15 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { expect, it } from 'vitest'
 
+it.each(['react', 'solid'])('checks %s JSX with the published class types and prop augmentation', framework => {
+  const configFile = fileURLToPath(new URL(`./fixtures/${framework}/tsconfig.json`, import.meta.url))
+  const config = ts.readConfigFile(configFile, ts.sys.readFile)
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, fileURLToPath(new URL(`./fixtures/${framework}/`, import.meta.url)))
+  if (framework === 'react') expect(parsed.options.jsxImportSource).toBeUndefined()
+  const program = ts.createProgram(parsed.fileNames, { ...parsed.options, noEmit: true })
+  expect(ts.getPreEmitDiagnostics(program).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).toEqual([])
+})
+
 it('keeps ordinary TypeScript permissive for XCSS classes and variant values', () => {
   const file = fileURLToPath(new URL('./client-consumer.ts', import.meta.url))
   const client = fileURLToPath(new URL('../client.d.ts', import.meta.url))
