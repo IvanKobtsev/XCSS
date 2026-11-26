@@ -7,14 +7,33 @@ const require = createRequire(resolve(process.cwd(), 'package.json'))
 const { LanguageService, languageServiceCapabilities } = require('@cross-css/native')
 const expectedVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 assert.equal(require('@cross-css/native/package.json').version, expectedVersion)
-assert.equal(languageServiceCapabilities().apiVersion, 6)
+assert.equal(languageServiceCapabilities().apiVersion, 7)
 const service = new LanguageService()
-const source = '@injection paint {} .a { @:paint; }'
+const source = '@injection paint($amount: percentage | number = 50%) {} .a { @:paint; }'
 service.setFile('file:///test.xcss', 1, source)
 assert.deepEqual(service.document('file:///test.xcss').diagnostics, [])
 assert(service.document('file:///test.xcss').tokens.length > 0)
 assert.equal(service.definition('file:///test.xcss', { line: 0, character: source.lastIndexOf('paint') }).length, 1)
-
+const position = { line: 0, character: source.lastIndexOf('paint') }
+const hover = service.hover('file:///test.xcss', position)
+assert.deepEqual(hover, {
+  range: { start: position, end: { line: 0, character: position.character + 'paint'.length } },
+  kind: 'injection',
+  name: 'paint',
+  declaration: service.definition('file:///test.xcss', position)[0],
+  valueType: { kind: 'unknown' },
+  signature: {
+    parameters: [{
+      name: '$amount',
+      valueType: { kind: 'union', members: [
+        { kind: 'named', name: 'percentage' }, { kind: 'named', name: 'number' },
+      ] },
+      defaultValue: '50%',
+    }],
+    acceptsContent: false,
+  },
+})
+assert.equal('text' in hover, false)
 
 assert.equal(service.cssDeclarations('file:///test.xcss').declarations.length, 0)
 service.setFile('file:///css.xcss', 1, '.a { display: flex; }')
@@ -46,4 +65,4 @@ const [stylesheetDiagnostic] = tsService.document('broken.xcss').diagnostics
 assert.equal(stylesheetDiagnostic.code, 'XC-105')
 assert.equal(stylesheetDiagnostic.label, 'Invalid XCSS statement')
 assert.equal(stylesheetDiagnostic.legacyCode, 'syntax.invalid-statement')
-console.log('Published XCSS language-service API v4, selectors, and TypeScript variants verified')
+console.log('Published XCSS language-service API v7, structured hovers, selectors, and TypeScript variants verified')
