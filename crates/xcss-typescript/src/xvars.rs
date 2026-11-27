@@ -435,14 +435,13 @@ impl Check<'_> {
             .intersects(TypeFlags::Object | TypeFlags::Intersection)
         {
             let number = checker.get_number_type();
-            if let Some(element) = checker.get_index_type_of_type(ty, number) {
-                if let Some(origins) = self
+            if let Some(element) = checker.get_index_type_of_type(ty, number)
+                && let Some(origins) = self
                     .origins(checker, element)
                     .filter(|s| s.iter().any(|o| o.variant_label.is_some()))
-                {
-                    self.variant_site(self.range(expression), origins);
-                    return;
-                }
+            {
+                self.variant_site(self.range(expression), origins);
+                return;
             }
         }
         match expression.kind() {
@@ -829,10 +828,8 @@ impl Check<'_> {
             && access.is_some_and(|(receiver, _)| {
                 component_parameter(checker, receiver, depth + 1).is_some()
             });
-        if !trace_first {
-            if let Some(origins) = self.origins(checker, ty) {
-                return Some(origins);
-            }
+        if !trace_first && let Some(origins) = self.origins(checker, ty) {
+            return Some(origins);
         }
         match expression.kind() {
             Kind::NonNullExpression => self.expression_origins(

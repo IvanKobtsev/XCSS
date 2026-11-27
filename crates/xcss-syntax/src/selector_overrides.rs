@@ -115,13 +115,13 @@ pub fn override_selectors(
             .trim_start_matches(':')
             .to_ascii_lowercase();
         let mut start = tokens[open].range.end;
-        if matches!(name.as_str(), "nth-child" | "nth-last-child") {
-            if let Some(of) = tokens[open + 1..close].iter().find(|t| {
+        if matches!(name.as_str(), "nth-child" | "nth-last-child")
+            && let Some(of) = tokens[open + 1..close].iter().find(|t| {
                 t.kind == TokenKind::Word
                     && text[t.range.start..t.range.end].eq_ignore_ascii_case("of")
-            }) {
-                start = of.range.end;
-            }
+            })
+        {
+            start = of.range.end;
         }
         frames.push(Frame {
             name,

@@ -7,8 +7,10 @@ pub(super) struct Mapped {
 }
 impl Mapped {
     pub fn slice(&self, range: TextRange) -> Self {
-        let mut out = Self::default();
-        out.text = self.text[range.start..range.end].to_owned();
+        let mut out = Self {
+            text: self.text[range.start..range.end].to_owned(),
+            ..Self::default()
+        };
         for (span, origin) in &self.spans {
             let start = span.start.max(range.start);
             let end = span.end.min(range.end);
