@@ -286,7 +286,7 @@ fn analyze(
                     "binding.missing-export",
                     &import.file,
                     *range,
-                    message!["Callable ", Part::backtick(&name), " is not exported"],
+                    message!["Callable ", Part::backtick(name), " is not exported"],
                 );
             }
             if named
@@ -376,7 +376,7 @@ fn analyze(
                     },
                     &call.file,
                     range,
-                    message!["Ambiguous callable ", Part::backtick(&name)],
+                    message!["Ambiguous callable ", Part::backtick(name)],
                 );
                 suppressed = true;
                 None
@@ -415,7 +415,7 @@ fn analyze(
                 },
                 &call.file,
                 range,
-                message!["Unknown callable ", Part::backtick(&name)],
+                message!["Unknown callable ", Part::backtick(name)],
             );
         }
     }
