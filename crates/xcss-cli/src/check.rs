@@ -130,7 +130,7 @@ pub(super) fn check_project(args: &[String]) -> Result<(), String> {
     };
     let mut inputs = vec![];
     for id in sources.keys() {
-        let warnings = snapshot.class_warnings(id);
+        let warnings = snapshot.warnings(id);
         if warning_inputs {
             let css = snapshot.css_declarations(id);
             let declarations: Vec<_> = css.declarations.iter().map(|d| serde_json::json!({

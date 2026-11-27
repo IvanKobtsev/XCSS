@@ -350,6 +350,20 @@ impl LanguageService {
         }
     }
     #[napi]
+    pub fn warnings(&mut self, uri: String) -> Vec<EditorWarning> {
+        self.inner
+            .snapshot()
+            .warnings(&FileId(uri))
+            .into_iter()
+            .map(|w| EditorWarning {
+                code: w.code.into(),
+                category: w.category.into(),
+                message: w.message,
+                range: range(w.range),
+            })
+            .collect()
+    }
+    #[napi]
     pub fn class_warnings(&mut self, uri: String) -> Vec<EditorWarning> {
         self.inner
             .snapshot()

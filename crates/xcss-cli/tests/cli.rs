@@ -7,6 +7,38 @@ use std::{
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn unknown_at_rule_warnings_are_coded_suppressible_and_do_not_fail_checks() {
+    let root = sandbox();
+    fs::write(
+        root.join("a.xcss"),
+        "// @xcss-ignore xc-505\n@hidden;\n@medai screen {}\n",
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_xcss"))
+            .current_dir(&root)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let check = run(&["check"]);
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(check.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("a.xcss:3:1: Warning: XC-505 Unknown at-rule '@medai'."),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("@hidden"));
+    let json = run(&["check", "--warning-inputs"]);
+    assert!(json.status.success());
+    let inputs: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(inputs[0]["warnings"].as_array().unwrap().len(), 1);
+    assert_eq!(inputs[0]["warnings"][0]["code"], "XC-505");
+    fs::write(root.join("a.xcss"), "@medai screen {}\nbogus;").unwrap();
+    assert!(!run(&["check"]).status.success());
+}
+
+#[test]
 fn check_suppresses_listed_codes_but_compile_still_enforces_them() {
     let root = sandbox();
     fs::write(root.join("a.xcss"), "@injection f($p: number, $q: number) {}\n.a {\n// @xcss-ignore xc-303, xc-302\n@:f(red);\n}\n// @xcss-ignore xc-503\n.empty {}\n.visible {}\n").unwrap();

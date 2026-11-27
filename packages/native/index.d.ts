@@ -292,6 +292,7 @@ export declare class LanguageService {
 
  cssValues(uri: string): CssValues
  selectors(uri: string): Selectors
+ warnings(uri: string): Array<EditorWarning>
  classWarnings(uri: string): Array<EditorWarning>
  cssDeclarations(uri: string): CssDeclarations
  constructor()

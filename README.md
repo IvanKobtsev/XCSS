@@ -211,7 +211,7 @@ TypeScript declarations make stylesheet imports and JSX props available.
 and `xVars` keys and values against your stylesheets.
 
 The Node CLI also prints a separate list of coded warnings for invalid CSS
-properties or values and empty class declarations. With a usable TypeScript
+properties or values, unknown at-rule names (XC-505), and empty class declarations. With a usable TypeScript
 project, it warns about classes with no TS/TSX references or `@variants` membership;
 repeating a class selector in a stylesheet does not count as usage. Warnings alone
 do not fail the check. CrossBreeze uses the same CSS validation and class analysis.

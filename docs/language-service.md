@@ -1,11 +1,31 @@
 # Language service
 
+## Combined checker warnings (API v9)
+
+`LanguageService.warnings(uri)` (Rust `ServiceSnapshot::warnings(file)`) returns
+class warnings and unknown at-rule warnings in source order. Each warning has
+`code`, `category`, `message`, and its original zero-based UTF-16 `range`.
+Editor hosts should replace calls to `classWarnings` with `warnings` and display
+the results with warning severity. `classWarnings` remains available with its
+existing class-only behavior. CSS property/value warnings still come from
+`validateCss(cssDeclarations(uri))` and can be combined with these results.
+
+XC-505 (`unknown-at-rule`) identifies unrecognized CSS or XCSS at-rule names,
+covering only the at-sign and name. CSS names are case-insensitive and support
+identifier escapes; XCSS directives retain their existing case-sensitive syntax.
+Known CSS names include draft and nested rules, explicit vendor rules, and legacy
+document rules. Other vendor-prefixed names also warn. Name recognition does not
+validate placement, grammar, or browser support. Raw contents remain opaque.
+
+The combined query applies the same code/start-line suppression as class
+warnings. CLI checking uses this query; compilation and Vite are unchanged.
+
 ## Checker suppression and warning codes
 
 [`// @xcss-ignore`](language.md#diagnostic-suppression) filters `.xcss` checker
 diagnostics by public XC code and primary start line. Both `diagnostics` and
 `plain_diagnostics` apply it; underlying analysis and compiler diagnostics remain
-unchanged. Class warning queries also filter suppressed warnings.
+unchanged. Combined and class warning queries also filter suppressed warnings.
 
 Class warnings now include `code` (`XC-503` for empty classes and `XC-504` for
 unused classes), alongside their existing category, message, and range. CSS

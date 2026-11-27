@@ -22,8 +22,10 @@ or `xcss check --project tsconfig.json`. Use the stylesheet's default class
 export to look up the scoped class for a variant name.
 
 XCSS extends modern CSS and CSS Modules, not Sass. Native nesting, unknown CSS
-properties and extensible at-rules are accepted. Native CSS imports are distinct
-from `@import namespace from "file"` and `@import { name } from "file"`.
+properties and extensible at-rules are accepted. The checker warns about unknown
+at-rule names with XC-505; compilation still preserves extension rules. Native
+CSS imports are distinct from `@import namespace from "file"` and
+`@import { name } from "file"`.
 
 Extensions include top-level `@vars { [local] --name[: type] [= initial]; }`,
 `@injection name($parameter: type [= default]) { ... }`, `@:name(arguments)`
@@ -252,6 +254,14 @@ These warning codes are stable and never make a check fail:
 | XC-502 | Empty CSS value |
 | XC-503 | Empty class |
 | XC-504 | Unused class |
+| XC-505 | Unknown at-rule |
+
+For an intentional extension at-rule, suppress XC-505 on its starting line:
+
+```xcss
+// @xcss-ignore xc-505
+@custom-extension foo;
+```
 
 Suppression applies to editor and CLI checker output for the current `.xcss`
 file. It does not apply to TypeScript files or compiler validation, and does not

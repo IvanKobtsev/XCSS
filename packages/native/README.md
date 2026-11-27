@@ -41,6 +41,13 @@ locations, and one-based UTF-16 line/column positions. Errors return no artifact
 `index.d.ts` is generated from napi-rs binding metadata during the native build.
 # Editor queries
 
+API v9 adds `warnings(uri)` to return combined class and unknown at-rule warnings
+in source order. Editor hosts should use it instead of `classWarnings(uri)`,
+which remains class-only, and render results with warning severity. Warnings
+include `code`, `category`, `message`, and an original UTF-16 `range`. XC-505
+(`unknown-at-rule`) covers only the at-sign and name and supports
+`// @xcss-ignore xc-505`. CSS property/value warnings still come from `validateCss`.
+
 Checker errors and warnings in `.xcss` files support
 [`// @xcss-ignore`](../../docs/language.md#diagnostic-suppression) on the preceding
 line. `classWarnings` and `validateCss` warnings now include stable XC codes.

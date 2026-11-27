@@ -4,7 +4,7 @@ use xcss_source::{Diagnostic, FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind};
 
 pub use xcss_analysis::UpdateError;
-pub const API_VERSION: u32 = 8;
+pub const API_VERSION: u32 = 9;
 use std::{
     collections::BTreeMap,
     sync::{Arc, OnceLock},

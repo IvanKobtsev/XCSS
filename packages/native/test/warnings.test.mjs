@@ -9,6 +9,32 @@ const require = createRequire(import.meta.url)
 const { LanguageService } = require('../index.js')
 const { validateCss } = require('../css-validation.cjs')
 
+test('combined warnings include suppressible unknown at-rules at UTF-16 name ranges', () => {
+  const service = new LanguageService()
+  service.setFile('a.xcss', 1, '/* 😀 */ @medai screen {}\n// @xcss-ignore xc-505\n@hidden; .empty {}')
+  const warnings = service.warnings('a.xcss')
+  assert.deepEqual(warnings.map(w => w.code), ['XC-505', 'XC-503'])
+  assert.deepEqual(warnings[0], {
+    code: 'XC-505', category: 'unknown-at-rule', message: "Unknown at-rule '@medai'.",
+    range: { start: { line: 0, character: 9 }, end: { line: 0, character: 15 } },
+  })
+  assert.deepEqual(service.classWarnings('a.xcss').map(w => w.code), ['XC-503'])
+  service.setFile('a.xcss', 2, '@media screen {}')
+  assert.deepEqual(service.warnings('a.xcss'), [])
+})
+
+test('Node CLI reports XC-505 and honors its suppression without failing checks', () => {
+  const root = mkdtempSync(join(tmpdir(), 'xcss-at-rules-'))
+  try {
+    writeFileSync(join(root, 'a.xcss'), '// @xcss-ignore xc-505\n@hidden;\n@medai screen {}')
+    const script = `process.exitCode = require(${JSON.stringify(resolve('cli.cjs'))})(['check'])`
+    const result = spawnSync(process.execPath, ['-e', script], { cwd: root, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stderr, /Warning: XC-505 Unknown at-rule '@medai'/)
+    assert(!result.stderr.includes('@hidden'), result.stderr)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('empty and invalid CSS values have stable codes at source ranges', () => {
   const service = new LanguageService()
   service.setFile('a.xcss', 1, '/* 😀 */\n.example { width: ; z-index: abc; --custom: ; }')
