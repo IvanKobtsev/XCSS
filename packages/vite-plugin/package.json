@@ -50,6 +50,10 @@
     "./solidjs": {
       "types": "./dist/solidjs.d.ts",
       "import": "./dist/solidjs.js"
+    },
+    ".": {
+      "types": "./dist/override.d.ts",
+      "import": "./dist/override.js"
     }
   },
   "files": [

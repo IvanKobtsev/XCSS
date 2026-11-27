@@ -32,6 +32,8 @@ pub struct NativeArtifact {
     pub source_map: String,
     #[napi(ts_type = "Record<string, string>")]
     pub classes: StringMap,
+    #[napi(ts_type = "Record<string, Record<string, string>>")]
+    pub overrides: NestedStringMap,
     #[napi(ts_type = "Record<string, string>")]
     pub custom_properties: StringMap,
     #[napi(ts_type = "Record<string, string>")]
@@ -62,6 +64,24 @@ pub struct NativeUtilityRule {
 }
 /// Define own data properties rather than invoking JavaScript prototype setters.
 pub struct StringMap(BTreeMap<String, String>);
+pub struct NestedStringMap(BTreeMap<String, BTreeMap<String, String>>);
+impl ToNapiValue for NestedStringMap {
+    unsafe fn to_napi_value(
+        raw: napi::sys::napi_env,
+        value: Self,
+    ) -> napi::Result<napi::sys::napi_value> {
+        let env = napi::Env::from(raw);
+        let mut object = Object::new(&env)?;
+        for (key, value) in value.0 {
+            let nested = unsafe { StringMap::to_napi_value(raw, StringMap(value)) }?;
+            let nested = Object::from_raw(raw, nested);
+            object.define_properties(&[napi::Property::new()
+                .with_utf8_name(&key)?
+                .with_value(&nested)])?;
+        }
+        unsafe { Object::to_napi_value(raw, object) }
+    }
+}
 impl ToNapiValue for StringMap {
     unsafe fn to_napi_value(
         raw: napi::sys::napi_env,
@@ -98,13 +118,18 @@ pub struct NativeClassOrigin {
 
 #[napi(object, object_from_js = false)]
 pub struct NativeClassSite {
+    pub props: bool,
     pub module_id: String,
-    pub offset: u32,
-    pub slots: Vec<Vec<NativeClassOrigin>>,
+    pub start: u32,
+    pub end: u32,
+    pub argument_start: Option<u32>,
+    pub argument_end: Option<u32>,
+    pub level: Option<String>,
+    pub origins: Vec<NativeClassOrigin>,
 }
 
 #[napi(object, object_from_js = false)]
-pub struct NativeClassPlan {
+pub struct NativeClassUsagePlan {
     pub sites: Vec<NativeClassSite>,
     pub diagnostics: Vec<NativeDiagnostic>,
 }
@@ -121,6 +146,7 @@ pub struct Compiler {
     root: std::path::PathBuf,
     assets: GenerateOptions,
     host: AnalysisHost,
+    override_uses: BTreeMap<FileId, BTreeMap<String, std::collections::BTreeSet<String>>>,
 }
 #[napi]
 impl Compiler {
@@ -131,6 +157,7 @@ impl Compiler {
             root: std::path::PathBuf::new(),
             assets: GenerateOptions::default(),
             host: AnalysisHost::new(),
+            override_uses: BTreeMap::new(),
         }
     }
 
@@ -150,6 +177,7 @@ impl Compiler {
             xcss_resolver::Resolver::load(&self.root, config.as_deref().map(std::path::Path::new))
                 .map_err(napi::Error::from_reason)?;
         self.assets = GenerateOptions::default();
+        self.override_uses.clear();
         Ok(self
             .resolver
             .configs
@@ -177,17 +205,19 @@ impl Compiler {
             .map_err(napi::Error::from_reason)
     }
     #[napi]
-    pub fn clear_class_slots(&mut self) {
+    pub fn clear_class_usage(&mut self) {
         self.assets.planned_names = None;
+        self.override_uses.clear();
     }
 
     #[napi]
-    pub fn plan_class_slots(
+    pub fn plan_class_usage(
         &mut self,
         config: String,
         sources: Vec<NativeProjectSource>,
-    ) -> napi::Result<NativeClassPlan> {
+    ) -> napi::Result<NativeClassUsagePlan> {
         self.assets.planned_names = None;
+        self.override_uses.clear();
         let snapshot = self.host.snapshot();
         let project = xcss_language_service::TypeScriptProject {
             config,
@@ -200,7 +230,7 @@ impl Compiler {
                 })
                 .collect(),
         };
-        let plan = xcss_language_service::class_slots(&project, &snapshot)
+        let plan = xcss_language_service::class_usage(&project, &snapshot)
             .map_err(napi::Error::from_reason)?;
         let diagnostics = plan
             .diagnostics
@@ -224,35 +254,43 @@ impl Compiler {
         let mut sites = Vec::new();
         for (id, entries) in plan.sites {
             for entry in entries {
-                let offset = project.files[&id].text()[..entry.insert]
-                    .encode_utf16()
-                    .count() as u32;
-                let slots = entry
-                    .slots
-                    .into_iter()
-                    .map(|origins| {
-                        origins
-                            .into_iter()
-                            .map(|origin| NativeClassOrigin {
-                                module_id: origin.module.0,
-                                class_name: origin.class,
-                                variant_label: origin.variant_label,
-                            })
-                            .collect()
-                    })
-                    .collect();
+                let offset = |byte| project.files[&id].text()[..byte].encode_utf16().count() as u32;
+                if let Some(level) = &entry.level {
+                    for origin in &entry.origins {
+                        self.override_uses
+                            .entry(origin.module.clone())
+                            .or_default()
+                            .entry(origin.class.clone())
+                            .or_default()
+                            .insert(level.clone());
+                    }
+                }
                 sites.push(NativeClassSite {
+                    props: entry.props,
                     module_id: id
                         .0
                         .split_once("__xcss_project_root__/")
                         .map_or(id.0.as_str(), |(_, path)| path)
                         .to_owned(),
-                    offset,
-                    slots,
+                    start: offset(entry.range.start),
+                    end: offset(entry.range.end),
+                    argument_start: entry.argument.map(|r| offset(r.start)),
+                    argument_end: entry.argument.map(|r| offset(r.end)),
+                    level: entry.level,
+                    origins: entry
+                        .origins
+                        .into_iter()
+                        .map(|origin| NativeClassOrigin {
+                            module_id: origin.module.0,
+                            class_name: origin.class,
+                            variant_label: origin.variant_label,
+                        })
+                        .collect(),
                 });
             }
         }
-        let options = self.assets.clone();
+        let mut options = self.assets.clone();
+        options.override_uses = self.override_uses.clone();
         let names = xcss_core::project_names(&snapshot, &options).map_err(|errors| {
             napi::Error::from_reason(
                 errors
@@ -263,7 +301,7 @@ impl Compiler {
             )
         })?;
         self.assets.planned_names = Some(std::sync::Arc::new(names));
-        Ok(NativeClassPlan { sites, diagnostics })
+        Ok(NativeClassUsagePlan { sites, diagnostics })
     }
     #[napi]
     pub fn set_file(
@@ -307,7 +345,8 @@ impl Compiler {
     #[napi]
     pub fn compile_utilities(&mut self, entries: Vec<String>) -> NativeCompilation {
         let snapshot = self.host.snapshot();
-        let planning = self.assets.clone();
+        let mut planning = self.assets.clone();
+        planning.override_uses = self.override_uses.clone();
         if let Ok(names) = xcss_core::project_names(&snapshot, &planning) {
             self.assets.planned_names = Some(std::sync::Arc::new(names));
         }
@@ -319,6 +358,7 @@ impl Compiler {
                 &FileId(entry),
                 &GenerateOptions {
                     planned_names: self.assets.planned_names.clone(),
+                    override_uses: self.override_uses.clone(),
                     asset_resolutions: self.assets.asset_resolutions.clone(),
                     ..GenerateOptions::default()
                 },
@@ -363,7 +403,8 @@ impl Compiler {
         bundle: Option<bool>,
     ) -> NativeCompilation {
         let snapshot = self.host.snapshot();
-        let planning = self.assets.clone();
+        let mut planning = self.assets.clone();
+        planning.override_uses = self.override_uses.clone();
         if let Ok(names) = xcss_core::project_names(&snapshot, &planning) {
             self.assets.planned_names = Some(std::sync::Arc::new(names));
         }
@@ -373,6 +414,7 @@ impl Compiler {
             &GenerateOptions {
                 asset_resolutions: self.assets.asset_resolutions.clone(),
                 planned_names: self.assets.planned_names.clone(),
+                override_uses: self.override_uses.clone(),
                 minify: minify.unwrap_or(false),
                 bundle: bundle.unwrap_or(false),
                 ..GenerateOptions::default()
@@ -393,6 +435,7 @@ impl Compiler {
                         css: m.css,
                         source_map: m.source_map,
                         classes: StringMap(m.classes),
+                        overrides: NestedStringMap(m.overrides),
                         custom_properties: StringMap(m.custom_properties),
                         css_vars: StringMap(m.css_vars),
                         stylesheet_dependencies: m

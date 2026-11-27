@@ -112,11 +112,51 @@ fn run() -> Result<(), String> {
         .map(|(id, path)| (id.clone(), path.to_string_lossy().replace('\\', "/")))
         .collect();
     let snapshot = host.snapshot();
+    let mut override_uses =
+        BTreeMap::<FileId, BTreeMap<String, std::collections::BTreeSet<String>>>::new();
+    if let Some(config) = project_arg {
+        let config = canonical(config).map_err(|e| e.to_string())?;
+        let project = check::class_inputs(&root, &config)?;
+        let has_sources = project.files.keys().any(|id| {
+            !id.0.contains("node_modules/")
+                && ![".d.ts", ".d.mts", ".d.cts"]
+                    .iter()
+                    .any(|ext| id.0.ends_with(ext))
+                && [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
+                    .iter()
+                    .any(|ext| id.0.ends_with(ext))
+        });
+        if has_sources {
+            let plan = xcss_language_service::class_usage(&project, &snapshot)?;
+            let errors = plan
+                .diagnostics
+                .iter()
+                .filter(|d| d.severity == Severity::Error)
+                .map(|d| format!("{}: {}: {}", d.location.file.0, d.code, d.message))
+                .collect::<Vec<_>>();
+            if !errors.is_empty() {
+                return Err(errors.join("\n"));
+            }
+            for site in plan.sites.values().flatten() {
+                if let Some(level) = &site.level {
+                    for origin in &site.origins {
+                        override_uses
+                            .entry(origin.module.clone())
+                            .or_default()
+                            .entry(origin.class.clone())
+                            .or_default()
+                            .insert(level.clone());
+                    }
+                }
+            }
+        }
+    }
     let utilities_path = output.with_extension("utils.css");
     let result = xcss_core::generate(
         &snapshot,
         &entry,
         &GenerateOptions {
+            override_uses,
             asset_resolutions: asset_options.asset_resolutions,
             output_paths,
             source_root: Some(root.to_string_lossy().replace('\\', "/")),

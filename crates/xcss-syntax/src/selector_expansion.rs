@@ -57,11 +57,11 @@ fn check_bytes(size: usize) -> Result<(), &'static str> {
     }
 }
 
-fn tokens(text: &str) -> Vec<Token> {
+pub(crate) fn tokens(text: &str) -> Vec<Token> {
     lex(&SourceFile::new(FileId("selector".into()), 0, text)).0
 }
 
-fn members(text: &str, tokens: &[Token]) -> Vec<TextRange> {
+pub(crate) fn members(text: &str, tokens: &[Token]) -> Vec<TextRange> {
     let mut ranges = Vec::new();
     let mut depth = 0usize;
     let mut start = tokens.first().map_or(0, |t| t.range.start);

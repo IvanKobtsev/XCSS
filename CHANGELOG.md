@@ -2,8 +2,12 @@
 
 ## Unreleased
 
+- Add the framework-neutral `override()` helper with positive integer literal validation, strict class-origin tracing, class-specific markers, utility contributions, and rejection of repeated overrides. Generate only requested class/level pairs, including guarded functional selectors and unboosted negative-selector unions.
+- Expand `xClass` to full clsx inputs while preserving typed variant-label resolution; remove fixed-slot metadata and restrictions.
+- Breaking: native `planClassUsage`/`clearClassUsage` and Rust `class_usage` replace slot planning. Artifacts now expose per-export override outputs; CLI `compile --project` collects requests. Rebuild CSS and JavaScript together.
+
 - Breaking: flatten nested XCSS rules with independent parent-list specificity and preserve declaration order. Existing selector syntax is unchanged; Sass suffix syntax is not added.
-- Breaking: remove positional specificity and generated aliases from `xClass`. Tuple order no longer changes CSS precedence or scoped-name allocation. Rebuild CSS and JavaScript together. The future `override()` helper is not part of this change.
+- Breaking: remove positional specificity and generated aliases from `xClass`. Tuple order no longer changes CSS precedence or scoped-name allocation. Rebuild CSS and JavaScript together.
 - Remove `GenerateOptions.class_positions`, `positional_class`, and native class-origin `alias`. Editor specificity is unavailable with an explanatory reason when flattened branches have different scores.
 
 - Breaking: language-service API v7 replaces hover `text` with structured symbol, type, signature, variable, constant-value, and declaration data. Consumers must format their own hover hints; diagnostic messages are unchanged.

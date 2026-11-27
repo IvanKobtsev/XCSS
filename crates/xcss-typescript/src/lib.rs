@@ -16,7 +16,7 @@ use diagnostics::{
     Issues, VARIANT_GROUP_MARKER, contract_errors, missing_modules, semantic_issues, variant_errors,
 };
 pub use editor::{Completion, EditorIndex, NavigationTarget, Occurrence, Symbol, editor_index};
-pub use xvars::{ClassOrigin, ClassSite, ClassSlotPlan};
+pub use xvars::{ClassOrigin, ClassSite, ClassUsagePlan};
 
 const CLASS_NAME: &str = "type ClassName = string & { readonly __xcssClassName__: true };\n";
 
@@ -139,6 +139,18 @@ fn with_program<T>(
             );
         }
     }
+    let helper = format!(
+        "{}export declare const override: ((className: ClassName, specificity?: number) => ClassName) & {{ readonly __xcssOverrideHelper__: true }};",
+        CLASS_NAME
+    );
+    files
+        .entry(format!("/{prefix}node_modules/@cross-css/vite/index.d.ts"))
+        .or_insert(helper);
+    files
+        .entry(format!(
+            "/{prefix}node_modules/@cross-css/vite/package.json"
+        ))
+        .or_insert(r#"{"name":"@cross-css/vite","types":"index.d.ts"}"#.into());
     let fs = memory_fs(&files)?;
     let overrides = tsrs_core::CompilerOptions {
         no_emit: Tristate::True,
@@ -214,10 +226,10 @@ fn run(
     })
 }
 
-pub fn class_slots(
+pub fn class_usage(
     project: &Project,
     snapshot: &AnalysisSnapshot,
-) -> Result<ClassSlotPlan, String> {
+) -> Result<ClassUsagePlan, String> {
     let (mut plan, issues) = with_program(project, snapshot, true, |program| {
         let mut plan = xvars::check(program, project, snapshot);
         let issues = semantic_issues(program, project);

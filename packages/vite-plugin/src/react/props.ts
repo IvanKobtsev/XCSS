@@ -18,13 +18,12 @@ declare module 'react' {
 
 export function normalizeProps(type: unknown, props: unknown): unknown {
   if (typeof type !== 'string' || props === null || typeof props !== 'object'
-    || (!Object.hasOwn(props, 'xVars') && !Object.hasOwn(props, 'xClass') && !Object.hasOwn(props, '__xcssClassSlots'))) {
+    || (!Object.hasOwn(props, 'xVars') && !Object.hasOwn(props, 'xClass'))) {
     return props
   }
-  const { xVars, xClass, __xcssClassSlots: slots, ...rest } = props as {
+  const { xVars, xClass, ...rest } = props as {
     xVars?: XVars | null
     xClass?: XClass
-    __xcssClassSlots?: readonly (readonly (readonly [string, string])[])[]
     style?: object
     className?: string
   }
@@ -32,16 +31,7 @@ export function normalizeProps(type: unknown, props: unknown): unknown {
     rest.style = { ...rest.style, ...xVars }
   }
   if (Object.hasOwn(props, 'xClass') && xClass != null) {
-    const values = typeof xClass === 'string' || typeof xClass === 'boolean' ? [xClass] : xClass
-    if (!slots || values.length !== slots.length) {
-      throw new Error('xClass requires a class or fixed tuple compiled by the XCSS Vite plugin')
-    }
-    const classes = clsx(values.map((value, index) => {
-      if (value == null || typeof value === 'boolean') return ''
-      const entry = slots[index].find(([input]) => input === value)
-      if (!entry) throw new Error('xClass received an unrecognized class in slot ' + index)
-      return entry[1]
-    }))
+    const classes = clsx(xClass)
     if (classes) rest.className = clsx(rest.className, classes)
   }
   return rest

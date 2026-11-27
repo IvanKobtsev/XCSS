@@ -1,17 +1,4 @@
 import ts from 'typescript'
-import { normalizePath } from 'vite'
-
-export function hasIntrinsicXClass(file: string, text: string): boolean {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest)
-  function visit(node: ts.Node): boolean {
-    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
-      ts.isIdentifier(node.tagName) && (/^[a-z]/.test(node.tagName.text) || node.tagName.text.includes('-')) &&
-      node.attributes.properties.some(attribute => ts.isJsxAttribute(attribute) &&
-        ts.isIdentifier(attribute.name) && attribute.name.text === 'xClass')) return true
-    return ts.forEachChild(node, visit) ?? false
-  }
-  return visit(source)
-}
 
 export function classProject(config: string, idFor: (file: string) => string) {
   const sources = new Map<string, string>()
@@ -39,11 +26,8 @@ export function classProject(config: string, idFor: (file: string) => string) {
     host: compilerHost,
     projectReferences: parsed.projectReferences,
   })
-  const root = new Set(parsed.fileNames.map(normalizePath))
-  const hasJsx = program.getSourceFiles().some(file =>
-    /\.[jt]sx$/i.test(file.fileName) && (root.has(normalizePath(file.fileName)) || !program.isSourceFileFromExternalLibrary(file)))
   return {
-    hasJsx,
+    hasSources: program.getSourceFiles().some(file => !file.isDeclarationFile && /\.[cm]?[jt]sx?$/i.test(file.fileName)),
     sources: [...sources].map(([path, text]) => ({ path, text })),
   }
 }

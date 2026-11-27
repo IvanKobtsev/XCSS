@@ -17,7 +17,7 @@ fn project(files: &[(&str, &str)]) -> Project {
 }
 
 #[test]
-fn xclass_checks_branded_inputs_and_effective_spreads() {
+fn xclass_accepts_clsx_inputs_and_effective_spreads() {
     let mut host = AnalysisHost::new();
     host.set_file(FileId("a.xcss".into()), 1, ".button {} .other {}")
         .unwrap();
@@ -58,14 +58,7 @@ const fixed = [choice, condition && styles.other, null] as const;
     ]);
     let diagnostics = check(&p, &host.snapshot()).unwrap();
     let codes: Vec<_> = diagnostics.iter().map(|d| d.code).collect();
-    assert_eq!(
-        codes,
-        [
-            "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-009", "XC-001", "XC-009",
-            "XC-009"
-        ],
-        "{diagnostics:?}"
-    );
+    assert_eq!(codes, ["XC-001"], "{diagnostics:?}");
 }
 
 #[test]
@@ -138,7 +131,7 @@ const map = { [v.absent]: '2px', [v.width]: '3px' };
     );
     assert_eq!(
         codes.iter().filter(|&&code| code == "XC-009").count(),
-        1,
+        0,
         "{diagnostics:?}"
     );
     assert_eq!(

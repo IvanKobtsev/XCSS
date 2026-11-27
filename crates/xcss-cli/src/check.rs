@@ -1,6 +1,26 @@
 use super::*;
 use xcss_language_service::{LanguageService, ServiceSnapshot, typescript_warning};
 
+pub(super) fn class_inputs(
+    root: &Path,
+    config: &Path,
+) -> Result<xcss_language_service::TypeScriptProject, String> {
+    let mut paths = Vec::new();
+    discover(root, root, &mut Vec::new(), &mut paths, true)?;
+    let mut files = BTreeMap::new();
+    for path in paths {
+        let id = module_id(root, &path)?;
+        files.insert(
+            id.clone(),
+            std::sync::Arc::new(xcss_core::SourceFile::new(id, 0, read_source(&path)?)),
+        );
+    }
+    Ok(xcss_language_service::TypeScriptProject {
+        config: module_id(root, config)?.0,
+        files,
+    })
+}
+
 pub(super) fn check_project(args: &[String]) -> Result<(), String> {
     let warning_inputs = args.last().is_some_and(|arg| arg == "--warning-inputs");
     let args = if warning_inputs {

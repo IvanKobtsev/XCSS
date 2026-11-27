@@ -6,6 +6,7 @@ use xcss_source::{Diagnostic, FileId, Location, Severity, TextRange};
 use xcss_syntax::{Node, NodeKind, ParseResult};
 mod lower;
 mod names;
+mod overrides;
 pub use names::{ProjectNames, project_names};
 mod mapped;
 mod raw;
@@ -18,10 +19,11 @@ pub type AssetResolutions = BTreeMap<FileId, BTreeMap<String, Result<String, Str
 
 #[derive(Clone, Debug, Default)]
 pub struct GenerateOptions {
-    /// Host-owned plan, valid only for the current snapshot.
+    /// Host-owned plan, valid only for the current snapshot and override requests.
     pub planned_names: Option<std::sync::Arc<ProjectNames>>,
     /// Host-resolved URLs, keyed by definition file and decoded URL. Targets use source-root coordinates.
     pub asset_resolutions: AssetResolutions,
+    pub override_uses: BTreeMap<FileId, BTreeMap<String, BTreeSet<String>>>,
     pub minify: bool,
     pub output_paths: BTreeMap<FileId, String>,
     pub bundle: bool,
@@ -37,6 +39,7 @@ pub struct GeneratedModule {
     pub css: String,
     pub source_map: String,
     pub classes: BTreeMap<String, String>,
+    pub overrides: BTreeMap<String, BTreeMap<String, String>>,
     pub custom_properties: BTreeMap<String, String>,
     pub css_vars: BTreeMap<String, String>,
     pub stylesheet_dependencies: Vec<FileId>,
@@ -96,6 +99,8 @@ pub fn merge_utilities(
                 css: rule.css.clone(),
                 source_map: rule.source_map.clone(),
                 classes: BTreeMap::new(),
+
+                overrides: BTreeMap::new(),
                 custom_properties: BTreeMap::new(),
                 css_vars: BTreeMap::new(),
                 stylesheet_dependencies: Vec::new(),
@@ -110,6 +115,8 @@ pub fn merge_utilities(
         css: String::new(),
         source_map: "{\"version\":3,\"sources\":[],\"names\":[],\"mappings\":\"\"}".into(),
         classes: BTreeMap::new(),
+
+        overrides: BTreeMap::new(),
         custom_properties: BTreeMap::new(),
         css_vars: BTreeMap::new(),
         stylesheet_dependencies: dependencies,
@@ -286,6 +293,29 @@ pub fn generate(
             module_id: file.clone(),
             css,
             source_map,
+            overrides: classes
+                .iter()
+                .filter_map(|(class, value)| {
+                    let levels = options.override_uses.get(file)?.get(class)?;
+                    Some((
+                        class.clone(),
+                        levels
+                            .iter()
+                            .map(|level| {
+                                let aliases = value
+                                    .split_whitespace()
+                                    .filter_map(|token| {
+                                        names.override_markers.get(token)?.get(level)
+                                    })
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                                (level.clone(), format!("{value} {aliases}"))
+                            })
+                            .collect(),
+                    ))
+                })
+                .collect(),
             classes,
             custom_properties: lower.properties,
             css_vars: snapshot
@@ -344,6 +374,7 @@ pub fn generate(
                     css: shared.css.clone(),
                     source_map: shared.source_map.clone(),
                     classes: BTreeMap::new(),
+                    overrides: BTreeMap::new(),
                     custom_properties: BTreeMap::new(),
                     css_vars: BTreeMap::new(),
                     stylesheet_dependencies: Vec::new(),
@@ -652,7 +683,9 @@ fn backend(
             (name, output)
         })
         .collect();
-    let (css, source_map) = raw::restore(snapshot, result.code, source_map, input);
+    let (code, source_map) =
+        overrides::rewrite(file, result.code, source_map, &names.override_markers)?;
+    let (css, source_map) = raw::restore(snapshot, code, source_map, input);
     Ok((css, source_map, exports))
 }
 

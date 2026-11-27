@@ -3,12 +3,33 @@ use super::*;
 pub struct ProjectNames {
     pub local: BTreeMap<(FileId, String), String>,
     pub global: BTreeMap<String, String>,
+    pub override_markers: xcss_syntax::OverrideMarkers,
 }
 /// Plan every module before emitting any entry point.
 pub fn project_names(
     snapshot: &AnalysisSnapshot,
     options: &GenerateOptions,
 ) -> Result<ProjectNames, Vec<Diagnostic>> {
+    for (file, classes) in &options.override_uses {
+        for (class, levels) in classes {
+            if !snapshot
+                .module_interface(file)
+                .is_some_and(|m| m.classes.contains(class))
+                || levels.iter().any(|level| {
+                    level.starts_with('0')
+                        || level.is_empty()
+                        || !level.bytes().all(|b| b.is_ascii_digit())
+                })
+            {
+                return Err(vec![Diagnostic::error(
+                    "generate.override-request",
+                    file,
+                    TextRange::default(),
+                    "Override requests require an existing XCSS class and a canonical positive integer level",
+                )]);
+            }
+        }
+    }
     if let Some(names) = &options.planned_names {
         return Ok((**names).clone());
     }
@@ -20,6 +41,7 @@ pub fn project_names(
     let mut reserved = BTreeSet::new();
     let mut local = Vec::new();
     let mut global = Vec::new();
+    let mut contributed = BTreeMap::new();
     for symbol in snapshot.symbols().iter().filter(|s| s.global) {
         let ns = if symbol.kind == SymbolKind::Keyframe {
             "keyframe"
@@ -72,6 +94,9 @@ pub fn project_names(
                 local.push(((file.clone(), name.clone()), key));
             }
         }
+        for (owner, classes) in &lower.utility_classes {
+            contributed.insert((file.clone(), owner.clone()), classes.clone());
+        }
         for class in lower.utility_classes.values().flatten() {
             let (base, identity) = &lower.utility_names[class];
             let key = (
@@ -94,7 +119,7 @@ pub fn project_names(
         })?;
     let lookup =
         |key: &(String, String, String)| names.get(&key.0, &key.1, &key.2).unwrap().to_owned();
-    Ok(ProjectNames {
+    let mut result = ProjectNames {
         local: local
             .into_iter()
             .map(|(key, identity)| (key, lookup(&identity)))
@@ -103,5 +128,58 @@ pub fn project_names(
             .into_iter()
             .map(|(key, identity)| (key, lookup(&identity)))
             .collect(),
-    })
+        override_markers: BTreeMap::new(),
+    };
+    let mut used: BTreeSet<String> = result
+        .local
+        .values()
+        .chain(result.global.values())
+        .cloned()
+        .chain(
+            reserved
+                .iter()
+                .filter(|(ns, _)| ns == "class")
+                .map(|(_, name)| name.clone()),
+        )
+        .collect();
+    for (file, classes) in &options.override_uses {
+        for (class, levels) in classes {
+            let Some(base) = result.local.get(&(file.clone(), class.clone())) else {
+                continue;
+            };
+            let tokens = std::iter::once(base.clone())
+                .chain(
+                    contributed
+                        .get(&(file.clone(), class.clone()))
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|u| result.global.get(u).cloned()),
+                )
+                .collect::<Vec<_>>();
+            for token in tokens {
+                for level in levels {
+                    if result
+                        .override_markers
+                        .get(&token)
+                        .is_some_and(|m| m.contains_key(level))
+                    {
+                        continue;
+                    }
+                    let base = format!("{token}_override_{level}");
+                    let mut marker = base.clone();
+                    let mut suffix = 0;
+                    while !used.insert(marker.clone()) {
+                        suffix += 1;
+                        marker = format!("{base}_{suffix}");
+                    }
+                    result
+                        .override_markers
+                        .entry(token.clone())
+                        .or_default()
+                        .insert(level.clone(), marker);
+                }
+            }
+        }
+    }
+    Ok(result)
 }

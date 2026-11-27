@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tsrs_ast::{self as ast, Kind, Node, NodeFlags, SourceFile, Symbol, SymbolFlags};
-use tsrs_checker::{Checker, LiteralValue, Type, TypeFlags};
+use tsrs_checker::{Checker, LiteralValue, SignatureKind, Type, TypeFlags};
 use tsrs_compiler::{Context, Program};
 use tsrs_core::P;
 use xcss_analysis::{
@@ -20,17 +20,21 @@ pub struct ClassOrigin {
     pub module: FileId,
     pub class: String,
     pub variant_label: Option<String>,
+    pub overridden: bool,
 }
 
 #[derive(Default)]
-pub struct ClassSlotPlan {
+pub struct ClassUsagePlan {
     pub sites: BTreeMap<FileId, Vec<ClassSite>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 pub struct ClassSite {
-    pub insert: usize,
-    pub slots: Vec<BTreeSet<ClassOrigin>>,
+    pub props: bool,
+    pub range: TextRange,
+    pub argument: Option<TextRange>,
+    pub level: Option<String>,
+    pub origins: BTreeSet<ClassOrigin>,
 }
 
 pub(crate) const CONTRACT_PATH: &str = "/node_modules/.xcss-internal/jsx-props.d.ts";
@@ -71,7 +75,7 @@ pub(crate) fn check(
     program: &Program,
     project: &Project,
     snapshot: &AnalysisSnapshot,
-) -> ClassSlotPlan {
+) -> ClassUsagePlan {
     let variables = snapshot
         .files()
         .filter_map(|file| snapshot.module_interface(file))
@@ -98,7 +102,7 @@ pub(crate) fn check(
     let mut sites = BTreeMap::new();
     let mut component_calls = Vec::new();
     for &file in program.source_files() {
-        if project_file(project, file).is_some() && file.file_name().ends_with("sx") {
+        if project_file(project, file).is_some() {
             collect_component_calls(file.as_node(), &mut component_calls);
         }
     }
@@ -108,7 +112,18 @@ pub(crate) fn check(
         let javascript = [".js", ".jsx", ".mjs", ".cjs"]
             .iter()
             .any(|ext| name.ends_with(ext));
-        if !name.ends_with(".tsx") && !name.ends_with(".jsx") && !javascript {
+        if ![".ts", ".tsx", ".mts", ".cts"]
+            .iter()
+            .any(|ext| name.ends_with(ext))
+            && !javascript
+        {
+            continue;
+        }
+        if [".d.ts", ".d.mts", ".d.cts"]
+            .iter()
+            .any(|ext| name.ends_with(ext))
+            || name.contains("/node_modules/")
+        {
             continue;
         }
         let Some(id) = project_file(project, file) else {
@@ -128,7 +143,7 @@ pub(crate) fn check(
         // TS may suppress semantic diagnostics for JavaScript files with checkJs off.
         check.visit(&mut checker, file.as_node(), javascript.then_some(snapshot));
     }
-    ClassSlotPlan { sites, diagnostics }
+    ClassUsagePlan { sites, diagnostics }
 }
 
 struct Check<'a> {
@@ -162,6 +177,9 @@ fn intrinsic(tag: P<Node>) -> bool {
 }
 
 fn collect_component_calls(node: P<Node>, calls: &mut Vec<P<Node>>) {
+    if node.kind() == Kind::CallExpression {
+        calls.push(node);
+    }
     if let Some((tag, _)) = jsx_parts(node)
         && !intrinsic(tag)
     {
@@ -174,6 +192,369 @@ fn collect_component_calls(node: P<Node>, calls: &mut Vec<P<Node>>) {
 }
 
 impl Check<'_> {
+    fn is_override(&self, checker: &mut Checker, expression: P<Node>) -> bool {
+        self.override_identity(checker, expression, 0)
+    }
+
+    fn override_identity(&self, checker: &mut Checker, expression: P<Node>, depth: usize) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let expression = ast::skip_parentheses(expression);
+        let ty = checker.get_type_at_location(expression);
+        if let Some(marker) = checker.get_property_of_type(ty, "__xcssOverrideHelper__") {
+            let marker = checker.get_type_of_symbol_exported(marker);
+            if marker.flags().intersects(TypeFlags::BooleanLiteral)
+                && matches!(
+                    marker.as_literal_type().value(),
+                    Some(LiteralValue::Boolean(true))
+                )
+                && !checker
+                    .get_signatures_of_type_exported(ty, SignatureKind::Call)
+                    .is_empty()
+            {
+                return true;
+            }
+        }
+        let inner = match expression.kind() {
+            Kind::AsExpression => Some(expression.as_as_expression().expression()),
+            Kind::SatisfiesExpression => Some(expression.as_satisfies_expression().expression()),
+            Kind::NonNullExpression => Some(expression.as_non_null_expression().expression()),
+            Kind::Identifier => checker
+                .get_symbol_at_location_exported(expression)
+                .and_then(|mut symbol| {
+                    if symbol.flags().intersects(SymbolFlags::Alias) {
+                        symbol = checker.get_aliased_symbol(symbol);
+                    }
+                    symbol
+                        .value_declaration()
+                        .filter(|&d| const_variable(d))
+                        .and_then(|d| d.as_variable_declaration().initializer())
+                }),
+            _ => None,
+        };
+        inner.is_some_and(|inner| self.override_identity(checker, inner, depth + 1))
+    }
+
+    fn override_site(&mut self, checker: &mut Checker, node: P<Node>) {
+        let call = node.as_call_expression();
+        if !self.static_helper_callee(checker, call.expression(), 0) {
+            self.diagnostics.push(Diagnostic::error("XC-013", self.id, self.range(call.expression()), "override() requires a direct binding or module namespace access; dynamic callee evaluation is not supported."));
+            return;
+        }
+        let args = call.arguments().nodes();
+        let level = if args.len() == 1 {
+            Some("1".into())
+        } else if args.len() == 2 {
+            let value = ast::skip_parentheses(args[1]);
+            if value.kind() != Kind::NumericLiteral {
+                None
+            } else {
+                value
+                    .text()
+                    .replace('_', "")
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|n| n.is_finite() && *n > 0.0 && n.fract() == 0.0)
+                    .map(|n| format!("{n:.0}"))
+            }
+        } else {
+            None
+        };
+        let Some(level) = level else {
+            self.diagnostics.push(Diagnostic::error(
+                "XC-010",
+                self.id,
+                args.get(1).map_or(self.range(node), |&n| self.range(n)),
+                "override() specificity must be a positive integer literal.",
+            ));
+            return;
+        };
+        let Some(&input) = args.first() else {
+            return;
+        };
+        let input_type = checker.get_type_at_location(input);
+        if alternatives(&input_type).iter().any(|t| {
+            t.flags()
+                .intersects(TypeFlags::Nullable | TypeFlags::BooleanLike)
+        }) {
+            self.diagnostics.push(Diagnostic::error(
+                "XC-011",
+                self.id,
+                self.range(input),
+                "override() requires a non-null XCSS ClassName value.",
+            ));
+            return;
+        }
+        let origins = self.expression_origins(checker, input, 0);
+        if origins.as_ref().is_some_and(|s| s.is_empty()) {
+            return;
+        }
+        let Some(origins) =
+            origins.filter(|s| !s.is_empty() && s.iter().all(|o| o.variant_label.is_none()))
+        else {
+            self.diagnostics.push(Diagnostic::error(
+                "XC-011",
+                self.id,
+                self.range(input),
+                "override() requires a traceable XCSS ClassName value.",
+            ));
+            return;
+        };
+        if origins.iter().any(|o| o.overridden) {
+            self.diagnostics.push(Diagnostic::error(
+                "XC-012",
+                self.id,
+                self.range(input),
+                "override() cannot be applied to an already-overridden value.",
+            ));
+            return;
+        }
+        self.sites.push(ClassSite {
+            props: false,
+            range: self.range(node),
+            argument: Some(self.range(input)),
+            level: Some(level),
+            origins,
+        });
+    }
+
+    fn static_helper_callee(
+        &self,
+        checker: &mut Checker,
+        expression: P<Node>,
+        depth: usize,
+    ) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let expression = ast::skip_parentheses(expression);
+        match expression.kind() {
+            Kind::Identifier => true,
+            Kind::AsExpression => self.static_helper_callee(
+                checker,
+                expression.as_as_expression().expression(),
+                depth + 1,
+            ),
+            Kind::SatisfiesExpression => self.static_helper_callee(
+                checker,
+                expression.as_satisfies_expression().expression(),
+                depth + 1,
+            ),
+            Kind::NonNullExpression => self.static_helper_callee(
+                checker,
+                expression.as_non_null_expression().expression(),
+                depth + 1,
+            ),
+            Kind::PropertyAccessExpression => self.module_namespace(
+                checker,
+                expression.as_property_access_expression().expression(),
+                depth + 1,
+            ),
+            Kind::ElementAccessExpression => {
+                let access = expression.as_element_access_expression();
+                ast::is_string_literal_like(access.argument_expression())
+                    && self.module_namespace(checker, access.expression(), depth + 1)
+            }
+            _ => false,
+        }
+    }
+
+    fn module_namespace(&self, checker: &mut Checker, expression: P<Node>, depth: usize) -> bool {
+        if depth > 32 || expression.kind() != Kind::Identifier {
+            return false;
+        }
+        let Some(symbol) = checker.get_symbol_at_location_exported(expression) else {
+            return false;
+        };
+        if symbol
+            .declarations()
+            .iter()
+            .any(|d| d.kind() == Kind::NamespaceImport)
+        {
+            return true;
+        }
+        symbol
+            .value_declaration()
+            .filter(|&d| const_variable(d))
+            .and_then(|d| d.as_variable_declaration().initializer())
+            .is_some_and(|v| self.module_namespace(checker, v, depth + 1))
+    }
+
+    fn variant_site(&mut self, range: TextRange, origins: BTreeSet<ClassOrigin>) {
+        let mut origins: BTreeSet<_> = origins
+            .into_iter()
+            .filter(|o| o.variant_label.is_some())
+            .collect();
+        if origins.is_empty() {
+            return;
+        }
+        let existing = self
+            .sites
+            .iter()
+            .position(|s| s.level.is_none() && s.range == range);
+        if let Some(index) = existing {
+            origins.extend(self.sites[index].origins.iter().cloned());
+        }
+        let mut labels = BTreeSet::new();
+        if origins
+            .iter()
+            .any(|o| !labels.insert(o.variant_label.clone()))
+        {
+            self.invalid_class(range);
+            return;
+        }
+        if let Some(index) = existing {
+            self.sites[index].origins = origins;
+        } else {
+            self.sites.push(ClassSite {
+                props: false,
+                range,
+                argument: None,
+                level: None,
+                origins,
+            });
+        }
+    }
+
+    fn variant_value(&mut self, checker: &mut Checker, expression: P<Node>, depth: usize) {
+        if depth > 64 {
+            return;
+        }
+        let expression = ast::skip_parentheses(expression);
+        let ty = checker.get_type_at_location(expression);
+        if let Some(origins) = self
+            .origins(checker, ty)
+            .filter(|s| s.iter().any(|o| o.variant_label.is_some()))
+        {
+            self.variant_site(self.range(expression), origins);
+            return;
+        }
+        if ty
+            .flags()
+            .intersects(TypeFlags::Object | TypeFlags::Intersection)
+        {
+            let number = checker.get_number_type();
+            if let Some(element) = checker.get_index_type_of_type(ty, number) {
+                if let Some(origins) = self
+                    .origins(checker, element)
+                    .filter(|s| s.iter().any(|o| o.variant_label.is_some()))
+                {
+                    self.variant_site(self.range(expression), origins);
+                    return;
+                }
+            }
+        }
+        match expression.kind() {
+            Kind::ArrayLiteralExpression => {
+                for &child in expression.as_array_literal_expression().elements().nodes() {
+                    self.variant_value(checker, child, depth + 1);
+                }
+            }
+            Kind::ObjectLiteralExpression => {
+                for &property in expression
+                    .as_object_literal_expression()
+                    .properties()
+                    .nodes()
+                {
+                    if property.kind() == Kind::PropertyAssignment {
+                        let key = property.as_property_assignment().name();
+                        if key.kind() == Kind::ComputedPropertyName {
+                            self.variant_value(
+                                checker,
+                                key.as_computed_property_name().expression(),
+                                depth + 1,
+                            );
+                        }
+                    }
+                }
+            }
+            Kind::AsExpression => self.variant_value(
+                checker,
+                expression.as_as_expression().expression(),
+                depth + 1,
+            ),
+            Kind::SatisfiesExpression => self.variant_value(
+                checker,
+                expression.as_satisfies_expression().expression(),
+                depth + 1,
+            ),
+            Kind::ConditionalExpression => {
+                let c = expression.as_conditional_expression();
+                self.variant_value(checker, c.when_true(), depth + 1);
+                self.variant_value(checker, c.when_false(), depth + 1);
+            }
+            Kind::BinaryExpression => {
+                let b = expression.as_binary_expression();
+                self.variant_value(checker, b.right(), depth + 1);
+                if b.operator_token().kind() != Kind::AmpersandAmpersandToken {
+                    self.variant_value(checker, b.left(), depth + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn variant_types(
+        &self,
+        checker: &mut Checker,
+        ty: P<Type>,
+        depth: usize,
+    ) -> BTreeSet<ClassOrigin> {
+        if depth > 32 {
+            return BTreeSet::new();
+        }
+        if let Some(origins) = self.origins(checker, ty) {
+            return origins
+                .into_iter()
+                .filter(|o| o.variant_label.is_some())
+                .collect();
+        }
+        let mut origins = BTreeSet::new();
+        for &alternative in alternatives(&ty) {
+            if alternative
+                .flags()
+                .intersects(TypeFlags::Object | TypeFlags::Intersection)
+            {
+                let number = checker.get_number_type();
+                if let Some(element) = checker.get_index_type_of_type(alternative, number) {
+                    origins.extend(self.variant_types(checker, element, depth + 1));
+                }
+            }
+        }
+        origins
+    }
+
+    fn parameter_origins(
+        &self,
+        checker: &mut Checker,
+        parameter: P<Node>,
+        depth: usize,
+    ) -> Option<BTreeSet<ClassOrigin>> {
+        if depth > 64 {
+            return None;
+        }
+        let function = parameter.parent()?;
+        let index = function.parameters().iter().position(|&p| p == parameter)?;
+        let mut origins = BTreeSet::new();
+        let mut found = false;
+        for &call in self
+            .component_calls
+            .iter()
+            .filter(|c| c.kind() == Kind::CallExpression)
+        {
+            if checker.get_resolved_signature_exported(call).declaration() == Some(function) {
+                found = true;
+                origins.extend(self.trace_expression_origins(
+                    checker,
+                    *call.arguments().get(index)?,
+                    depth + 1,
+                )?);
+            }
+        }
+        found.then_some(origins)
+    }
+
     fn visit(
         &mut self,
         checker: &mut Checker,
@@ -185,46 +566,85 @@ impl Check<'_> {
         {
             self.diagnostics.push(error);
         }
+        if javascript.is_some() {
+            let access = match node.kind() {
+                Kind::PropertyAccessExpression => {
+                    let a = node.as_property_access_expression();
+                    Some((a.expression(), a.name()))
+                }
+                Kind::ElementAccessExpression => {
+                    let a = node.as_element_access_expression();
+                    ast::is_string_literal_like(a.argument_expression())
+                        .then_some((a.expression(), a.argument_expression()))
+                }
+                _ => None,
+            };
+            if let Some((receiver, key)) = access
+                && let Some(module) = styles_module(checker, self.snapshot, receiver)
+                && self
+                    .snapshot
+                    .module_interface(&module)
+                    .is_some_and(|m| !m.classes.contains(key.text()))
+            {
+                self.diagnostics.push(Diagnostic::error(
+                    "XC-001",
+                    self.id,
+                    self.range(key),
+                    format!("Class '{}' can't be found in '{}'.", key.text(), module.0),
+                ));
+            }
+        }
         if let Some((tag, attributes)) = jsx_parts(node)
             && intrinsic(tag)
         {
             let attributes = attributes.as_jsx_attributes().properties().nodes();
             self.attributes(checker, attributes, "xVars");
-            let before = self.sites.len();
             self.attributes(checker, attributes, "xClass");
-            if self.sites.len() > before {
-                let insert = self.range(node).end
-                    - if node.kind() == Kind::JsxSelfClosingElement {
-                        2
-                    } else {
-                        1
-                    };
-                let mut candidates = self.sites.split_off(before).into_iter();
-                let mut site = candidates.next().unwrap();
-                site.insert = insert;
-                for alternative in candidates {
-                    if site.slots.len() != alternative.slots.len() {
-                        self.invalid_class(self.range(node));
-                        break;
+        }
+        if node.kind() == Kind::CallExpression
+            && self.is_override(checker, node.as_call_expression().expression())
+        {
+            self.override_site(checker, node);
+        }
+        if matches!(
+            node.kind(),
+            Kind::Identifier | Kind::PropertyAccessExpression
+        ) && self.is_override(checker, node)
+        {
+            let mut value = node;
+            let mut parent = node.parent();
+            while parent.is_some_and(|p| {
+                matches!(
+                    p.kind(),
+                    Kind::ParenthesizedExpression
+                        | Kind::AsExpression
+                        | Kind::SatisfiesExpression
+                        | Kind::NonNullExpression
+                )
+            }) {
+                value = parent.unwrap();
+                parent = value.parent();
+            }
+            if let Some(parent) = parent {
+                let allowed = match parent.kind() {
+                    Kind::CallExpression => parent.as_call_expression().expression() == value,
+                    Kind::VariableDeclaration => true,
+                    Kind::ImportSpecifier
+                    | Kind::ExportSpecifier
+                    | Kind::ImportClause
+                    | Kind::NamespaceImport => true,
+                    Kind::TypeQuery => true,
+                    Kind::PropertyAccessExpression => {
+                        parent.as_property_access_expression().name() == node
                     }
-                    for (slot, alternatives) in site.slots.iter_mut().zip(alternative.slots) {
-                        slot.extend(alternatives);
-                    }
+                    _ => false,
+                };
+                if !allowed {
+                    self.diagnostics.push(Diagnostic::error("XC-013", self.id, self.range(node), "override() must be called directly or through a statically identifiable alias."));
                 }
-                for slot in &site.slots {
-                    let mut labels = BTreeSet::new();
-                    if slot
-                        .iter()
-                        .filter_map(|origin| origin.variant_label.as_ref())
-                        .any(|label| !labels.insert(label))
-                    {
-                        self.diagnostics.push(Diagnostic::error("XC-009", self.id, self.range(node),
-                            "An xClass variant label refers to more than one stylesheet in this slot."));
-                    }
-                }
-                self.sites.push(site);
             }
         }
+
         node.for_each_child(&mut |child| {
             self.visit(checker, child, javascript);
             false
@@ -247,8 +667,6 @@ impl Check<'_> {
                         self.value(checker, name, ty, self.range(expression), Some(expression));
                     } else if name == "xVars" {
                         self.invalid_map(self.range(node));
-                    } else {
-                        self.invalid_class(self.range(node));
                     }
                     break;
                 }
@@ -265,18 +683,25 @@ impl Check<'_> {
                         required &= !prop.flags().intersects(SymbolFlags::Optional);
                         let range = self.range(expression);
                         let (ty, range) = self.property_value(checker, prop, range);
+                        if name == "xClass" {
+                            let origins = self.variant_types(checker, ty, 0);
+                            let range = self.range(expression);
+                            self.variant_site(range, origins);
+                            if let Some(site) = self
+                                .sites
+                                .iter_mut()
+                                .find(|s| s.range == range && s.level.is_none())
+                            {
+                                site.props = true;
+                            }
+                            continue;
+                        }
                         let expression = prop
                             .declarations()
                             .first()
                             .copied()
                             .filter(|decl| decl.kind() == Kind::PropertyAssignment)
-                            .map(|decl| decl.as_property_assignment().initializer())
-                            .filter(|&value| {
-                                name != "xClass"
-                                    || readonly_tuple(ty)
-                                    || ast::get_source_file_of_node(value) == Some(self.file)
-                                        && self.range(value) == range
-                            });
+                            .map(|decl| decl.as_property_assignment().initializer());
                         self.value(checker, name, ty, range, expression);
                     }
                     if required {
@@ -299,147 +724,12 @@ impl Check<'_> {
         if name == "xVars" {
             self.map(checker, ty, range, expression, 0);
         } else {
-            let slots = self.tuple(checker, ty, expression, 0).or_else(|| {
-                let origins = match expression {
-                    Some(expression) => self.expression_origins(checker, expression, 0),
-                    None => self
-                        .origins(checker, ty)
-                        .or_else(|| self.branded(checker, ty).then(BTreeSet::new)),
-                }?;
-                Some(vec![origins])
-            });
-            if let Some(slots) = slots {
-                self.sites.push(ClassSite { insert: 0, slots });
-            } else {
-                self.invalid_class(range);
+            if let Some(expression) = expression {
+                self.variant_value(checker, expression, 0);
+            } else if let Some(origins) = self.origins(checker, ty) {
+                self.variant_site(range, origins);
             }
         }
-    }
-
-    fn tuple(
-        &self,
-        checker: &mut Checker,
-        ty: P<Type>,
-        expression: Option<P<Node>>,
-        depth: usize,
-    ) -> Option<Vec<BTreeSet<ClassOrigin>>> {
-        if depth > 64 {
-            return None;
-        }
-        if let Some(expression) = expression {
-            let expression = ast::skip_parentheses(expression);
-            match expression.kind() {
-                Kind::ArrayLiteralExpression => {
-                    return expression
-                        .as_array_literal_expression()
-                        .elements()
-                        .nodes()
-                        .iter()
-                        .map(|&element| {
-                            if element.kind() == Kind::SpreadElement {
-                                return None;
-                            }
-                            if element.kind() == Kind::OmittedExpression {
-                                return Some(BTreeSet::new());
-                            }
-                            self.expression_origins(checker, element, 0)
-                        })
-                        .collect();
-                }
-                Kind::AsExpression => {
-                    return self.tuple(
-                        checker,
-                        ty,
-                        Some(expression.as_as_expression().expression()),
-                        depth + 1,
-                    );
-                }
-                Kind::SatisfiesExpression => {
-                    return self.tuple(
-                        checker,
-                        ty,
-                        Some(expression.as_satisfies_expression().expression()),
-                        depth + 1,
-                    );
-                }
-                Kind::Identifier => {
-                    if !alternatives(&ty)
-                        .iter()
-                        .all(|&candidate| readonly_tuple(candidate))
-                    {
-                        return None;
-                    }
-                    if let Some(mut symbol) = checker.get_symbol_at_location_exported(expression) {
-                        if symbol.flags().intersects(SymbolFlags::Alias) {
-                            symbol = checker.get_aliased_symbol(symbol);
-                        }
-                        if let Some(decl) = symbol.value_declaration()
-                            && const_variable(decl)
-                            && let Some(initializer) = decl.as_variable_declaration().initializer()
-                        {
-                            return self.tuple(checker, ty, Some(initializer), depth + 1);
-                        }
-                    }
-                }
-                Kind::ConditionalExpression => {
-                    let conditional = expression.as_conditional_expression();
-                    let first = conditional.when_true();
-                    let second = conditional.when_false();
-                    let first_type = checker.get_type_at_location(first);
-                    let second_type = checker.get_type_at_location(second);
-                    let mut first = self.tuple(checker, first_type, Some(first), depth + 1)?;
-                    let second = self.tuple(checker, second_type, Some(second), depth + 1)?;
-                    if first.len() != second.len() {
-                        return None;
-                    }
-                    for (slot, other) in first.iter_mut().zip(second) {
-                        slot.extend(other);
-                    }
-                    return Some(first);
-                }
-                _ => {}
-            }
-        }
-        let ty = constraint(checker, ty);
-        let mut slots: Option<Vec<BTreeSet<ClassOrigin>>> = None;
-        for &candidate in alternatives(&ty) {
-            if candidate
-                .flags()
-                .intersects(TypeFlags::Nullable | TypeFlags::Never)
-            {
-                continue;
-            }
-            if !readonly_tuple(candidate) {
-                return None;
-            }
-            let length = checker.get_property_of_type(candidate, "length")?;
-            if !checker
-                .get_type_of_symbol_exported(length)
-                .flags()
-                .intersects(TypeFlags::NumberLiteral)
-            {
-                return None;
-            }
-            let origins: Vec<_> = checker
-                .get_type_arguments(candidate)
-                .iter()
-                .map(|&element| {
-                    self.origins(checker, element)
-                        .or_else(|| self.branded(checker, element).then(BTreeSet::new))
-                })
-                .collect::<Option<_>>()?;
-            if let Some(slots) = &mut slots {
-                if slots.len() != origins.len() {
-                    return None;
-                }
-                for (slot, alternatives) in slots.iter_mut().zip(origins) {
-                    slot.extend(alternatives);
-                }
-            } else {
-                slots = Some(origins);
-            }
-        }
-        slots
     }
 
     fn expression_origins(
@@ -451,27 +741,8 @@ impl Check<'_> {
         self.trace_expression_origins(checker, expression, depth)
             .or_else(|| {
                 let ty = checker.get_type_at_location(expression);
-                self.branded(checker, ty).then(BTreeSet::new)
+                self.origins(checker, ty)
             })
-    }
-
-    fn branded(&self, checker: &mut Checker, ty: P<Type>) -> bool {
-        let ty = constraint(checker, ty);
-        alternatives(&ty).iter().all(|&candidate| {
-            candidate
-                .flags()
-                .intersects(TypeFlags::Nullable | TypeFlags::Never | TypeFlags::BooleanLike)
-                || checker
-                    .get_property_of_type(candidate, "__xcssClassName__")
-                    .is_some_and(|marker| {
-                        let value = checker.get_type_of_symbol_exported(marker);
-                        value.flags().intersects(TypeFlags::BooleanLiteral)
-                            && matches!(
-                                value.as_literal_type().value(),
-                                Some(LiteralValue::Boolean(true))
-                            )
-                    })
-        })
     }
 
     fn trace_expression_origins(
@@ -516,9 +787,52 @@ impl Check<'_> {
                 depth + 1,
             );
         }
+        if expression.kind() == Kind::CallExpression {
+            let call = expression.as_call_expression();
+            if self.is_override(checker, call.expression()) {
+                let origins = self.expression_origins(
+                    checker,
+                    *call.arguments().nodes().first()?,
+                    depth + 1,
+                )?;
+                return Some(
+                    origins
+                        .into_iter()
+                        .map(|mut o| {
+                            o.overridden = true;
+                            o
+                        })
+                        .collect(),
+                );
+            }
+            let declaration = checker
+                .get_resolved_signature_exported(expression)
+                .declaration()?;
+            let body = declaration.body()?;
+            let mut returns = Vec::new();
+            if body.kind() == Kind::Block {
+                collect_returns(body, &mut returns);
+            } else {
+                returns.push(body);
+            }
+            let mut origins = BTreeSet::new();
+            for value in returns {
+                origins.extend(self.expression_origins(checker, value, depth + 1)?);
+            }
+            return (!origins.is_empty()).then_some(origins);
+        }
         let ty = checker.get_type_at_location(expression);
-        if let Some(origins) = self.origins(checker, ty) {
-            return Some(origins);
+        let trace_first = matches!(
+            expression.kind(),
+            Kind::Identifier | Kind::ConditionalExpression | Kind::BinaryExpression
+        ) || expression.kind() == Kind::PropertyAccessExpression
+            && access.is_some_and(|(receiver, _)| {
+                component_parameter(checker, receiver, depth + 1).is_some()
+            });
+        if !trace_first {
+            if let Some(origins) = self.origins(checker, ty) {
+                return Some(origins);
+            }
         }
         match expression.kind() {
             Kind::NonNullExpression => self.expression_origins(
@@ -574,6 +888,7 @@ impl Check<'_> {
                         let value = declaration.as_variable_declaration().initializer()?;
                         self.expression_origins(checker, value, depth + 1)
                     }
+                    Kind::Parameter => self.parameter_origins(checker, declaration, depth + 1),
                     Kind::BindingElement => {
                         let binding = declaration.as_binding_element();
                         let owner = declaration.parent()?.parent()?;
@@ -634,7 +949,33 @@ impl Check<'_> {
                 continue;
             }
             found = true;
-            let (_, attributes) = jsx_parts(call)?;
+            if call.kind() == Kind::CallExpression {
+                let value = *call.arguments().first()?;
+                let ty = checker.get_type_at_location(value);
+                let property = checker.get_property_of_type(ty, name)?;
+                if let Some(declaration) = property
+                    .value_declaration()
+                    .filter(|d| d.kind() == Kind::PropertyAssignment)
+                {
+                    origins.extend(self.trace_expression_origins(
+                        checker,
+                        declaration.as_property_assignment().initializer(),
+                        depth + 1,
+                    )?);
+                } else {
+                    let parameter = component_parameter(checker, value, depth + 1)?;
+                    origins.extend(self.component_prop(
+                        checker,
+                        parameter.parent()?,
+                        name,
+                        depth + 1,
+                    )?);
+                }
+                continue;
+            }
+            let Some((_, attributes)) = jsx_parts(call) else {
+                continue;
+            };
             for &node in attributes
                 .as_jsx_attributes()
                 .properties()
@@ -705,6 +1046,7 @@ impl Check<'_> {
                             module: module.clone(),
                             class: class.clone(),
                             variant_label: Some(class.clone()),
+                            overridden: false,
                         });
                     }
                 }
@@ -725,6 +1067,7 @@ impl Check<'_> {
                         module,
                         class: class.into(),
                         variant_label: None,
+                        overridden: false,
                     });
                 }
             }
@@ -903,7 +1246,7 @@ impl Check<'_> {
             "XC-009",
             self.id,
             range,
-            "xClass requires a traceable XCSS class, variant, or fixed tuple of slots.",
+            "An xClass variant label refers to more than one stylesheet in this expression.",
         ));
     }
 }
@@ -916,13 +1259,6 @@ fn constraint(checker: &mut Checker, ty: P<Type>) -> P<Type> {
     } else {
         ty
     }
-}
-
-fn readonly_tuple(ty: P<Type>) -> bool {
-    ty.is_tuple_type()
-        && ty
-            .target()
-            .is_some_and(|target| target.as_tuple_type().is_readonly())
 }
 
 fn const_variable(node: P<Node>) -> bool {
@@ -989,4 +1325,22 @@ fn accepts(checker: &mut Checker, kind: &ValueType, expected: P<Type>, actual: P
         }
         checker.is_type_assignable_to(ty, expected)
     })
+}
+
+fn collect_returns(node: P<Node>, out: &mut Vec<P<Node>>) {
+    if node.kind() == Kind::ReturnStatement {
+        if let Some(value) = node.as_return_statement().expression() {
+            out.push(value);
+        }
+        return;
+    }
+    node.for_each_child(&mut |child| {
+        if !matches!(
+            child.kind(),
+            Kind::ArrowFunction | Kind::FunctionExpression | Kind::FunctionDeclaration
+        ) {
+            collect_returns(child, out);
+        }
+        false
+    });
 }

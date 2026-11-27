@@ -136,11 +136,11 @@ know, such as a constructed `calc()` expression.
 ## Composing classes in React
 
 With the XCSS JSX runtime configured, use `xClass` on intrinsic elements to
-compose scoped class names. Pass one class directly or, for multiple entries,
-pass an array literal or a fixed readonly tuple of
-named `styles` exports, values typed as `Variants<'Group'>`, and conditional
-slots. Booleans, `null`, and `undefined` leave the slot empty. Use `className`
-for global classes.
+compose classes with clsx semantics: strings, numbers, nested or dynamic arrays,
+conditional values, and object maps are supported. Falsy values contribute nothing.
+Typed `Variants<'Group'>` leaves still resolve to their scoped classes; ordinary
+strings remain global class names. No fixed tuple or runtime class allowlist is
+required.
 
 ```tsx
 import type { ClassName } from '@cross-css/vite/types'
@@ -151,7 +151,7 @@ export function Box({ active, className }: { active: boolean; className?: ClassN
 }
 ```
 
-The runtime appends the contributed classes to `className`. Tuple positions do
+The runtime appends the contributed classes to `className`. Array positions do
 not affect specificity or CSS precedence; normal CSS cascade rules apply. Variant
 entries resolve labels to the classes declared in their group. Nested XCSS rules
 compile to flat CSS, with independent specificity for each parent-list branch.
@@ -172,6 +172,46 @@ import type { ClassName, XClass } from '@cross-css/vite/types'
 Breaking change: `ClassName` is no longer exported from `@cross-css/vite/react`
 or `@cross-css/vite/solidjs`. Update those type imports to use `/types`.
 Framework-specific JSX augmentations still load from `/react` and `/solidjs`.
+
+## Explicit specificity overrides
+
+Import `override` from `@cross-css/vite` to opt a class into additional specificity:
+
+```tsx
+import { override } from '@cross-css/vite'
+import type { ClassName } from '@cross-css/vite/types'
+
+function Button(props: { className: ClassName }) {
+  return <button xClass={[styles.button, override(props.className)]} />
+}
+
+const highlighted = override(styles.highlighted, 2)
+```
+
+The default level is 1. A supplied level must be a positive integer numeric
+literal; variables, calls, arithmetic, assertions, zero, and negative or fractional
+values are compile-time errors. Parenthesized literals work. There is no preset
+level ceiling or pregenerated sequence of levels; excessive generated output
+fails with a resource-limit diagnostic.
+
+The compiler must trace each input to finite XCSS class exports, including through
+component props and function forwarding. An unconstrained ClassName with unknown
+external callers is an error. The helper works in project JavaScript/TypeScript
+files outside JSX as well as in xClass and className. Applying it to an already
+overridden value is an error, including across component boundaries. Untransformed
+calls and unexpected runtime inputs throw.
+
+Original classes remain on the element alongside class-specific override markers.
+Contributed @util classes receive markers too. Marked selector occurrences gain
+the requested number of ID selectors, subject to native CSS function and cascade
+rules: :where() still has zero specificity, and cascade layers and !important
+retain their normal precedence. Positive functional alternatives use marker
+guards so an unrelated branch cannot gain specificity. Inside :not(), classes
+become an unboosted :is(original, markers) union.
+
+Only traced class/level pairs are emitted. Rebuild CSS and its JavaScript consumers
+together. With the CLI, use compile --project to collect requests from TypeScript;
+JavaScript helper calls still require the Vite transform.
 
 ## Shared utilities
 
@@ -221,7 +261,7 @@ Keep TypeScript JSX preserved with jsxImportSource set to @solidjs/web.
 Add @cross-css/vite/solidjs to compilerOptions.types (alongside vite/client
 and @cross-css/vite/client) for xClass and xVars declarations.
 Intrinsic elements accept reactive xClass and xVars expressions with the same
-class analysis and fixed-tuple rules as React. Existing class bindings are
+clsx composition, typed variants, and explicit overrides as React. Existing class bindings are
 preserved; xVars overrides matching style properties. Component props are
 passed through for forwarding to intrinsic elements.
 

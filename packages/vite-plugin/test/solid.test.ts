@@ -21,7 +21,8 @@ test('Solid compiler accepts XCSS in development and production', async () => {
   const css = outputs.flatMap(output => 'output' in output ? output.output.flatMap(file => file.type === 'asset' && file.fileName.endsWith('.css') ? [file.source] : []) : []).join('\n')
   expect(css).toContain('box_000')
   expect(css).not.toContain('box_001')
-  expect(css).not.toContain('#__')
+  expect(css).toContain('box_000_override_2')
+  expect(css).toContain('#_#_')
 })
 
 test('Solid bindings stay reactive and hide XCSS metadata', () => {
@@ -31,7 +32,6 @@ test('Solid bindings stay reactive and hide XCSS metadata', () => {
     class: { existing: true },
     get xClass() { return active },
     get xVars() { return { '--width': width } },
-    __xcssClassSlots: [[['a', 'a'], ['b', 'b']]],
   }])
   expect(props.class).toEqual([{ existing: true }, 'a'])
   active = 'b'

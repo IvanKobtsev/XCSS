@@ -8,6 +8,10 @@ const ENTRIES: &[(&str, &str, &str)] = &[
     ("XC-007", "XC-007", "Unknown xVars key"),
     ("XC-008", "XC-008", "Invalid xVars value"),
     ("XC-009", "XC-009", "Invalid xClass value"),
+    ("XC-010", "XC-010", "Invalid override specificity"),
+    ("XC-011", "XC-011", "Untraceable override input"),
+    ("XC-012", "XC-012", "Repeated specificity override"),
+    ("XC-013", "XC-013", "Unsupported override invocation"),
     ("binding.ambiguous-function", "XC-216", "Ambiguous function"),
     (
         "binding.ambiguous-injection",

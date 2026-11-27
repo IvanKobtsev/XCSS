@@ -1,10 +1,10 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { basename, dirname, join, posix, relative, resolve as resolvePath } from 'node:path'
 import { Compiler, inspect } from '@cross-css/native'
-import type { NativeArtifact, NativeClassPlan, NativeCompilation } from '@cross-css/native'
+import type { NativeArtifact, NativeClassUsagePlan, NativeCompilation } from '@cross-css/native'
 import { normalizePath, type Plugin, type ModuleNode, type ViteDevServer } from 'vite'
 import { createCssId, createVirtualId, cssAssetUrls, isCrossCssId, parseVirtualId } from './internal.js'
-import { classProject, hasIntrinsicXClass } from './class-project.js'
+import { classProject } from './class-project.js'
 import { transformSolid } from './solid-transform.js'
 import { transformReact } from './react-transform.js'
 
@@ -28,7 +28,7 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
   let revision = 0
   let projectVersion = 0
   let sync: Promise<void> | undefined
-  let classPlan: NativeClassPlan | undefined
+  let classPlan: NativeClassUsagePlan | undefined
   let classError: Error | undefined
   const jsxModules = new Set<string>()
   const idFor = (path: string) => normalizePath(relative(root, path))
@@ -68,7 +68,7 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
     for (const resolution of resolutions) compiler.setResolution(resolution.importer, resolution.specifier, resolution.target)
     classPlan = undefined
     classError = undefined
-    compiler.clearClassSlots()
+    compiler.clearClassUsage()
     const classConfig = compiler.projectTsconfig()
     try {
       await stat(classConfig)
@@ -76,7 +76,7 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
       const prefix = '_/'.repeat(normalizePath(root).split('/').length) + '__xcss_project_root__'
       const projectId = (file: string) => posix.join(prefix, idFor(file))
       const project = classProject(classConfig, projectId)
-      if (project.hasJsx) classPlan = compiler.planClassSlots(projectId(classConfig), project.sources)
+      if (project.hasSources) classPlan = compiler.planClassUsage(projectId(classConfig), project.sources)
     } catch (error) {
       if (version === projectVersion) classError = error instanceof Error ? error : new Error(String(error))
     }
@@ -109,7 +109,7 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
       server.httpServer?.once('close', () => { server.watcher.off('add', changed); server.watcher.off('unlink', changed); server.watcher.off('change', edited) })
     },
     async transform(code, id) {
-      if (!/\.[jt]sx$/i.test(id)) return
+      if (!/\.[cm]?[jt]sx?$/i.test(id)) return
       jsxModules.add(id)
       for (;;) {
         const version = projectVersion
@@ -123,23 +123,22 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
         try { if ((await stat(config)).isFile()) this.addWatchFile(config) }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
       }
-      if (classError && hasIntrinsicXClass(id, code)) this.error(classError.message)
+      if (classError && /['"]@cross-css\/vite['"]/.test(code)) this.error(classError.message)
       const file = idFor(id)
-      const diagnostic = classPlan?.diagnostics.find(item => ['XC-001', 'XC-002', 'XC-003', 'XC-009'].includes(item.code) && item.moduleId === file)
+      const diagnostic = classPlan?.diagnostics.find(item => ['XC-001', 'XC-002', 'XC-003', 'XC-009', 'XC-010', 'XC-011', 'XC-012', 'XC-013'].includes(item.code) && item.moduleId === file)
       if (diagnostic) this.error({ message: diagnostic.message, id, loc: { file: id, line: diagnostic.line, column: diagnostic.column - 1 } })
-      const sites = classPlan?.sites.filter(site => site.moduleId === file)
-      if (!sites?.length) {
-        if (hasIntrinsicXClass(id, code)) this.error('The XCSS TypeScript project must include this JSX file')
-        return framework === 'solid' ? transformSolid(code, id) : transformReact(code, id)
-      }
+      const sites = classPlan?.sites.filter(site => site.moduleId === file) ?? []
+      if (!sites.length) return /\.[jt]sx$/i.test(id) ? (framework === 'solid' ? transformSolid(code, id) : transformReact(code, id)) : undefined
       const imports = new Set<string>()
       const modules = new Map<string, NativeArtifact>()
-      let output = code
-      for (const site of [...sites].sort((a, b) => b.offset - a.offset)) {
-        if (code[site.offset] !== '>' && code.slice(site.offset, site.offset + 2) !== '/>') {
-          this.error('XCSS could not locate the analyzed JSX element. Run XCSS before plugins that rewrite JSX.')
-        }
-        const slots = site.slots.map(slot => slot.map(origin => {
+      let apply = '__xcssApplyOverride'
+      let variants = '__xcssResolveVariants'
+      let variantProps = '__xcssResolveVariantProps'
+      while (code.includes(apply)) apply += '_'
+      while (code.includes(variants)) variants += '_'
+      while (code.includes(variantProps)) variantProps += '_'
+      const edits = sites.map(site => {
+        const entries = site.origins.map(origin => {
           let module = modules.get(origin.moduleId)
           if (!module) {
             module = resultFor(compiler.compile(origin.moduleId), error => this.error(error)).get(origin.moduleId)
@@ -149,18 +148,28 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
           let specifier = normalizePath(relative(dirname(id), fileFor(origin.moduleId)))
           if (!specifier.startsWith('.')) specifier = './' + specifier
           imports.add(specifier)
-          const baseClass = module.classes[origin.className]
-          if (baseClass === undefined) this.error('Missing XCSS class ' + origin.className)
-          return [origin.variantLabel ?? baseClass, baseClass]
-        }))
-        output = output.slice(0, site.offset) + ' __xcssClassSlots={' + JSON.stringify(slots) + '} ' + output.slice(site.offset)
+          const base = module.classes[origin.className]
+          const output = site.level ? module.overrides[origin.className]?.[site.level] : base
+          if (output === undefined) this.error('Missing XCSS override output for ' + origin.className)
+          return [origin.variantLabel ?? base, output]
+        })
+        return { ...site, entries }
+      })
+      const render = (start: number, end: number, skipped?: typeof edits[number]): string => {
+        const candidates = edits.filter(edit => edit !== skipped && edit.start >= start && edit.end <= end)
+        const outer = candidates.filter(edit => !candidates.some(parent => parent !== edit && parent.start <= edit.start && parent.end >= edit.end))
+        let result = code.slice(start, end)
+        for (const edit of outer.sort((a,b) => b.start - a.start)) {
+          const value = edit.level ? render(edit.argumentStart!, edit.argumentEnd!, edit) : render(edit.start, edit.end, edit)
+          const replacement = (edit.level ? apply : edit.props ? variantProps : variants) + '(' + value + ', ' + JSON.stringify(edit.entries) + ')'
+          result = result.slice(0, edit.start - start) + replacement + result.slice(edit.end - start)
+        }
+        return result
       }
-      output = (framework === 'solid' ? transformSolid(output, id) : transformReact(output, id))?.code ?? output
-      const importStatements = [...imports].map(path => 'import ' + JSON.stringify(path) + ';')
-      return {
-        code: output + '\n' + importStatements.join('\n'),
-        map: null,
-      }
+      let output = render(0, code.length)
+      if (/\.[jt]sx$/i.test(id)) output = (framework === 'solid' ? transformSolid(output, id) : transformReact(output, id))?.code ?? output
+      const helperImport = 'import { applyOverride as ' + apply + ', resolveVariants as ' + variants + ', resolveVariantProps as ' + variantProps + ' } from "@cross-css/vite";'
+      return { code: output + '\n' + helperImport + '\n' + [...imports].map(path => 'import ' + JSON.stringify(path) + ';').join('\n'), map: null }
     },
     async resolveId(source, importer, options) {
       if (source === utilityModuleId || source === utilityCssId()) return source

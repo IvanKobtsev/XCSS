@@ -20,7 +20,7 @@ struct TypescriptState {
 mod selectors;
 pub use selectors::{Selector, SelectorPart, Selectors};
 pub use xcss_syntax::Specificity;
-pub use xcss_typescript::{Project as TypeScriptProject, class_slots};
+pub use xcss_typescript::{Project as TypeScriptProject, class_usage};
 mod css;
 mod warnings;
 pub use warnings::Warning;

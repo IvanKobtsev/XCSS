@@ -6,6 +6,77 @@ fn id(name: &str) -> FileId {
 }
 
 #[test]
+fn explicit_overrides_preserve_maps_raw_bytes_and_base_names() {
+    let source = "/* 😀 */ .a { color: red; &.b { width: 7px; } } :not(.a) { opacity: .5; } @raw { .literal.a { color: blue; } }";
+    let mut host = AnalysisHost::new();
+    host.set_file(id("a.xcss"), 1, source).unwrap();
+    let snapshot = host.snapshot();
+    let baseline = generate(&snapshot, &id("a.xcss"), &GenerateOptions::default()).unwrap();
+    for minify in [false, true] {
+        let options = GenerateOptions {
+            minify,
+            override_uses: [(
+                id("a.xcss"),
+                [("a".into(), ["1".into(), "5".into()].into())].into(),
+            )]
+            .into(),
+            ..GenerateOptions::default()
+        };
+        let result = generate(&snapshot, &id("a.xcss"), &options).unwrap();
+        let module = &result.modules[0];
+        assert_eq!(module.classes, baseline.modules[0].classes);
+        assert_eq!(module.overrides["a"]["5"], "a_000 a_000_override_5");
+        assert!(module.css.contains("a_000_override_5:is(*, #_#_#_#_#_)"));
+        assert!(!module.css.contains("override_2"));
+        assert!(module.css.contains(" .literal.a { color: blue; } "));
+        let mut map = parcel_sourcemap::SourceMap::from_json("/", &module.source_map).unwrap();
+        let generated = xcss_source::SourceFile::new(id("css"), 0, module.css.as_str());
+        let authored = xcss_source::SourceFile::new(id("a.xcss"), 0, source);
+        for token in ["width", "7px"] {
+            let position = generated
+                .byte_to_utf16(module.css.find(token).unwrap())
+                .unwrap();
+            let mapping = map
+                .find_closest_mapping(position.line as u32, position.character as u32)
+                .unwrap()
+                .original
+                .unwrap();
+            assert_eq!(map.get_source(mapping.source).unwrap(), "a.xcss");
+            let original = authored.byte_to_utf16(source.find(token).unwrap()).unwrap();
+            assert_eq!(
+                mapping.original_column as usize, original.character,
+                "{token}"
+            );
+        }
+    }
+}
+
+#[test]
+fn large_override_levels_fail_only_at_generation_resource_limits() {
+    let mut host = AnalysisHost::new();
+    host.set_file(id("a.xcss"), 1, ".a { color: red; }")
+        .unwrap();
+    let options = GenerateOptions {
+        override_uses: [(
+            id("a.xcss"),
+            [(
+                "a".into(),
+                ["10000000000000000000000000000000000".into()].into(),
+            )]
+            .into(),
+        )]
+        .into(),
+        ..GenerateOptions::default()
+    };
+    assert!(
+        generate(&host.snapshot(), &id("a.xcss"), &options)
+            .unwrap_err()
+            .iter()
+            .any(|d| d.code == "generate.expansion-limit")
+    );
+}
+
+#[test]
 fn flattened_lists_keep_branch_specificity_and_declaration_order() {
     let result = compile(&[("a.xcss", ".primary, .override:is(*, #boost) { color: red; &.secondary { color: blue; } color: green; & + & { margin: 1px; } }")], "a.xcss", &[]).unwrap();
     let css = &result.modules[0].css;

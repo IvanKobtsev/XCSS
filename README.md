@@ -169,11 +169,24 @@ export function Button({ tone, width }: { tone: Variants<'Tone'>; width: number 
 }
 ```
 
-Pass a single class to `xClass` to use slot zero, or use an inline array or a
-fixed readonly tuple for multiple slots. Later slots boost
-eligible stylesheet-root selectors. A conditional value such as
-`active && styles.active` keeps its slot when false. Use ordinary `className`
-for global class names.
+Use `xClass` with clsx inputs: strings, conditional values, object maps, and
+nested or dynamic arrays. Array order never changes specificity. Typed variant
+labels still resolve to scoped classes; ordinary strings are global classes.
+
+Use `override` from `@cross-css/vite` for explicit specificity:
+
+```tsx
+import { override } from '@cross-css/vite'
+
+<button xClass={[styles.button, override(styles.primary, 2)]} />
+```
+
+The default level is 1; supplied levels must be positive integer literals. The
+compiler requires traceable XCSS class origins and rejects repeated overrides.
+Original classes are retained alongside class-specific markers, including utility
+contributions. Native layers and selector-function specificity still apply. See
+[explicit specificity overrides](packages/vite-plugin/README.md#explicit-specificity-overrides)
+for component forwarding, validation, and negative-selector behavior.
 
 With `noUncheckedIndexedAccess` enabled, TypeScript treats keys in the
 bundled `cssVars` declaration as potentially absent. For a variable declared
@@ -194,7 +207,7 @@ Add an npm script that points to the same app config used by the plugin.
 
 Run `pnpm check:xcss` alongside your normal TypeScript check. The bundled
 TypeScript declarations make stylesheet imports and JSX props available.
-`xcss check` validates actual exported names, variant values, `xClass` slots,
+`xcss check` validates actual exported names, variant values, `override()` calls,
 and `xVars` keys and values against your stylesheets.
 
 The Node CLI also prints a separate list of uncoded warnings for invalid CSS
@@ -300,7 +313,7 @@ Keep TypeScript JSX preserved with jsxImportSource set to @solidjs/web.
 Add @cross-css/vite/solidjs to compilerOptions.types (alongside vite/client
 and @cross-css/vite/client) for xClass and xVars declarations.
 Intrinsic elements accept reactive xClass and xVars expressions with the same
-class analysis and fixed-tuple rules as React. Existing class bindings are
+clsx composition, typed variants, and explicit overrides as React. Existing class bindings are
 preserved; xVars overrides matching style properties. Component props are
 passed through for forwarding to intrinsic elements.
 

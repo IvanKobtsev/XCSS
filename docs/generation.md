@@ -83,6 +83,16 @@ syntax such as `&--modifier` is not supported.
 boosts. Moving a class within a tuple does not change CSS or name allocation.
 `GenerateOptions.class_positions` and `positional_class` have been removed.
 
+`GenerateOptions.override_uses` supplies module/class/level requests. Levels are
+canonical positive decimal strings so parsing does not impose a fixed-width
+ceiling. `GeneratedModule.overrides` maps class export names and requested levels
+to complete runtime strings containing originals plus markers. Marker names are
+allocated after base names with collision checks and include contributed utility
+classes. Override alternatives are emitted after flattening/scoping, with original
+source mappings, conditions, layers, and raw boundaries preserved. Functional
+selectors retain their original candidate sets and use zero-weight marker guards;
+classes under :not() use unboosted unions instead. Only requested pairs are emitted.
+
 License comments survive; exact formatting and
 ordinary comments are not guaranteed. Browser targets/prefixing are downstream
 responsibilities. Unknown declarations/at-rules are retained when supported by

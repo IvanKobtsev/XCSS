@@ -24,12 +24,12 @@ export function solidProps(sources: readonly (Record<string, any> | (() => Recor
     has: (_, key) => objects().some(object => object != null && key in object),
   })
   const rest = new Proxy(props, {
-    ownKeys: target => Reflect.ownKeys(target).filter(key => !['xClass', 'xVars', '__xcssClassSlots', 'class', 'style'].includes(String(key))),
+    ownKeys: target => Reflect.ownKeys(target).filter(key => !['xClass', 'xVars', 'class', 'style'].includes(String(key))),
     getOwnPropertyDescriptor: (target, key) => Object.getOwnPropertyDescriptor(target, key),
   })
   const bindings = {
     get class() {
-      const resolved = normalizeProps('div', { xClass: props.xClass, __xcssClassSlots: props.__xcssClassSlots }) as { className?: string }
+      const resolved = normalizeProps('div', { xClass: props.xClass }) as { className?: string }
       return [props.class, resolved.className] as JSX.HTMLAttributes<HTMLElement>['class']
     },
     get style() {

@@ -22,7 +22,7 @@ export function transformReact(code: string, id: string) {
     const opening = ts.isJsxElement(node) ? node.openingElement : ts.isJsxSelfClosingElement(node) ? node : undefined
     if (opening && ts.isIdentifier(opening.tagName) && /^[a-z]/.test(opening.tagName.text) &&
       opening.attributes.properties.some(a => ts.isJsxSpreadAttribute(a) ||
-        ts.isJsxAttribute(a) && ['xClass', 'xVars', '__xcssClassSlots'].includes(a.name.getText(source)))) {
+        ts.isJsxAttribute(a) && ['xClass', 'xVars'].includes(a.name.getText(source)))) {
       changed = true
       const values: string[] = []
       let marker = '__xcssExpression'

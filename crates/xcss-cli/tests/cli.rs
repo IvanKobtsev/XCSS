@@ -5,6 +5,42 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn compile_project_emits_only_requested_overrides_and_keeps_artifacts_on_validation_errors() {
+    let root = sandbox();
+    fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"module":"esnext","moduleResolution":"bundler"},"files":["app.ts"]}"#).unwrap();
+    fs::write(root.join("a.xcss"), ".a { color: red; }").unwrap();
+    fs::write(root.join("app.ts"), "import {override} from '@cross-css/vite'; import {styles} from './a.xcss'; override(styles.a, 3);").unwrap();
+    let compile = || {
+        Command::new(env!("CARGO_BIN_EXE_xcss"))
+            .current_dir(&root)
+            .args([
+                "compile",
+                "a.xcss",
+                "-o",
+                "out.css",
+                "--project",
+                "tsconfig.json",
+            ])
+            .output()
+            .unwrap()
+    };
+    let output = compile();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let css = fs::read_to_string(root.join("out.css")).unwrap();
+    assert!(css.contains("a_000_override_3:is(*, #_#_#_)"), "{css}");
+    assert!(!css.contains("override_1"));
+    fs::write(root.join("app.ts"), "import {override} from '@cross-css/vite'; import {styles} from './a.xcss'; const level = 3; override(styles.a, level);").unwrap();
+    let output = compile();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("XC-010"));
+    assert_eq!(fs::read_to_string(root.join("out.css")).unwrap(), css);
+}
 #[test]
 fn checks_typescript_without_emitting_and_reports_original_locations() {
     let root = sandbox();

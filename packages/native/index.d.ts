@@ -192,6 +192,7 @@ moduleId: string
 css: string
 sourceMap: string
 classes: Record<string, string>
+overrides: Record<string, Record<string, string>>
 customProperties: Record<string, string>
 cssVars: Record<string, string>
 stylesheetDependencies: Array<string>
@@ -235,12 +236,17 @@ variantLabel?: string
 }
 
 export interface NativeClassSite {
+props: boolean
 moduleId: string
-offset: number
-slots: Array<Array<NativeClassOrigin>>
+start: number
+end: number
+argumentStart?: number
+argumentEnd?: number
+level?: string
+origins: Array<NativeClassOrigin>
 }
 
-export interface NativeClassPlan {
+export interface NativeClassUsagePlan {
 sites: Array<NativeClassSite>
 diagnostics: Array<NativeDiagnostic>
 }
@@ -299,8 +305,8 @@ export declare class Compiler {
  configureProject(root: string, config?: string | undefined | null): Array<string>
  projectTsconfig(): string
  resolveImport(importer: string, specifier: string): string | null
- clearClassSlots(): void
- planClassSlots(config: string, sources: Array<NativeProjectSource>): NativeClassPlan
+ clearClassUsage(): void
+ planClassUsage(config: string, sources: Array<NativeProjectSource>): NativeClassUsagePlan
  setFile(moduleId: string, revision: number, source: string): void
  removeFile(moduleId: string, revision: number): void
  setResolution(importer: string, specifier: string, target?: string | undefined | null): void

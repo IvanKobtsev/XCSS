@@ -163,3 +163,16 @@ fixtures are pinned to Prettier 3.6.2; exhaustive Prettier equivalence is not
 guaranteed. XCSS headers and expressions use compatible layout conventions.
 Opaque fragments deliberately retain their original spelling; comments are
 preserved byte-for-byte. There is no CLI formatting command in this release.
+
+## Explicit class usage planning
+
+`class_usage` (Rust) and `Compiler.planClassUsage(config, sources)` (native) replace
+the fixed-slot planner. Sites identify source ranges, optional override argument
+ranges, requested levels, and traced class origins; variant-prop sites translate
+only the consumed xClass property. `clearClassUsage()` drops the active requests.
+Generated artifacts expose `overrides[className][level]` runtime strings.
+
+XC-010 reports invalid specificity literals, XC-011 untraceable or nullable
+inputs, XC-012 repeated overrides, and XC-013 escaping helper invocations. These
+checks share the unsaved project inputs used by editor and CLI diagnostics.
+Authored selector specificity scores remain unchanged by helper usage.

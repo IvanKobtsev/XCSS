@@ -1,4 +1,7 @@
 import { createRef } from 'react'
+import { override } from '@cross-css/vite'
+import type { ClassName } from '@cross-css/vite/types'
+export { boosted } from './overrides.js'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { px } from '@cross-css/vite/units'
 import { styles, cssVars } from './box.xcss'
@@ -26,3 +29,13 @@ function ForwardedButtons(props: Parameters<typeof ButtonGroup>[0]) {
 export const html = renderToStaticMarkup(<>{element}{withoutStyle}<Component {...provided} />
   <ForwardedButtons className={styles.override} variant="secondary" />
 </>)
+
+function OverrideButton(props: { className: ClassName }) {
+  return <button xClass={[styles.box, override(props.className)]} />
+}
+export const overriddenHtml = renderToStaticMarkup(<OverrideButton className={styles.override} />)
+
+const sharedVariants: readonly import('./button-variants.xcss').Variants<'Button'>[] = ['secondary']
+const variantProps = { xClass: sharedVariants }
+export const variantHtml = renderToStaticMarkup(<div {...variantProps} />)
+export const originalVariant = sharedVariants[0]

@@ -14,6 +14,10 @@ interface Fixture {
   emptyVars: Readonly<Record<string, string>>
   styles: Record<string, string>
   html: string
+  boosted: string
+  overriddenHtml: string
+  variantHtml: string
+  originalVariant: string
   ref: unknown
   element: { key: string | null; props: { ref: unknown } }
   empty: { props: { style: Record<string, string>; className?: string } }
@@ -28,6 +32,10 @@ function checkFixture(app: Fixture) {
   expect(app.html).toContain(`height:200px;${width}:24px`)
   expect(app.html).toContain(`style="${width}:24px" class="${app.styles.box}"`)
   expect(app.html).toContain('<b>A</b><i>B</i>')
+  expect(app.variantHtml).toContain('class="secondary_000"')
+  expect(app.originalVariant).toBe('secondary')
+  expect(app.boosted).toBe('override_000 override_000_override_2')
+  expect(app.overriddenHtml).toContain('box_000 override_000 override_000_override_1')
   expect(app.html).toContain('<span>24px</span>')
   expect(app.html).not.toContain('xVars')
   expect(app.html.toLowerCase()).not.toContain('xclass')
@@ -73,10 +81,11 @@ it('merges xVars and xClass in a production bundle', async () => {
   checkFixture(app)
   expect(css).toContain(`var(${app.cssVars.providedWidth})`)
   expect(css).toContain('primary_000')
-  expect(css).not.toContain('#__')
+  expect(css).toContain('override_000_override_2')
+  expect(css).toContain('#_#_')
 })
 
-it('refreshes JSX composition without changing CSS or names when tuple positions change', async () => {
+it('refreshes composition and override levels without renumbering base classes', async () => {
   const temporary = await mkdtemp(join(dirname(root.replace(/[\\/]$/, '')), 'react-update-'))
   await cp(root, temporary, { recursive: true })
   await rename(join(temporary, 'tsconfig.json'), join(temporary, 'tsconfig.app.json'))
@@ -103,15 +112,30 @@ it('refreshes JSX composition without changing CSS or names when tuple positions
     const refreshed = await server.transformRequest(cssId)
     expect(refreshed?.code).toBe(css?.code)
     expect(refreshed?.code).not.toContain('#__')
+    const helperPath = join(temporary, 'overrides.ts')
+    const helper = await readFile(helperPath, 'utf8')
+    await writeFile(helperPath, helper.replace('boost(styles.override, 2)', 'boost(styles.override, 5)'))
+    await expect.poll(async () => {
+      const app = await server.ssrLoadModule('/app.tsx') as Fixture
+      expect(app.boosted).toBe('override_000 override_000_override_5')
+      const updated = await server.transformRequest(cssId)
+      expect(updated?.code).not.toContain('override_000_override_2')
+      return updated?.code
+    }).toContain('override_000_override_5')
+    await writeFile(helperPath, helper.replace('boost(styles.override, 2)', 'styles.override'))
+    await expect.poll(async () => {
+      const app = await server.ssrLoadModule('/app.tsx') as Fixture
+      expect(app.boosted).toBe('override_000')
+      return (await server.transformRequest(cssId))?.code
+    }).not.toContain('override_000_override_5')
   } finally {
     await server.close()
     await rm(temporary, { recursive: true, force: true })
   }
-})
+}, 15000)
 
-it('preserves skipped slots and custom component props', () => {
-  const props = { className: 'global', xClass: ['local', false, 'local'],
-    __xcssClassSlots: [[['local', 'local']], [], [['local', 'local']]] }
+it('normalizes clsx values and preserves custom component props', () => {
+  const props = { className: 'global', xClass: ['local', false, 'local'] }
   expect(normalizeProps('div', props)).toEqual({ className: 'global local local' })
   expect(normalizeProps(() => null, props)).toBe(props)
 })

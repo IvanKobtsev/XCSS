@@ -221,3 +221,16 @@ Invalid/recovered selectors, unsupported functional selectors, unresolved parent
 and selectors in injection definitions whose call-site context is unknown have
 no exact score. Other valid selector-list members remain queryable. This API does
 not expand injection calls or provide lint thresholds or editor hover UI.
+
+## Explicit class usage planning
+
+`class_usage` (Rust) and `Compiler.planClassUsage(config, sources)` (native) replace
+the fixed-slot planner. Sites identify source ranges, optional override argument
+ranges, requested levels, and traced class origins; variant-prop sites translate
+only the consumed xClass property. `clearClassUsage()` drops the active requests.
+Generated artifacts expose `overrides[className][level]` runtime strings.
+
+XC-010 reports invalid specificity literals, XC-011 untraceable or nullable
+inputs, XC-012 repeated overrides, and XC-013 escaping helper invocations. These
+checks share the unsaved project inputs used by editor and CLI diagnostics.
+Authored selector specificity scores remain unchanged by helper usage.
