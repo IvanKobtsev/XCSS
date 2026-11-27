@@ -44,11 +44,23 @@ assert.deepEqual(languageServiceCapabilities().tokenTypes.slice(-6, -3), ['cssFu
 service.setFile('file:///selectors.xcss', 1, '#root, .parent { a.button[data-kind="hello"]:where(.disabled)::after { & > * {} } }')
 const selectors = service.selectors('file:///selectors.xcss')
 assert.equal(selectors.selectors.length, 4)
-assert.deepEqual(selectors.selectors[2].specificity, { ids: 1, classes: 2, types: 2 })
+// Flattened parent branches have different scores; there is no single exact tuple.
+for (const selector of selectors.selectors.slice(2)) {
+  assert.equal(selector.specificity, undefined)
+  assert.match(selector.reason, /varies by expanded selector branch/)
+}
 const legend = languageServiceCapabilities().tokenTypes
 const tokens = service.document('file:///selectors.xcss').tokens
 for (const kind of ['class', 'selectorId', 'selectorTag', 'selectorAttribute', 'pseudoClass', 'pseudoElement', 'selectorUniversal', 'selectorNesting', 'selectorCombinator']) {
   assert(tokens.some(token => legend[token.tokenType] === kind), kind)
+}
+// Uniform parent branches must still expose exact scores, including deeper nesting.
+service.setFile('file:///uniform-selectors.xcss', 1, '.first, .second { a.button[data-kind="hello"]:where(.disabled)::after { & > * {} } }')
+const uniform = service.selectors('file:///uniform-selectors.xcss')
+assert.equal(uniform.selectors.length, 4)
+for (const selector of uniform.selectors.slice(2)) {
+  assert.deepEqual(selector.specificity, { ids: 0, classes: 3, types: 2 })
+  assert.equal(selector.reason, undefined)
 }
 const tsService = new LanguageService()
 tsService.setFile('button.xcss', 1, '@variants Button: .primary; .button {} .primary {}')
