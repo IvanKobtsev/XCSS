@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 use xcss_source::{Diagnostic, FileId, Location, SourceFile, TextRange};
+use xcss_source::{DiagnosticPart as Part, diagnostic_message as message};
 use xcss_syntax::ast::{Value, ValueKind, decode_identifier};
 use xcss_syntax::{Node, NodeKind, ParseResult, TokenKind};
 
@@ -76,7 +77,7 @@ impl Database {
         code: &'static str,
         file: &FileId,
         range: TextRange,
-        message: impl Into<String>,
+        message: impl Into<xcss_source::DiagnosticMessage>,
     ) {
         self.diagnostics
             .push(Diagnostic::error(code, file, range, message));
@@ -133,7 +134,7 @@ impl Database {
                 "binding.duplicate",
                 file,
                 range,
-                format!("Duplicate declaration `{name}`"),
+                message!["Duplicate declaration ", Part::backtick(&name)],
             );
             self.diagnostics.last_mut().unwrap().related.push(related);
         }
@@ -219,7 +220,7 @@ fn analyze(
                 "binding.unresolved-import",
                 &import.file,
                 import.range,
-                format!("Cannot resolve `{}`", import.specifier),
+                message!["Cannot resolve ", Part::backtick(&import.specifier)],
             );
         }
         if let Some(target) = &target {
@@ -285,7 +286,7 @@ fn analyze(
                     "binding.missing-export",
                     &import.file,
                     *range,
-                    format!("Callable `{name}` is not exported"),
+                    message!["Callable ", Part::backtick(&name), " is not exported"],
                 );
             }
             if named
@@ -375,7 +376,7 @@ fn analyze(
                     },
                     &call.file,
                     range,
-                    format!("Ambiguous callable `{name}`"),
+                    message!["Ambiguous callable ", Part::backtick(&name)],
                 );
                 suppressed = true;
                 None
@@ -414,7 +415,7 @@ fn analyze(
                 },
                 &call.file,
                 range,
-                format!("Unknown callable `{name}`"),
+                message!["Unknown callable ", Part::backtick(&name)],
             );
         }
     }
@@ -842,16 +843,18 @@ fn validate_call(db: &mut Database, call: &Call, target: SymbolId) {
         .filter(|p| p.default.is_none())
         .count();
     if args.len() < required || args.len() > signature.parameters.len() {
-        db.error(
-            "type.argument-count",
-            &call.file,
-            call.node.header,
-            format!(
-                "Expected {required}..{} arguments, got {}",
-                signature.parameters.len(),
-                args.len()
-            ),
-        );
+        db.error("type.argument-count", &call.file, call.node.header, {
+            let mut message = message!["Expected ", Part::Number(required)];
+            if required != signature.parameters.len() {
+                message
+                    .parts
+                    .extend([Part::from("-"), Part::Number(signature.parameters.len())]);
+            }
+            message
+                .parts
+                .extend([Part::from(" arguments, but got "), Part::Number(args.len())]);
+            message
+        });
     }
     for (value, param) in args.iter().zip(&signature.parameters) {
         let actual = expression_type(db, &call.file, value);
@@ -863,7 +866,12 @@ fn validate_call(db: &mut Database, call: &Call, target: SymbolId) {
                 "type.argument-mismatch",
                 &call.file,
                 call.node.header,
-                format!("Argument does not match {}", param.value_type),
+                message![
+                    "Argument of type ",
+                    Part::value_type(&actual),
+                    " is not assignable to parameter of type ",
+                    Part::value_type(&param.value_type)
+                ],
             );
         }
     }
@@ -1012,7 +1020,10 @@ fn analyze_references(db: &mut Database, state: &Collected, parse: &ParseResult)
                 "binding.parameter-scope",
                 file,
                 range,
-                format!("Unknown or not yet declared constant or injection parameter `{name}`"),
+                message![
+                    "Unknown or not yet declared constant or injection parameter ",
+                    Part::backtick(&name)
+                ],
             );
         }
         db.references.push(Reference {

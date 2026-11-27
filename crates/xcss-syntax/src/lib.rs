@@ -529,14 +529,21 @@ impl Parser<'_> {
                     "syntax.provided-placement",
                     &self.source.id,
                     header,
-                    "@provided must be directly inside @vars",
+                    xcss_source::diagnostic_message![
+                        xcss_source::DiagnosticPart::code("@provided"),
+                        " must be directly inside ",
+                        xcss_source::DiagnosticPart::code("@vars")
+                    ],
                 ));
             } else if parent == NodeKind::Provided && kind != NodeKind::Variable {
                 self.diagnostics.push(Diagnostic::error(
                     "syntax.provided-member",
                     &self.source.id,
                     header,
-                    "Expected a variable declaration inside @provided",
+                    xcss_source::diagnostic_message![
+                        "Expected a variable declaration inside ",
+                        xcss_source::DiagnosticPart::code("@provided")
+                    ],
                 ));
             }
             let forbidden = [
@@ -614,7 +621,10 @@ impl Parser<'_> {
                     "syntax.missing-token",
                     &self.source.id,
                     TextRange::new(end, end),
-                    format!("Missing {}", missing.iter().collect::<String>()),
+                    xcss_source::diagnostic_message![
+                        "Missing ",
+                        xcss_source::DiagnosticPart::code(missing.iter().collect::<String>())
+                    ],
                 ));
             }
             if kind == NodeKind::Error {

@@ -2,6 +2,27 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { LanguageService, languageServiceCapabilities } from '../index.js'
 
+test('diagnostics expose ordered typed parts without CLI quotes or message strings', () => {
+  const service = new LanguageService()
+  service.setFile('a.xcss', 1, '@injection f($p: percentage | number) {} .a { @:f(red); @:f(); @:missing(); }')
+  const diagnostics = service.document('a.xcss', false).diagnostics
+  assert.deepEqual(diagnostics.find(d => d.code === 'XC-303').messageParts, [
+    { kind: 'text', text: 'Argument of type ' },
+    { kind: 'type', valueType: { kind: 'named', name: 'color' } },
+    { kind: 'text', text: ' is not assignable to parameter of type ' },
+    { kind: 'type', valueType: { kind: 'union', members: [{ kind: 'named', name: 'percentage' }, { kind: 'named', name: 'number' }] } },
+  ])
+  assert.deepEqual(diagnostics.find(d => d.code === 'XC-302').messageParts, [
+    { kind: 'text', text: 'Expected ' }, { kind: 'number', value: 1 },
+    { kind: 'text', text: ' arguments, but got ' }, { kind: 'number', value: 0 },
+  ])
+  assert(diagnostics.find(d => d.code === 'XC-212').messageParts.some(p => p.kind === 'code' && p.text === 'missing'))
+  for (const diagnostic of diagnostics) {
+    assert.equal(Object.hasOwn(diagnostic, 'message'), false)
+    for (const part of diagnostic.messageParts) assert.equal(Object.hasOwn(part, 'quote'), false)
+  }
+})
+
 test('TS checking accepts unsaved project sources and updates after XCSS edits', () => {
   const service = new LanguageService()
   service.setTypescriptProject('tsconfig.json')
@@ -33,7 +54,8 @@ test('stylesheet diagnostics and TypeScript setup warnings are independent', () 
   const statement = broken.find(diagnostic => diagnostic.code === 'XC-105')
   assert.equal(statement.label, 'Invalid XCSS statement')
   assert.equal(statement.legacyCode, 'syntax.invalid-statement')
-  assert.equal(statement.message, 'Expected a declaration or rule')
+  assert.deepEqual(statement.messageParts, [{ kind: 'text', text: 'Expected a declaration or rule' }])
+  assert.equal(Object.hasOwn(statement, 'message'), false)
   assert.deepEqual(statement.location, {
     uri,
     range: {
@@ -59,7 +81,7 @@ test('stylesheet diagnostics and TypeScript setup warnings are independent', () 
 
 test('editor API returns UTF-16 facts without invoking compilation', () => {
   const service = new LanguageService()
-  assert.equal(languageServiceCapabilities().apiVersion, 7)
+  assert.equal(languageServiceCapabilities().apiVersion, 8)
   const uri = 'file:///app.xcss'
   const source = '/* 😀 */ @import lib from "./lib"; .a { @:lib.paint(); color: --global; }'
   service.setFile('file:///lib.xcss', 1, '@injection paint($p: color = red) { color: $p; }')

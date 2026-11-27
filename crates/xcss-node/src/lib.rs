@@ -295,7 +295,7 @@ impl Compiler {
             napi::Error::from_reason(
                 errors
                     .into_iter()
-                    .map(|d| d.message)
+                    .map(|d| d.message.to_string())
                     .collect::<Vec<_>>()
                     .join("\n"),
             )
@@ -497,7 +497,7 @@ fn convert_diagnostic(d: Diagnostic, snapshot: &xcss_core::AnalysisSnapshot) -> 
         .and_then(|p| p.source.byte_to_utf16(d.location.range.start));
     NativeDiagnostic {
         code: d.code.into(),
-        message: d.message,
+        message: d.message.to_string(),
         severity: match d.severity {
             Severity::Error => "error",
             Severity::Warning => "warning",

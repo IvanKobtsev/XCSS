@@ -1,5 +1,7 @@
 //! Source identities, immutable revisions and original-source locations.
+mod message;
 mod names;
+pub use message::{CodeQuote, DiagnosticMessage, DiagnosticPart, DiagnosticType};
 pub use names::Names;
 use std::sync::Arc;
 
@@ -45,7 +47,7 @@ pub struct Location {
 pub struct Diagnostic {
     pub code: &'static str,
     pub severity: Severity,
-    pub message: String,
+    pub message: DiagnosticMessage,
     pub location: Location,
     pub related: Vec<Location>,
 }
@@ -54,7 +56,7 @@ impl Diagnostic {
         code: &'static str,
         file: &FileId,
         range: TextRange,
-        message: impl Into<String>,
+        message: impl Into<DiagnosticMessage>,
     ) -> Self {
         Self {
             code,

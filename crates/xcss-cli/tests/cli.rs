@@ -7,6 +7,30 @@ use std::{
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn check_renders_shared_argument_messages_without_label_prefixes() {
+    let root = sandbox();
+    fs::write(root.join("a.xcss"), "@injection f($p: percentage | number) {} @injection g($p: color, $q: color = red) {} .a { @:f(red); @:f(); @:g(); @:missing(); }").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_xcss"))
+        .current_dir(&root)
+        .args(["check"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    for sentence in [
+        "XC-303 Argument of type color is not assignable to parameter of type percentage | number",
+        "XC-302 Expected 1 arguments, but got 0",
+        "XC-302 Expected 1-2 arguments, but got 0",
+        "XC-212 Unknown injection — Unknown callable `missing`",
+    ] {
+        assert!(stderr.contains(sentence), "{stderr}");
+    }
+    assert!(!stderr.contains("Argument type mismatch —"));
+    assert!(!stderr.contains("Wrong number of arguments —"));
+    assert!(stderr.contains("a.xcss:1:"), "{stderr}");
+}
+
+#[test]
 fn compile_project_emits_only_requested_overrides_and_keeps_artifacts_on_validation_errors() {
     let root = sandbox();
     fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"module":"esnext","moduleResolution":"bundler"},"files":["app.ts"]}"#).unwrap();

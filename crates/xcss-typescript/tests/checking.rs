@@ -171,7 +171,8 @@ declare const variant: A<'Button'> | B<'Button'>;
     assert!(
         diagnostics
             .iter()
-            .any(|d| d.code == "XC-009" && d.message.contains("more than one stylesheet")),
+            .any(|d| d.code == "XC-009"
+                && d.message.to_string().contains("more than one stylesheet")),
         "{diagnostics:?}"
     );
 }
@@ -342,12 +343,17 @@ const conditional: Unrelated = 'ignore this too';
         ),
     ]);
     let diagnostics = check(&p, &snapshot).unwrap();
+    let messages = diagnostics
+        .iter()
+        .map(|d| d.message.to_string())
+        .collect::<Vec<_>>();
     let actual = diagnostics
         .iter()
-        .map(|d| {
+        .zip(&messages)
+        .map(|(d, message)| {
             let source = p.files[&d.location.file].text();
             let range = d.location.range;
-            (d.code, &source[range.start..range.end], d.message.as_str())
+            (d.code, &source[range.start..range.end], message.as_str())
         })
         .collect::<Vec<_>>();
     let invalid_value = "Value is not valid for variant group 'Button' in 'Button.xcss'.";
@@ -424,7 +430,7 @@ const options: { variant: A<'Size'> } = { variant: 'large' };
     assert_eq!(
         diagnostics
             .iter()
-            .map(|d| d.message.as_str())
+            .map(|d| d.message.to_string())
             .collect::<Vec<_>>(),
         [
             "Class 'large' can't be found in 'a.xcss'.",
@@ -455,7 +461,7 @@ fn missing_modules_and_config_errors_are_not_hidden() {
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert_eq!(diagnostics[0].code, "XC-004");
     assert_eq!(
-        diagnostics[0].message,
+        diagnostics[0].message.to_string(),
         "Can't resolve XCSS module './missing.xcss'."
     );
     let missing_config = check(

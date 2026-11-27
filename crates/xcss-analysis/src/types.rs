@@ -1,4 +1,5 @@
 use super::*;
+use xcss_source::{DiagnosticPart as Part, diagnostic_message as message};
 
 pub const VALUE_KINDS: &[&str] = &[
     "length",
@@ -72,7 +73,13 @@ fn checked_annotation(
                 "type.unknown-type",
                 file,
                 range,
-                "Union type annotations are only allowed on @injection and @util parameters",
+                xcss_source::diagnostic_message![
+                    "Union type annotations are only allowed on ",
+                    xcss_source::DiagnosticPart::code("@injection"),
+                    " and ",
+                    xcss_source::DiagnosticPart::code("@util"),
+                    " parameters"
+                ],
             );
             return ValueType::Unknown;
         }
@@ -82,9 +89,11 @@ fn checked_annotation(
                 file,
                 range,
                 if invalid.is_empty() {
-                    "Expected a type name in parameter annotation".into()
+                    xcss_source::DiagnosticMessage::from(
+                        "Expected a type name in parameter annotation",
+                    )
                 } else {
-                    format!("Unknown type `{invalid}`")
+                    message!["Unknown type ", Part::backtick(*invalid)]
                 },
             );
             return ValueType::Unknown;
@@ -95,7 +104,12 @@ fn checked_annotation(
                 "type.mismatch",
                 file,
                 range,
-                format!("Expected {expected}, found {actual}"),
+                message![
+                    "Expected ",
+                    Part::value_type(&expected),
+                    ", found ",
+                    Part::value_type(&actual)
+                ],
             );
         }
         expected

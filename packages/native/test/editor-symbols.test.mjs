@@ -22,7 +22,7 @@ test('definition details and TypeScript token kinds use the same source ranges',
 })
 
 test('class, group and member locations and completion cross the native boundary', () => {
-  assert.equal(languageServiceCapabilities().apiVersion, 7)
+  assert.equal(languageServiceCapabilities().apiVersion, 8)
   const service = new LanguageService()
   const css = '.primary {} .secondary {}\n@variants Button: .primary, .secondary;'
   const ts = 'import { styles, type Variants as V } from "./theme.xcss";\n/* 😀 */ styles.primary; const value: V<"Button"> = "primary";'

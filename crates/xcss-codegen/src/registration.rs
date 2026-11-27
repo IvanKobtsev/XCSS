@@ -70,7 +70,10 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
             "generate.registration-wildcard",
             file,
             variable.location.range,
-            format!("Browser registration uses wildcard syntax for XCSS {kind}"),
+            xcss_source::diagnostic_message![
+                "Browser registration uses wildcard syntax for XCSS ",
+                xcss_source::DiagnosticPart::Type(xcss_source::DiagnosticType::Named(kind.into()))
+            ],
         );
         warning.severity = Severity::Warning;
         lower.diagnostics.push(warning);
@@ -93,7 +96,11 @@ pub(super) fn emit(lower: &mut Lowerer<'_>, id: SymbolId) -> Result<Mapped, Vec<
                 "generate.property-initial",
                 file,
                 variable.location.range,
-                "Typed @property initial values must be valid and computationally independent",
+                xcss_source::diagnostic_message![
+                    "Typed ",
+                    xcss_source::DiagnosticPart::code("@property"),
+                    " initial values must be valid and computationally independent"
+                ],
             )]);
         }
     }

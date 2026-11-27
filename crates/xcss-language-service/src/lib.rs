@@ -4,7 +4,7 @@ use xcss_source::{Diagnostic, FileId, Location, Position, TextRange};
 use xcss_syntax::{NodeKind, TokenKind};
 
 pub use xcss_analysis::UpdateError;
-pub const API_VERSION: u32 = 7;
+pub const API_VERSION: u32 = 8;
 use std::{
     collections::BTreeMap,
     sync::{Arc, OnceLock},
@@ -25,6 +25,9 @@ mod css;
 mod warnings;
 pub use warnings::Warning;
 mod diagnostic_catalog;
+mod diagnostics;
+pub use diagnostics::DiagnosticPart;
+pub use xcss_source::DiagnosticType;
 mod hover;
 pub use hover::{Hover, HoverParameter, HoverSignature, HoverSymbolKind, HoverType, HoverVariable};
 mod editor;
@@ -71,6 +74,17 @@ pub struct EditorLocation {
 }
 #[derive(Clone, Debug)]
 pub struct EditorDiagnostic {
+    pub code: &'static str,
+    pub severity: xcss_source::Severity,
+    pub message_parts: Vec<DiagnosticPart>,
+    pub label: &'static str,
+    pub legacy_code: Option<&'static str>,
+    pub location: EditorLocation,
+    pub related: Vec<EditorLocation>,
+}
+/// Diagnostics for text-based hosts, rendered from the same source parts.
+#[derive(Clone, Debug)]
+pub struct PlainDiagnostic {
     pub diagnostic: Diagnostic,
     pub label: &'static str,
     pub legacy_code: Option<&'static str>,
@@ -245,6 +259,26 @@ impl ServiceSnapshot {
     }
 
     pub fn diagnostics(&self, file: &FileId) -> Vec<EditorDiagnostic> {
+        self.plain_diagnostics(file)
+            .into_iter()
+            .map(|d| EditorDiagnostic {
+                code: d.diagnostic.code,
+                severity: d.diagnostic.severity,
+                message_parts: d
+                    .diagnostic
+                    .message
+                    .parts
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+                label: d.label,
+                legacy_code: d.legacy_code,
+                location: d.location,
+                related: d.related,
+            })
+            .collect()
+    }
+    pub fn plain_diagnostics(&self, file: &FileId) -> Vec<PlainDiagnostic> {
         let typescript = if self.0.syntax(file).is_none() && self.1.files.contains_key(file) {
             self.typescript_check().as_deref().unwrap_or_default()
         } else {
@@ -259,7 +293,7 @@ impl ServiceSnapshot {
                 let (code, label, legacy_code) = diagnostic_catalog::metadata(d.code);
                 let mut diagnostic = d.clone();
                 diagnostic.code = code;
-                Some(EditorDiagnostic {
+                Some(PlainDiagnostic {
                     diagnostic,
                     label,
                     legacy_code,

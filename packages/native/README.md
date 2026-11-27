@@ -48,6 +48,21 @@ tokens; `definition`, `references`, and `hover` accept zero-based UTF-16 positio
 These APIs do not compile CSS or read files. See the repository's
 [language-service contract](https://github.com/IvanKobtsev/XCSS/blob/main/docs/language-service.md).
 
+### Structured diagnostics (API v8)
+
+Breaking: `document(uri).diagnostics` replaces `message` strings with
+`messageParts`. Parts distinguish prose (`text`), raw code or symbol spelling
+(`code`), recursive types (`type`, with `valueType`), and argument counts
+(`number`, with `value`). Hosts such as CrossBreeze choose their own type and code
+formatting. Labels remain metadata; render the parts as the diagnostic sentence.
+There is no compatibility message field. Native compiler diagnostics and separate
+warning APIs retain their string contracts.
+
+XC-303 now includes both passed and parameter types. XC-302 reports an exact
+count or a hyphenated range followed by the supplied count. CLI text uses the
+same message definitions. See the
+[schema and migration example](../../docs/language-service.md#structured-diagnostic-messages-api-v8).
+
 ### Structured hovers (API v7)
 
 `hover(uri, position)` returns `null` or a data object with `range`, `kind`,
@@ -58,8 +73,8 @@ contains ordered parameters (names, types, optional source defaults) and
 Types distinguish `unknown`, `named`, and `union` with ordered members.
 
 Breaking: `text` was removed. Consumers such as CrossBreeze must format these
-fields themselves; XCSS provides no hover prose or markup. Diagnostics are
-unchanged. See the [schema and formatting example](../../docs/language-service.md#structured-hover-data-api-v7).
+fields themselves; XCSS provides no hover prose or markup. See the
+[schema and formatting example](../../docs/language-service.md#structured-hover-data-api-v7).
 
 
 

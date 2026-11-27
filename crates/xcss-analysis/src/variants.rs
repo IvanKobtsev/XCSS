@@ -1,4 +1,5 @@
 use super::*;
+use xcss_source::{DiagnosticPart as Part, diagnostic_message as message};
 
 /// The static contract of an XCSS module, independent of CSS generation.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -76,7 +77,10 @@ fn provided_variables(
                     "vars.duplicate-export",
                     file,
                     variable.range,
-                    format!("Provided variables produce the same export key `{key}`"),
+                    message![
+                        "Provided variables produce the same export key ",
+                        Part::backtick(&key)
+                    ],
                 );
                 db.diagnostics.last_mut().unwrap().related.push(related);
                 continue;
@@ -229,7 +233,10 @@ pub(super) fn analyze(db: &mut Database) {
                     "variants.placement",
                     &file,
                     node.header,
-                    "@variants must be top-level",
+                    xcss_source::diagnostic_message![
+                        xcss_source::DiagnosticPart::code("@variants"),
+                        " must be top-level"
+                    ],
                 );
                 continue;
             }
@@ -242,7 +249,7 @@ pub(super) fn analyze(db: &mut Database) {
                     "variants.duplicate-group",
                     &file,
                     group.name_range,
-                    format!("Duplicate variant group `{name}`"),
+                    message!["Duplicate variant group ", Part::backtick(&name)],
                 );
                 continue;
             }
@@ -261,7 +268,7 @@ pub(super) fn analyze(db: &mut Database) {
                         "variants.duplicate-member",
                         &file,
                         range,
-                        format!("Duplicate variant `{member}`"),
+                        message!["Duplicate variant ", Part::backtick(&member)],
                     );
                 }
                 if !interface.classes.contains(&member) {
@@ -269,7 +276,11 @@ pub(super) fn analyze(db: &mut Database) {
                         "variants.unknown-class",
                         &file,
                         range,
-                        format!("Variant `{member}` is not an exported local class"),
+                        message![
+                            "Variant ",
+                            Part::backtick(&member),
+                            " is not an exported local class"
+                        ],
                     );
                 }
                 locations

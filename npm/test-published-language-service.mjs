@@ -7,7 +7,7 @@ const require = createRequire(resolve(process.cwd(), 'package.json'))
 const { LanguageService, languageServiceCapabilities } = require('@cross-css/native')
 const expectedVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 assert.equal(require('@cross-css/native/package.json').version, expectedVersion)
-assert.equal(languageServiceCapabilities().apiVersion, 7)
+assert.equal(languageServiceCapabilities().apiVersion, 8)
 const service = new LanguageService()
 const source = '@injection paint($amount: percentage | number = 50%) {} .a { @:paint; }'
 service.setFile('file:///test.xcss', 1, source)

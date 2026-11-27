@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use xcss_source::{DiagnosticPart as Part, diagnostic_message as message};
 
 use tsrs_ast::{self as ast, Kind, Node, NodeFlags, SourceFile, Symbol, SymbolFlags};
 use tsrs_checker::{Checker, LiteralValue, SignatureKind, Type, TypeFlags};
@@ -239,7 +240,7 @@ impl Check<'_> {
     fn override_site(&mut self, checker: &mut Checker, node: P<Node>) {
         let call = node.as_call_expression();
         if !self.static_helper_callee(checker, call.expression(), 0) {
-            self.diagnostics.push(Diagnostic::error("XC-013", self.id, self.range(call.expression()), "override() requires a direct binding or module namespace access; dynamic callee evaluation is not supported."));
+            self.diagnostics.push(Diagnostic::error("XC-013", self.id, self.range(call.expression()), message![Part::code("override()"), " requires a direct binding or module namespace access; dynamic callee evaluation is not supported."]));
             return;
         }
         let args = call.arguments().nodes();
@@ -266,7 +267,10 @@ impl Check<'_> {
                 "XC-010",
                 self.id,
                 args.get(1).map_or(self.range(node), |&n| self.range(n)),
-                "override() specificity must be a positive integer literal.",
+                message![
+                    Part::code("override()"),
+                    " specificity must be a positive integer literal."
+                ],
             ));
             return;
         };
@@ -282,7 +286,12 @@ impl Check<'_> {
                 "XC-011",
                 self.id,
                 self.range(input),
-                "override() requires a non-null XCSS ClassName value.",
+                xcss_source::diagnostic_message![
+                    Part::code("override()"),
+                    " requires a non-null XCSS ",
+                    xcss_source::DiagnosticPart::code("ClassName"),
+                    " value."
+                ],
             ));
             return;
         }
@@ -297,7 +306,12 @@ impl Check<'_> {
                 "XC-011",
                 self.id,
                 self.range(input),
-                "override() requires a traceable XCSS ClassName value.",
+                xcss_source::diagnostic_message![
+                    Part::code("override()"),
+                    " requires a traceable XCSS ",
+                    xcss_source::DiagnosticPart::code("ClassName"),
+                    " value."
+                ],
             ));
             return;
         };
@@ -306,7 +320,10 @@ impl Check<'_> {
                 "XC-012",
                 self.id,
                 self.range(input),
-                "override() cannot be applied to an already-overridden value.",
+                message![
+                    Part::code("override()"),
+                    " cannot be applied to an already-overridden value."
+                ],
             ));
             return;
         }
@@ -589,7 +606,13 @@ impl Check<'_> {
                     "XC-001",
                     self.id,
                     self.range(key),
-                    format!("Class '{}' can't be found in '{}'.", key.text(), module.0),
+                    message![
+                        "Class ",
+                        Part::single_quote(key.text()),
+                        " can't be found in ",
+                        Part::single_quote(&module.0),
+                        "."
+                    ],
                 ));
             }
         }
@@ -639,7 +662,15 @@ impl Check<'_> {
                     _ => false,
                 };
                 if !allowed {
-                    self.diagnostics.push(Diagnostic::error("XC-013", self.id, self.range(node), "override() must be called directly or through a statically identifiable alias."));
+                    self.diagnostics.push(Diagnostic::error(
+                        "XC-013",
+                        self.id,
+                        self.range(node),
+                        message![
+                            Part::code("override()"),
+                            " must be called directly or through a statically identifiable alias."
+                        ],
+                    ));
                 }
             }
         }
@@ -1182,7 +1213,10 @@ impl Check<'_> {
                         "XC-007",
                         self.id,
                         range,
-                        format!("'{key}' is not an exported XCSS provided variable."),
+                        message![
+                            Part::single_quote(key),
+                            " is not an exported XCSS provided variable."
+                        ],
                     ));
                     continue;
                 };
@@ -1196,7 +1230,13 @@ impl Check<'_> {
                         "XC-008",
                         self.id,
                         value_range,
-                        format!("Value for '{key}' must be a CSS {kind}."),
+                        message![
+                            "Value for ",
+                            Part::single_quote(key),
+                            " must be a CSS ",
+                            Part::value_type(&variable.value_type),
+                            "."
+                        ],
                     ));
                 }
             }
@@ -1234,7 +1274,10 @@ impl Check<'_> {
             "XC-007",
             self.id,
             range,
-            "xVars requires a map with statically known provided variable keys.",
+            xcss_source::diagnostic_message![
+                xcss_source::DiagnosticPart::code("xVars"),
+                " requires a map with statically known provided variable keys."
+            ],
         ));
     }
 
@@ -1243,7 +1286,11 @@ impl Check<'_> {
             "XC-009",
             self.id,
             range,
-            "An xClass variant label refers to more than one stylesheet in this expression.",
+            xcss_source::diagnostic_message![
+                "An ",
+                xcss_source::DiagnosticPart::code("xClass"),
+                " variant label refers to more than one stylesheet in this expression."
+            ],
         ));
     }
 }

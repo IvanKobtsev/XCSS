@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use xcss_source::{DiagnosticPart as Part, diagnostic_message as message};
 
 use tsrs_ast::{self as ast, Kind, Node, SourceFile, SymbolFlags};
 use tsrs_checker::{Checker, ContextFlags, LiteralValue, TypeFlags};
@@ -71,7 +72,11 @@ pub(crate) fn missing_modules(program: &Program, project: &Project) -> Vec<Diagn
                     "XC-004",
                     &id,
                     node_range(file, specifier),
-                    format!("Can't resolve XCSS module '{}'.", specifier.text()),
+                    message![
+                        "Can't resolve XCSS module ",
+                        Part::single_quote(specifier.text()),
+                        "."
+                    ],
                 ));
             }
         }
@@ -110,7 +115,13 @@ pub(crate) fn contract_errors(
                     "XC-001",
                     id,
                     range,
-                    format!("Class '{name}' can't be found in '{}'.", module.0),
+                    message![
+                        "Class ",
+                        Part::single_quote(name),
+                        " can't be found in ",
+                        Part::single_quote(&module.0),
+                        "."
+                    ],
                 ))
             }
             2344 if node.kind() == Kind::TypeReference => {
@@ -129,7 +140,12 @@ pub(crate) fn contract_errors(
                     "XC-002",
                     id,
                     range,
-                    format!("'{name}' is not a variant group in '{}'.", module.0),
+                    message![
+                        Part::single_quote(name),
+                        " is not a variant group in ",
+                        Part::single_quote(&module.0),
+                        "."
+                    ],
                 ))
             }
             _ => None,
@@ -182,10 +198,13 @@ pub(crate) fn provided_member_error(
             "XC-006",
             id,
             node_range(file, key),
-            format!(
-                "Provided variable '{name}' can't be found in '{}'.",
-                module.0
-            ),
+            message![
+                "Provided variable ",
+                Part::single_quote(name),
+                " can't be found in ",
+                Part::single_quote(&module.0),
+                "."
+            ],
         )
     })
 }
@@ -239,18 +258,25 @@ pub(crate) fn variant_errors(
             _ => return None,
         };
         let groups = contextual_groups(checker, snapshot, expected);
-        let labels = groups
-            .into_iter()
-            .map(|(module, group)| format!("'{group}' in '{}'", module.0))
-            .collect::<Vec<_>>();
-        let message = match labels.as_slice() {
-            [] => return None,
-            [group] => format!("Value is not valid for variant group {group}."),
-            _ => format!(
-                "Value is not valid for any of these variant groups: {}.",
-                labels.join(", ")
-            ),
+        if groups.is_empty() {
+            return None;
+        }
+        let mut message = if groups.len() == 1 {
+            message!["Value is not valid for variant group "]
+        } else {
+            message!["Value is not valid for any of these variant groups: "]
         };
+        for (index, (module, group)) in groups.into_iter().enumerate() {
+            if index > 0 {
+                message.parts.push(Part::from(", "));
+            }
+            message.parts.extend([
+                Part::single_quote(group),
+                Part::from(" in "),
+                Part::single_quote(module.0),
+            ]);
+        }
+        message.parts.push(Part::from("."));
         let value = if value.kind() == Kind::JsxExpression {
             value.as_jsx_expression().expression()?
         } else {

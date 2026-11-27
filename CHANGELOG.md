@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Breaking: language-service API v8 replaces diagnostic `message` strings with typed `messageParts`. CLI and compiler text render from the same definitions. XC-303 now reports passed and parameter types; XC-302 uses a single expected count or hyphenated range. CLI checking omits the label prefix for these two codes.
+
 - Add the framework-neutral `override()` helper with positive integer literal validation, strict class-origin tracing, class-specific markers, utility contributions, and rejection of repeated overrides. Generate only requested class/level pairs, including guarded functional selectors and unboosted negative-selector unions.
 - Expand `xClass` to full clsx inputs while preserving typed variant-label resolution; remove fixed-slot metadata and restrictions.
 - Breaking: native `planClassUsage`/`clearClassUsage` and Rust `class_usage` replace slot planning. Artifacts now expose per-export override outputs; CLI `compile --project` collects requests. Rebuild CSS and JavaScript together.

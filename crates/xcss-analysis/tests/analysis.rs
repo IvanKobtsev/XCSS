@@ -59,7 +59,7 @@ fn parameter_unions_reject_incompatible_arguments_and_defaults() {
             snapshot
                 .diagnostics()
                 .iter()
-                .all(|d| !d.message.contains("Named("))
+                .all(|d| !d.message.to_string().contains("Named("))
         );
     }
 }
@@ -362,7 +362,7 @@ fn type_mismatch_diagnostics_show_plain_type_names() {
         (
             "@injection f($p: percentage) {} .a { @:f(#ae9c9c); }",
             "type.argument-mismatch",
-            "Argument does not match percentage",
+            "Argument of type color is not assignable to parameter of type percentage",
         ),
     ] {
         let mut h = host(&[("a.xcss", source)]);
@@ -378,7 +378,7 @@ fn type_mismatch_diagnostics_show_plain_type_names() {
             snapshot.diagnostics()
         );
         for diagnostic in diagnostics {
-            assert_eq!(diagnostic.message, message, "{source}");
+            assert_eq!(diagnostic.message.to_string(), message, "{source}");
         }
     }
 }

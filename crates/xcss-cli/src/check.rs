@@ -170,16 +170,22 @@ fn report<'a>(
 ) -> bool {
     let mut failed = false;
     for id in files {
-        for d in snapshot.diagnostics(id) {
+        for d in snapshot.plain_diagnostics(id) {
             failed |= d.diagnostic.severity == Severity::Error;
             eprintln!(
-                "{}:{}:{}: {} {} — {}",
+                "{}:{}:{}: {} {}",
                 root.join(&d.location.file.0).display(),
                 d.location.range.start.line + 1,
                 d.location.range.start.character + 1,
                 d.diagnostic.code,
-                d.label,
-                d.diagnostic.message
+                {
+                    let message = d.diagnostic.message.to_string();
+                    if matches!(d.diagnostic.code, "XC-302" | "XC-303") {
+                        message
+                    } else {
+                        format!("{} — {message}", d.label)
+                    }
+                }
             );
         }
     }

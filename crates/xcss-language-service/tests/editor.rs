@@ -51,7 +51,14 @@ fn parameter_unions_have_structured_hover_and_separate_type_tokens() {
             snapshot
                 .diagnostics(&file)
                 .iter()
-                .any(|d| d.diagnostic.message.contains("percentage | number"))
+                .any(|d| d
+                    .message_parts
+                    .contains(&xcss_language_service::DiagnosticPart::Type(
+                        xcss_language_service::DiagnosticType::Union(vec![
+                            xcss_language_service::DiagnosticType::Named("percentage".into()),
+                            xcss_language_service::DiagnosticType::Named("number".into())
+                        ])
+                    )))
         );
         let declarations = snapshot.css_declarations(&file);
         assert!(!declarations.declarations[0].checkable);
@@ -243,7 +250,7 @@ fn classifications_recovery_escapes_and_utf16() {
         snapshot
             .diagnostics(&file)
             .iter()
-            .any(|d| d.diagnostic.code == "XC-212"
+            .any(|d| d.code == "XC-212"
                 && d.label == "Unknown injection"
                 && d.legacy_code == Some("binding.unknown-injection"))
     );

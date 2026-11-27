@@ -22,10 +22,63 @@ pub struct EditorDiagnostic {
     pub code: String,
     pub label: String,
     pub legacy_code: Option<String>,
-    pub message: String,
+    pub message_parts: Vec<DiagnosticMessagePart>,
     pub severity: String,
     pub location: EditorLocation,
     pub related: Vec<EditorLocation>,
+}
+#[napi(object)]
+pub struct DiagnosticMessagePart {
+    #[napi(ts_type = "'text' | 'type' | 'code' | 'number'")]
+    pub kind: String,
+    pub text: Option<String>,
+    pub value_type: Option<HoverType>,
+    pub value: Option<u32>,
+}
+impl From<service::DiagnosticPart> for DiagnosticMessagePart {
+    fn from(part: service::DiagnosticPart) -> Self {
+        let mut result = Self {
+            kind: String::new(),
+            text: None,
+            value_type: None,
+            value: None,
+        };
+        match part {
+            service::DiagnosticPart::Text(text) => {
+                result.kind = "text".into();
+                result.text = Some(text);
+            }
+            service::DiagnosticPart::Code(text) => {
+                result.kind = "code".into();
+                result.text = Some(text);
+            }
+            service::DiagnosticPart::Type(value) => {
+                result.kind = "type".into();
+                result.value_type = Some(diagnostic_type(value));
+            }
+            service::DiagnosticPart::Number(value) => {
+                result.kind = "number".into();
+                result.value = Some(value as u32);
+            }
+        }
+        result
+    }
+}
+fn diagnostic_type(value: service::DiagnosticType) -> HoverType {
+    let (kind, name, members) = match value {
+        service::DiagnosticType::Unknown => ("unknown", None, None),
+        service::DiagnosticType::Named(name) => ("named", Some(name), None),
+        service::DiagnosticType::Union(members) => (
+            "union",
+            None,
+            Some(members.into_iter().map(diagnostic_type).collect()),
+        ),
+    };
+    HoverType {
+        kind: kind.into(),
+        name,
+        members,
+    }
 }
 #[napi(object)]
 pub struct SemanticToken {
@@ -399,11 +452,11 @@ impl LanguageService {
                 .diagnostics(&file)
                 .into_iter()
                 .map(|d| EditorDiagnostic {
-                    code: d.diagnostic.code.into(),
+                    code: d.code.into(),
                     label: d.label.into(),
                     legacy_code: d.legacy_code.map(Into::into),
-                    message: d.diagnostic.message,
-                    severity: match d.diagnostic.severity {
+                    message_parts: d.message_parts.into_iter().map(Into::into).collect(),
+                    severity: match d.severity {
                         xcss_source::Severity::Error => "error",
                         xcss_source::Severity::Warning => "warning",
                         xcss_source::Severity::Information => "information",

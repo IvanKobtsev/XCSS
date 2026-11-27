@@ -1,11 +1,67 @@
 # Language service
 
+## Structured diagnostic messages (API v8)
+
+Breaking: `document(uri).diagnostics` replaces `message` with ordered
+`messageParts`. There is no compatibility message string. CrossBreeze and other
+editor hosts must render the parts themselves, choosing their own code styling,
+type notation, quoting, and escaping. XCSS still supplies the wording and part
+order from the same message definition used by CLI and compiler text output.
+
+| Part | Fields | Meaning |
+| --- | --- | --- |
+| `text` | `text` | Prose, spacing, and sentence punctuation. |
+| `type` | `valueType` | Recursive `{ kind: 'unknown' }`, `{ kind: 'named', name }`, or `{ kind: 'union', members }`, in analyzer order. |
+| `code` | `text` | Raw symbol spelling, directive, operator, path, or source snippet, without presentation quotes or markup. |
+| `number` | `value` | An argument count. |
+
+Only the fields applicable to a part are present. Type names, sigils, and source
+spelling are preserved. Code, label, legacy code, severity, location, and related
+locations retain their meanings. Labels are metadata: render `messageParts` as
+the sentence rather than automatically prepending the label.
+
+For example, XC-303 contains text `Argument of type `, the passed type, text
+` is not assignable to parameter of type `, and the parameter type. XC-302 reads
+`Expected 1-2 arguments, but got 0`, or `Expected 1 arguments, but got 0` when
+the bounds match. Counts are number parts; the optional hyphen is text. The CLI
+omits the label prefix for these two codes and preserves its other output layouts.
+
+A minimal plain renderer can use the hover example's `formatType`:
+
+```js
+function formatDiagnostic(diagnostic) {
+  return diagnostic.messageParts.map(part => {
+    switch (part.kind) {
+      case 'text': return part.text
+      case 'code': return part.text // A rich UI can style and quote this separately.
+      case 'type': return formatType(part.valueType)
+      case 'number': return String(part.value)
+    }
+  }).join('')
+}
+```
+
+Rust `ServiceSnapshot::diagnostics` returns `EditorDiagnostic` with `code`,
+`severity`, `message_parts`, `label`, `legacy_code`, `location`, and `related`.
+`DiagnosticPart` is an enum (`Text`, `Type`, `Code`, `Number`), and
+`DiagnosticType` is recursive (`Unknown`, `Named`, `Union`). The previous nested
+`diagnostic` field is removed. Text-based Rust hosts can use `plain_diagnostics`,
+whose `PlainDiagnostic::diagnostic.message` is a `DiagnosticMessage` implementing
+`Display`; call `to_string()` when an owned string is needed. Its CLI quoting
+metadata never crosses the editor interface.
+
+The internal `xcss_source::Diagnostic::message` is now `DiagnosticMessage`, not
+`String`. Native compiler diagnostics and formatter results still return their
+existing strings, rendered from that model. Separate editor warning APIs retain
+their existing contracts. This change does not alter diagnostic locations,
+validation rules, snapshot semantics, or CSS generation.
+
 ## Structured hover data (API v7)
 
 Breaking change: `hover(uri, position)` returns semantic data instead of `text`.
 Consumers of API v6, including CrossBreeze's Rust renderer, must replace access
 to `hover.text` with their own formatting when adopting API v7. There is no
-compatibility text field. Diagnostics retain their existing messages.
+compatibility text field. API v8 also structures diagnostic messages, as above.
 
 The result is `null` (Rust `None`) when no supported symbol resolves. Otherwise:
 
@@ -153,7 +209,7 @@ token positions. Adapters encode tokens for their protocol and format structured
 hover data for their UI.
 
 Diagnostics include a stable numeric `code`, a readable `label`, and the
-specific `message`. Stylesheet codes use `XC-1xx` for syntax, `XC-2xx` for
+ordered `messageParts`. Stylesheet codes use `XC-1xx` for syntax, `XC-2xx` for
 binding, `XC-3xx` for types, and `XC-4xx` for variants. For example, `XC-105`
 has the label “Invalid XCSS statement”. Hosts that previously matched
 `syntax.invalid-statement` or another stylesheet identifier can use

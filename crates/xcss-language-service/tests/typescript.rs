@@ -21,10 +21,7 @@ fn revisions_snapshots_unsaved_edits_and_utf16() {
     let old = service.snapshot();
     let diagnostics = old.diagnostics(&ts);
     assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-    let missing = diagnostics
-        .iter()
-        .find(|d| d.diagnostic.code == "XC-001")
-        .unwrap();
+    let missing = diagnostics.iter().find(|d| d.code == "XC-001").unwrap();
     assert_eq!(missing.location.range.start.character, 66);
     service
         .set_file(
@@ -61,7 +58,7 @@ fn revisions_snapshots_unsaved_edits_and_utf16() {
         .unwrap();
     let diagnostics = service.snapshot().diagnostics(&ts);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-    assert_eq!(diagnostics[0].diagnostic.code, "XC-004");
+    assert_eq!(diagnostics[0].code, "XC-004");
 }
 
 #[test]

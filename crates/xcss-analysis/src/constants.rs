@@ -1,4 +1,5 @@
 use super::*;
+use xcss_source::{DiagnosticPart as Part, diagnostic_message as message};
 
 pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) {
     for parse in parsed {
@@ -35,7 +36,12 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                             "type.mismatch",
                             file,
                             value.range,
-                            format!("Expected {expected}, found {actual}"),
+                            message![
+                                "Expected ",
+                                Part::value_type(&expected),
+                                ", found ",
+                                Part::value_type(&actual)
+                            ],
                         );
                     }
                     if let Some(id) = db
@@ -72,7 +78,7 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                     "binding.constant-redeclaration",
                     file,
                     constant.range,
-                    format!("Cannot redeclare or shadow `{}`", symbol.name),
+                    message!["Cannot redeclare or shadow ", Part::backtick(&symbol.name)],
                 );
                 db.diagnostics
                     .last_mut()
@@ -101,7 +107,12 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                     "type.mismatch",
                     file,
                     constant.initial.range,
-                    format!("Expected {expected}, found {actual}"),
+                    message![
+                        "Expected ",
+                        Part::value_type(&expected),
+                        ", found ",
+                        Part::value_type(&actual)
+                    ],
                 );
             }
             db.symbols[id.0].value_type = expected;
@@ -122,7 +133,7 @@ pub(super) fn analyze_constants(db: &mut Database, parsed: &[Arc<ParseResult>]) 
                     "binding.constant-redeclaration",
                     file,
                     parameter.location.range,
-                    format!("Cannot shadow `{}`", parameter.name),
+                    message!["Cannot shadow ", Part::backtick(&parameter.name)],
                 );
             }
         }

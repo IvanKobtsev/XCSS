@@ -62,7 +62,7 @@ pub fn format_source(
             .into_iter()
             .map(|d| FormatDiagnostic {
                 code: d.code.into(),
-                message: d.message,
+                message: d.message.to_string(),
                 range: crate::language_service::EditorRange {
                     start: position(d.location.range.start),
                     end: position(d.location.range.end),

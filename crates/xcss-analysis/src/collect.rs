@@ -37,7 +37,10 @@ pub(super) fn collect(
                     "syntax.vars-placement",
                     file,
                     node.header,
-                    "@vars must be top-level",
+                    xcss_source::diagnostic_message![
+                        xcss_source::DiagnosticPart::code("@vars"),
+                        " must be top-level"
+                    ],
                 );
             }
         }
@@ -79,7 +82,11 @@ pub(super) fn collect(
                     "type.property-initial",
                     file,
                     range,
-                    "Typed @property initial values must be valid and computationally independent",
+                    xcss_source::diagnostic_message![
+                        "Typed ",
+                        xcss_source::DiagnosticPart::code("@property"),
+                        " initial values must be valid and computationally independent"
+                    ],
                 );
             }
             db.declare(
@@ -144,7 +151,10 @@ pub(super) fn collect(
                         "syntax.parameter",
                         file,
                         range,
-                        "Injection parameters must start with $",
+                        xcss_source::diagnostic_message![
+                            "Injection parameters must start with ",
+                            xcss_source::DiagnosticPart::code("$")
+                        ],
                     );
                 }
                 let initial = parameter.default;
@@ -267,7 +277,10 @@ pub(super) fn collect(
             "binding.content-scope",
             file,
             node.header,
-            "@content is only valid inside an injection",
+            xcss_source::diagnostic_message![
+                xcss_source::DiagnosticPart::code("@content"),
+                " is only valid inside an injection"
+            ],
         ),
         NodeKind::Rule => {
             child_scope = db.scope(file, node.range, Some(scope));
@@ -326,7 +339,11 @@ pub(super) fn collect(
                         "syntax.unsupported-composes",
                         file,
                         node.header,
-                        "XCSS does not support composes declarations",
+                        xcss_source::diagnostic_message![
+                            "XCSS does not support ",
+                            xcss_source::DiagnosticPart::code("composes"),
+                            " declarations"
+                        ],
                     );
                     return;
                 }

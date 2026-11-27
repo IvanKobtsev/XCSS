@@ -31,6 +31,15 @@ pub enum ValueType {
     Named(String),
     Union(Vec<ValueType>),
 }
+impl From<&ValueType> for xcss_source::DiagnosticType {
+    fn from(value: &ValueType) -> Self {
+        match value {
+            ValueType::Unknown => Self::Unknown,
+            ValueType::Named(name) => Self::Named(name.clone()),
+            ValueType::Union(members) => Self::Union(members.iter().map(Self::from).collect()),
+        }
+    }
+}
 impl std::fmt::Display for ValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

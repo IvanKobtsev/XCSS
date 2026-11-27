@@ -18,10 +18,17 @@ export interface EditorDiagnostic {
 code: string
 label: string
 legacyCode?: string
-message: string
+messageParts: Array<DiagnosticMessagePart>
 severity: string
 location: EditorLocation
 related: Array<EditorLocation>
+}
+
+export interface DiagnosticMessagePart {
+kind: 'text' | 'type' | 'code' | 'number'
+text?: string
+valueType?: HoverType
+value?: number
 }
 
 export interface SemanticToken {

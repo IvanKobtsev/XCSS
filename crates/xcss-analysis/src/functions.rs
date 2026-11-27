@@ -1,4 +1,5 @@
 use super::*;
+use xcss_source::{DiagnosticPart as Part, diagnostic_message as message};
 
 /// Resolve expression types in dependency order, independently of file ordering.
 pub(super) fn analyze_types(db: &mut Database, parsed: &[Arc<ParseResult>]) {
@@ -135,7 +136,12 @@ pub(super) fn analyze_types(db: &mut Database, parsed: &[Arc<ParseResult>]) {
                         "type.return-mismatch",
                         &symbol.location.file,
                         roots[0].range,
-                        format!("Expected return type {expected}, found {actual}"),
+                        message![
+                            "Expected return type ",
+                            Part::value_type(&expected),
+                            ", found ",
+                            Part::value_type(&actual)
+                        ],
                     );
                 }
                 constants::validate_arithmetic(db, &symbol.location.file, &roots[0], false);
@@ -154,7 +160,12 @@ pub(super) fn analyze_types(db: &mut Database, parsed: &[Arc<ParseResult>]) {
                             "type.mismatch",
                             &symbol.location.file,
                             roots[0].range,
-                            format!("Expected {expected}, found {actual}"),
+                            message![
+                                "Expected ",
+                                Part::value_type(&expected),
+                                ", found ",
+                                Part::value_type(&actual)
+                            ],
                         );
                     }
                 }
