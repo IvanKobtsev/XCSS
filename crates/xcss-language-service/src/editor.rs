@@ -344,6 +344,8 @@ impl ServiceSnapshot {
         locations
     }
 
+    /// Complete context-specific candidates. Callable lists deliberately ignore the
+    /// typed name: clients can fuzzy-filter a complete list without per-key queries.
     pub fn completion(&self, file: &FileId, position: Position) -> Vec<Completion> {
         let Some(offset) = self.offset(file, position) else {
             return Vec::new();
@@ -387,22 +389,40 @@ impl ServiceSnapshot {
                 ) && t.range.contains(start)
             });
             let in_value = parse.tree.descendants().flat_map(|n| parse.values(n)).any(|v| v.range.start <= start && offset <= v.range.end && !v.descendants().iter().any(|v| matches!(&v.kind, xcss_syntax::ast::ValueKind::Function { name, .. } if name.eq_ignore_ascii_case("url")) && v.range.contains(start)));
+            let statement = parse.tree.descendants().any(|n| {
+                n.kind == NodeKind::Call && n.header.start == start && offset <= n.header.end
+            });
             if !opaque
-                && in_value
+                && (in_value || statement)
                 && prefix
                     .chars()
                     .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))
             {
+                let end = offset
+                    + parse.source.text()[offset..]
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))
+                        .map(char::len_utf8)
+                        .sum::<usize>();
                 return Some(
                     self.0
-                        .visible_functions(file)
+                        .visible_callables(file)
                         .into_iter()
-                        .filter(|(name, _)| name.starts_with(prefix))
-                        .map(|(name, _)| xcss_typescript::Completion {
-                            label: name.clone(),
-                            kind: "function",
-                            range: TextRange::new(start + 2, offset),
-                            new_text: name,
+                        .filter_map(|(name, id)| {
+                            let symbol = self.0.symbol(id)?;
+                            if (symbol.kind == SymbolKind::Function) != in_value {
+                                return None;
+                            }
+                            Some(xcss_typescript::Completion {
+                                label: name.clone(),
+                                kind: match symbol.kind {
+                                    SymbolKind::Function => "function",
+                                    SymbolKind::Util => "util",
+                                    _ => "injection",
+                                },
+                                range: TextRange::new(start + 2, end),
+                                new_text: name,
+                            })
                         })
                         .collect(),
                 );

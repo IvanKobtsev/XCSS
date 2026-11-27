@@ -201,12 +201,23 @@ impl AnalysisSnapshot {
     }
     /// Function names visible through local definitions, imports, or unique global lookup.
     pub fn visible_functions(&self, file: &FileId) -> Vec<(String, SymbolId)> {
+        self.visible_callables(file)
+            .into_iter()
+            .filter(|(_, id)| {
+                self.symbol(*id)
+                    .is_some_and(|s| s.kind == SymbolKind::Function)
+            })
+            .collect()
+    }
+    /// Callable names using the same precedence as call resolution.
+    pub fn visible_callables(&self, file: &FileId) -> Vec<(String, SymbolId)> {
         let mut names = BTreeMap::new();
-        for symbol in self
-            .symbols()
-            .iter()
-            .filter(|s| s.kind == SymbolKind::Function)
-        {
+        for symbol in self.symbols().iter().filter(|s| {
+            matches!(
+                s.kind,
+                SymbolKind::Function | SymbolKind::Injection | SymbolKind::Util
+            )
+        }) {
             let imported = self.imports().iter().find(|i| {
                 i.location.file == *file
                     && !i
@@ -249,8 +260,10 @@ impl AnalysisSnapshot {
                 .filter(|s| s.kind == SymbolKind::Namespace)
             {
                 for symbol in self.symbols().iter().filter(|s| {
-                    s.kind == SymbolKind::Function
-                        && Some(&s.location.file) == import.target_file.as_ref()
+                    matches!(
+                        s.kind,
+                        SymbolKind::Function | SymbolKind::Injection | SymbolKind::Util
+                    ) && Some(&s.location.file) == import.target_file.as_ref()
                 }) {
                     names.insert(format!("{}.{}", namespace.name, symbol.name), symbol.id);
                 }

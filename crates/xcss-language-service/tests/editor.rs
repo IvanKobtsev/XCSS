@@ -361,5 +361,10 @@ fn function_completions_and_revisions_follow_resolution() {
             .iter()
             .any(|item| item.label == "lib.size")
     );
-    assert!(host.snapshot().completion(&file, position).is_empty());
+    assert!(
+        host.snapshot()
+            .completion(&file, position)
+            .iter()
+            .any(|c| c.label == "lib.scale")
+    );
 }
