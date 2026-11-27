@@ -7,7 +7,7 @@ const require = createRequire(resolve(process.cwd(), 'package.json'))
 const { LanguageService, languageServiceCapabilities } = require('@cross-css/native')
 const expectedVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 assert.equal(require('@cross-css/native/package.json').version, expectedVersion)
-assert.equal(languageServiceCapabilities().apiVersion, 8)
+assert.equal(languageServiceCapabilities().apiVersion, 9)
 const service = new LanguageService()
 const source = '@injection paint($amount: percentage | number = 50%) {} .a { @:paint; }'
 service.setFile('file:///test.xcss', 1, source)
@@ -36,6 +36,16 @@ assert.deepEqual(hover, {
 assert.equal('text' in hover, false)
 
 assert.equal(service.cssDeclarations('file:///test.xcss').declarations.length, 0)
+service.setFile('file:///warnings.xcss', 1, '@medai screen {}\n// @xcss-ignore xc-505\n@hidden; .empty {}')
+const warnings = service.warnings('file:///warnings.xcss')
+assert.deepEqual(warnings.map(({ code }) => code), ['XC-505', 'XC-503'])
+assert.deepEqual(warnings[0], {
+  code: 'XC-505',
+  category: 'unknown-at-rule',
+  message: "Unknown at-rule '@medai'.",
+  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
+})
+assert.deepEqual(service.classWarnings('file:///warnings.xcss').map(({ code }) => code), ['XC-503'])
 service.setFile('file:///css.xcss', 1, '.a { display: flex; }')
 assert.equal(service.cssDeclarations('file:///css.xcss').declarations[0].property, 'display')
 assert.equal(service.cssValues('file:///css.xcss').values[0].property, 'display')
@@ -77,4 +87,4 @@ const [stylesheetDiagnostic] = tsService.document('broken.xcss').diagnostics
 assert.equal(stylesheetDiagnostic.code, 'XC-105')
 assert.equal(stylesheetDiagnostic.label, 'Invalid XCSS statement')
 assert.equal(stylesheetDiagnostic.legacyCode, 'syntax.invalid-statement')
-console.log('Published XCSS language-service API v7, structured hovers, selectors, and TypeScript variants verified')
+console.log('Published XCSS language-service API v9, suppressible warnings, structured hovers, selectors, and TypeScript variants verified')
