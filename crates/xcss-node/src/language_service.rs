@@ -96,6 +96,7 @@ pub struct EditorDocument {
 }
 #[napi(object)]
 pub struct EditorWarning {
+    pub code: String,
     pub category: String,
     pub message: String,
     pub range: EditorRange,
@@ -116,9 +117,15 @@ pub struct CssDeclaration {
     pub parts: Vec<CssValuePart>,
 }
 #[napi(object)]
+pub struct Suppression {
+    pub line: u32,
+    pub codes: Vec<String>,
+}
+#[napi(object)]
 pub struct CssDeclarations {
     pub revision: f64,
     pub declarations: Vec<CssDeclaration>,
+    pub suppressions: Vec<Suppression>,
 }
 #[napi(object)]
 pub struct CssFunction {
@@ -349,6 +356,7 @@ impl LanguageService {
             .class_warnings(&FileId(uri))
             .into_iter()
             .map(|w| EditorWarning {
+                code: w.code.into(),
                 category: w.category.into(),
                 message: w.message,
                 range: range(w.range),
@@ -360,6 +368,14 @@ impl LanguageService {
         let result = self.inner.snapshot().css_declarations(&FileId(uri));
         CssDeclarations {
             revision: result.revision as f64,
+            suppressions: result
+                .suppressions
+                .into_iter()
+                .map(|s| Suppression {
+                    line: s.line as u32,
+                    codes: s.codes,
+                })
+                .collect(),
             declarations: result
                 .declarations
                 .into_iter()

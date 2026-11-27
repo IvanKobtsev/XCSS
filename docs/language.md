@@ -219,6 +219,45 @@ literal, including `url(https://example.com/image.png)` and
 `url(//cdn.example.com/image.png)`. Raw CSS blocks retain their existing
 verbatim behavior; `//` is not interpreted as an XCSS comment inside them.
 
+## Diagnostic suppression
+
+Use a standalone line comment to suppress selected checker errors or warnings
+on the immediately following physical line of an `.xcss` file:
+
+```xcss
+@function sum($a: number, $b: number): number => $a + $b;
+.example {
+  // @xcss-ignore xc-303, xc-302
+  background: @:sum(black, white);
+}
+```
+
+Codes are comma-separated and case-insensitive; surrounding whitespace is
+allowed. Only listed codes are suppressed, including repeated occurrences on
+the target line. The diagnostic's primary start line determines its target,
+even if its range spans multiple lines. Blank lines and other comments consume
+the target line; suppression does not skip ahead to the next statement.
+
+An empty list suppresses nothing. Unknown and malformed entries are ignored;
+valid entries in the same list still apply. There are no wildcards or warnings
+for unused suppression entries. Trailing comments, block comments, strings,
+URLs, and `@raw` contents do not activate suppression.
+
+These warning codes are stable and never make a check fail:
+
+| Code | Warning |
+| --- | --- |
+| XC-500 | Unknown CSS property |
+| XC-501 | Invalid CSS value, including incompatible typed values |
+| XC-502 | Empty CSS value |
+| XC-503 | Empty class |
+| XC-504 | Unused class |
+
+Suppression applies to editor and CLI checker output for the current `.xcss`
+file. It does not apply to TypeScript files or compiler validation, and does not
+guarantee successful compilation. Use [`@raw`](#raw-css) for literal CSS output
+that bypasses XCSS processing.
+
 ## Raw CSS
 
 `@raw { ... }` is an escape hatch for CSS that XCSS cannot handle. It is allowed

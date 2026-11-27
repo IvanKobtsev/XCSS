@@ -132,22 +132,25 @@ pub(super) fn check_project(args: &[String]) -> Result<(), String> {
     for id in sources.keys() {
         let warnings = snapshot.class_warnings(id);
         if warning_inputs {
-            let declarations: Vec<_> = snapshot.css_declarations(id).declarations.iter().map(|d| serde_json::json!({
+            let css = snapshot.css_declarations(id);
+            let declarations: Vec<_> = css.declarations.iter().map(|d| serde_json::json!({
                 "property": d.property, "propertyRange": range(&d.property_range), "valueRange": range(&d.value_range),
                 "context": d.context, "checkable": d.checkable,
                 "parts": d.parts.iter().map(|p| serde_json::json!({"text": p.text, "valueType": p.value_type, "range": range(&p.range)})).collect::<Vec<_>>()
             })).collect();
             inputs.push(serde_json::json!({
                 "file": root.join(&id.0).to_string_lossy(), "declarations": declarations,
-                "warnings": warnings.iter().map(|w| serde_json::json!({"message": w.message, "range": range(&w.range)})).collect::<Vec<_>>()
+                "suppressions": css.suppressions.iter().map(|s| serde_json::json!({"line": s.line, "codes": s.codes})).collect::<Vec<_>>(),
+                "warnings": warnings.iter().map(|w| serde_json::json!({"code": w.code, "message": w.message, "range": range(&w.range)})).collect::<Vec<_>>()
             }));
         } else {
             for warning in warnings {
                 eprintln!(
-                    "{}:{}:{}: Warning: {}",
+                    "{}:{}:{}: Warning: {} {}",
                     root.join(&id.0).display(),
                     warning.range.start.line + 1,
                     warning.range.start.character + 1,
+                    warning.code,
                     warning.message
                 );
             }

@@ -1,8 +1,9 @@
 use super::*;
 
-/// Advisory messages have no diagnostic code and never fail a check.
+/// Coded advisory messages never fail a check.
 #[derive(Clone, Debug)]
 pub struct Warning {
+    pub code: &'static str,
     pub category: &'static str,
     pub message: String,
     pub range: Range,
@@ -37,6 +38,7 @@ impl ServiceSnapshot {
                         && node.missing.is_empty()
                 }) {
                     warnings.push(Warning {
+                        code: "XC-503",
                         category: "empty-class",
                         message: format!("Class '{}' has an empty declaration.", symbol.name),
                         range: self.css_range(file, location.range),
@@ -58,6 +60,7 @@ impl ServiceSnapshot {
                 })
             {
                 warnings.push(Warning {
+                    code: "XC-504",
                     category: "unused-class",
                     message: format!(
                         "Class '{}' is unused in TypeScript and @variants.",
@@ -67,6 +70,8 @@ impl ServiceSnapshot {
                 });
             }
         }
+        let suppressions = self.suppressions(file);
+        warnings.retain(|w| !suppression::suppresses(&suppressions, w.range.start.line, w.code));
         warnings.sort_by_key(|w| {
             (
                 w.range.start.line,

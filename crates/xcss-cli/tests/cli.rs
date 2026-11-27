@@ -7,6 +7,43 @@ use std::{
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
+fn check_suppresses_listed_codes_but_compile_still_enforces_them() {
+    let root = sandbox();
+    fs::write(root.join("a.xcss"), "@injection f($p: number, $q: number) {}\n.a {\n// @xcss-ignore xc-303, xc-302\n@:f(red);\n}\n// @xcss-ignore xc-503\n.empty {}\n.visible {}\n").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_xcss"))
+            .current_dir(&root)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let check = run(&["check"]);
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(check.status.success(), "{stderr}");
+    assert!(
+        !stderr.contains("XC-303") && !stderr.contains("XC-302"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("'empty'"), "{stderr}");
+    assert!(
+        stderr.contains("Warning: XC-503 Class 'visible'"),
+        "{stderr}"
+    );
+    let compile = run(&["compile", "a.xcss", "-o", "out.css"]);
+    assert!(!compile.status.success());
+    assert!(!root.join("out.css").exists());
+    fs::write(
+        root.join("a.xcss"),
+        "// @xcss-ignore xc-212\n.a { @:missing(); }\n.b { @:missing(); }",
+    )
+    .unwrap();
+    let check = run(&["check"]);
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(!check.status.success());
+    assert_eq!(stderr.matches("XC-212").count(), 1, "{stderr}");
+}
+
+#[test]
 fn check_renders_shared_argument_messages_without_label_prefixes() {
     let root = sandbox();
     fs::write(root.join("a.xcss"), "@injection f($p: percentage | number) {} @injection g($p: color, $q: color = red) {} .a { @:f(red); @:f(); @:g(); @:missing(); }").unwrap();

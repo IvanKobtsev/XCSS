@@ -46,6 +46,7 @@ tokens: Array<SemanticToken>
 }
 
 export interface EditorWarning {
+code: string
 category: string
 message: string
 range: EditorRange
@@ -66,9 +67,15 @@ checkable: boolean
 parts: Array<CssValuePart>
 }
 
+export interface Suppression {
+line: number
+codes: Array<string>
+}
+
 export interface CssDeclarations {
 revision: number
 declarations: Array<CssDeclaration>
+suppressions: Array<Suppression>
 }
 
 export interface CssFunction {

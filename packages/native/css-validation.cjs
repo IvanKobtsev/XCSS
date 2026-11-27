@@ -30,8 +30,8 @@ function project(parts) {
     }
     return { text, spans };
 }
-function warning(message, range) {
-    return { source: 'CSS', severity: 2, message, range };
+function warning(code, message, range) {
+    return { code, source: 'CSS', severity: 2, message, range };
 }
 function validateCss(input, options = exports.defaultCssValidation, log = () => { }) {
     const diagnostics = [];
@@ -42,13 +42,13 @@ function validateCss(input, options = exports.defaultCssValidation, log = () => 
                 continue;
             if (lexer.checkPropertyName(property)) {
                 if (options.checkCssProperties)
-                    diagnostics.push(warning(`Unknown CSS property “${property}”.`, declaration.propertyRange));
+                    diagnostics.push(warning('XC-500', `Unknown CSS property “${property}”.`, declaration.propertyRange));
                 continue;
             }
             if (!options.checkCssValues || !declaration.checkable)
                 continue;
             if (!declaration.parts.length || declaration.parts.every(part => !part.valueType && !(part.text ?? '').replace(/\/\*[\s\S]*?\*\//g, '').trim())) {
-                diagnostics.push(warning("Empty CSS value for property " + property + ".", declaration.valueRange));
+                diagnostics.push(warning('XC-502', "Empty CSS value for property " + property + ".", declaration.valueRange));
                 continue;
             }
             const projection = project(declaration.parts);
@@ -63,11 +63,11 @@ function validateCss(input, options = exports.defaultCssValidation, log = () => 
             catch (error) {
                 if (!(error instanceof SyntaxError))
                     throw error;
-                diagnostics.push(warning(`Invalid CSS value for “${property}”.`, declaration.valueRange));
+                diagnostics.push(warning('XC-501', `Invalid CSS value for “${property}”.`, declaration.valueRange));
                 continue;
             }
             if (parsed.value.type !== 'Value' || !parsed.value.loc) {
-                diagnostics.push(warning(`Invalid CSS value for “${property}”.`, declaration.valueRange));
+                diagnostics.push(warning('XC-501', `Invalid CSS value for “${property}”.`, declaration.valueRange));
                 continue;
             }
             const begin = parsed.value.loc.start.offset - 2;
@@ -91,7 +91,7 @@ function validateCss(input, options = exports.defaultCssValidation, log = () => 
             // Only examine the parsed value; its terminal !important is already excluded.
             const standalone = typed.length === 1 && !literal.replace(/\/\*[\s\S]*?\*\//g, '').trim();
             if (standalone) {
-                diagnostics.push(warning(`A value of type “${typed[0].valueType}” is not valid for CSS property “${property}”.`, typed[0].range));
+                diagnostics.push(warning('XC-501', `A value of type “${typed[0].valueType}” is not valid for CSS property “${property}”.`, typed[0].range));
                 continue;
             }
             const error = match.error;
@@ -107,12 +107,13 @@ function validateCss(input, options = exports.defaultCssValidation, log = () => 
                         end: last.part.valueType ? last.part.range.end : advance(last.part.range.start, (last.part.text ?? '').slice(0, finish - last.start)),
                     };
             }
-            diagnostics.push(warning(`Invalid CSS value for “${property}”.`, range));
+            diagnostics.push(warning('XC-501', `Invalid CSS value for “${property}”.`, range));
         }
         catch {
             // Do not leak synthetic values through library exception messages.
             log(`CSS validator failed for property ${declaration.property}; native XCSS diagnostics remain available.`);
         }
     }
-    return diagnostics;
+    return diagnostics.filter(diagnostic => !(input.suppressions ?? []).some(suppression =>
+        suppression.line === diagnostic.range.start.line && suppression.codes.includes(diagnostic.code)));
 }

@@ -1,5 +1,27 @@
 # Language service
 
+## Checker suppression and warning codes
+
+[`// @xcss-ignore`](language.md#diagnostic-suppression) filters `.xcss` checker
+diagnostics by public XC code and primary start line. Both `diagnostics` and
+`plain_diagnostics` apply it; underlying analysis and compiler diagnostics remain
+unchanged. Class warning queries also filter suppressed warnings.
+
+Class warnings now include `code` (`XC-503` for empty classes and `XC-504` for
+unused classes), alongside their existing category, message, and range. CSS
+warnings from `validateCss` include `code` as well; see the language reference
+for the full warning-code table. Warnings retain their advisory severity.
+
+`cssDeclarations(uri)` additionally returns `suppressions`, an array of
+`{ line, codes }` objects with zero-based target lines and uppercase XC codes.
+Rust exposes the same data as `Suppression { line, codes }`. This metadata comes
+from parsed comment tokens, excluding strings, URLs, and raw content. The native
+CLI warning JSON carries the same array. The shared JavaScript `validateCss`
+helper uses it to filter warnings after calculating their source ranges; missing
+metadata is treated as an empty array for older callers. Hosts validating CSS
+independently must apply this metadata to each warning's primary start line and
+code. Suppression does not remove declarations or change validation inputs.
+
 ## Structured diagnostic messages (API v8)
 
 Breaking: `document(uri).diagnostics` replaces `message` with ordered
@@ -223,7 +245,7 @@ are separate capabilities. Existing `Compiler` APIs remain available.
 
 ## CSS declaration validation inputs (API v2, native 0.3.2)
 
-`LanguageService.cssDeclarations(uri)` returns `{ revision, declarations }` from
+`LanguageService.cssDeclarations(uri)` returns `{ revision, declarations, suppressions }` from
 the same analysis snapshot as other editor queries, without compiling CSS.
 Each declaration contains `property`, `propertyRange`, `valueRange`, `context`,
 `checkable`, and ordered `parts`. Ranges are zero-based UTF-16 positions in the

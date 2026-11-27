@@ -41,6 +41,14 @@ locations, and one-based UTF-16 line/column positions. Errors return no artifact
 `index.d.ts` is generated from napi-rs binding metadata during the native build.
 # Editor queries
 
+Checker errors and warnings in `.xcss` files support
+[`// @xcss-ignore`](../../docs/language.md#diagnostic-suppression) on the preceding
+line. `classWarnings` and `validateCss` warnings now include stable XC codes.
+`cssDeclarations` includes suppression metadata, which `validateCss` applies
+automatically. Compiler validation is unchanged. See the
+[checker contract](../../docs/language-service.md#checker-suppression-and-warning-codes)
+for host integration details.
+
 Version 0.3.0 also exports `LanguageService` and `languageServiceCapabilities()`.
 The service accepts the same versioned in-memory updates as `Compiler`, with file
 URIs supported as identities. `document(uri)` returns diagnostics and semantic
@@ -80,7 +88,7 @@ fields themselves; XCSS provides no hover prose or markup. See the
 
 ## CSS declaration validation inputs (API v2, native 0.3.2)
 
-`LanguageService.cssDeclarations(uri)` returns `{ revision, declarations }` from
+`LanguageService.cssDeclarations(uri)` returns `{ revision, declarations, suppressions }` from
 the same analysis snapshot as other editor queries, without compiling CSS.
 Each declaration contains `property`, `propertyRange`, `valueRange`, `context`,
 `checkable`, and ordered `parts`. Ranges are zero-based UTF-16 positions in the

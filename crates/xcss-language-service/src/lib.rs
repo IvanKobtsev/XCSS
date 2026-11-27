@@ -24,6 +24,8 @@ pub use xcss_typescript::{Project as TypeScriptProject, class_usage};
 mod css;
 mod warnings;
 pub use warnings::Warning;
+mod suppression;
+pub use suppression::Suppression;
 mod diagnostic_catalog;
 mod diagnostics;
 pub use diagnostics::DiagnosticPart;
@@ -279,6 +281,7 @@ impl ServiceSnapshot {
             .collect()
     }
     pub fn plain_diagnostics(&self, file: &FileId) -> Vec<PlainDiagnostic> {
+        let suppressions = self.suppressions(file);
         let typescript = if self.0.syntax(file).is_none() && self.1.files.contains_key(file) {
             self.typescript_check().as_deref().unwrap_or_default()
         } else {
@@ -291,13 +294,17 @@ impl ServiceSnapshot {
             .filter(|d| &d.location.file == file)
             .filter_map(|d| {
                 let (code, label, legacy_code) = diagnostic_catalog::metadata(d.code);
+                let location = self.location(&d.location)?;
+                if suppression::suppresses(&suppressions, location.range.start.line, code) {
+                    return None;
+                }
                 let mut diagnostic = d.clone();
                 diagnostic.code = code;
                 Some(PlainDiagnostic {
                     diagnostic,
                     label,
                     legacy_code,
-                    location: self.location(&d.location)?,
+                    location,
                     related: d.related.iter().filter_map(|l| self.location(l)).collect(),
                 })
             })

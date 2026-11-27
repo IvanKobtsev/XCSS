@@ -24,6 +24,7 @@ pub struct CssDeclaration {
 pub struct CssDeclarations {
     pub revision: u64,
     pub declarations: Vec<CssDeclaration>,
+    pub suppressions: Vec<Suppression>,
 }
 
 impl ServiceSnapshot {
@@ -31,6 +32,7 @@ impl ServiceSnapshot {
         let mut result = CssDeclarations {
             revision: self.revision(),
             declarations: vec![],
+            suppressions: self.suppressions(file),
         };
         if let Some(parse) = self.0.syntax(file) {
             self.css_visit(

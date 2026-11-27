@@ -24,7 +24,7 @@ module.exports = function runCli(args) {
         [...input.warnings, ...validateCss(input)].map(warning => ({ ...warning, file: input.file })))
       if (warnings.length) {
         console.error('Warnings:')
-        for (const warning of warnings) console.error(`${warning.file}:${warning.range.start.line + 1}:${warning.range.start.character + 1}: Warning: ${warning.message}`)
+        for (const warning of warnings) console.error(`${warning.file}:${warning.range.start.line + 1}:${warning.range.start.character + 1}: Warning: ${warning.code} ${warning.message}`)
       }
     }
     if (result.error) throw result.error

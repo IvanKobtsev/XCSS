@@ -210,11 +210,16 @@ TypeScript declarations make stylesheet imports and JSX props available.
 `xcss check` validates actual exported names, variant values, `override()` calls,
 and `xVars` keys and values against your stylesheets.
 
-The Node CLI also prints a separate list of uncoded warnings for invalid CSS
+The Node CLI also prints a separate list of coded warnings for invalid CSS
 properties or values and empty class declarations. With a usable TypeScript
 project, it warns about classes with no TS/TSX references or `@variants` membership;
 repeating a class selector in a stylesheet does not count as usage. Warnings alone
 do not fail the check. CrossBreeze uses the same CSS validation and class analysis.
+
+To suppress specific checker errors or warnings on the next line of an `.xcss`
+file, add `// @xcss-ignore xc-303, xc-302` on its own line. Codes are
+case-insensitive. See [diagnostic suppression](docs/language.md#diagnostic-suppression)
+for examples and warning codes. Compilation still enforces its existing checks.
 
 ## Variables and injections
 

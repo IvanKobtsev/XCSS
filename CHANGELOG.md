@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add standalone `// @xcss-ignore xc-303, xc-302` comments to suppress listed checker errors and warnings on the next physical line of an `.xcss` file. Assign stable warning codes XC-500 through XC-504, expose CSS suppression metadata to hosts, and print warning codes in the CLI. Compiler validation is unchanged.
+
 - Breaking: language-service API v8 replaces diagnostic `message` strings with typed `messageParts`. CLI and compiler text render from the same definitions. XC-303 now reports passed and parameter types; XC-302 uses a single expected count or hyphenated range. CLI checking omits the label prefix for these two codes.
 
 - Add the framework-neutral `override()` helper with positive integer literal validation, strict class-origin tracing, class-specific markers, utility contributions, and rejection of repeated overrides. Generate only requested class/level pairs, including guarded functional selectors and unboosted negative-selector unions.
