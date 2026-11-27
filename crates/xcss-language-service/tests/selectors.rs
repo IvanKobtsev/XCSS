@@ -1,5 +1,38 @@
-use xcss_language_service::{LanguageService, Specificity, TOKEN_TYPES};
+use xcss_language_service::{LanguageService, TOKEN_TYPES};
 use xcss_source::{FileId, SourceFile};
+
+#[test]
+fn flattened_specificity_is_exact_only_when_all_branches_agree() {
+    let mut host = LanguageService::new();
+    let file = FileId("untitled:branches.xcss".into());
+    host.set_file(
+        file.clone(),
+        1,
+        ".a, .b { &.c {} & + & {} :not(&) {} } #id, .d { &.e {} :where(&).f {} :not(&) {} }".into(),
+    )
+    .unwrap();
+    let result = host.snapshot().selectors(&file);
+    let scores: Vec<_> = result
+        .selectors
+        .iter()
+        .map(|s| s.specificity.map(|s| (s.ids, s.classes, s.types)))
+        .collect();
+    assert_eq!(
+        scores,
+        vec![
+            Some((0, 1, 0)),
+            Some((0, 1, 0)),
+            Some((0, 2, 0)),
+            Some((0, 2, 0)),
+            Some((0, 1, 0)),
+            Some((1, 0, 0)),
+            Some((0, 1, 0)),
+            None,
+            Some((0, 1, 0)),
+            Some((1, 0, 0))
+        ]
+    );
+}
 
 #[test]
 fn selectors_are_revisioned_and_use_original_utf16_ranges() {
@@ -10,22 +43,10 @@ fn selectors_are_revisioned_and_use_original_utf16_ranges() {
     let old = host.snapshot();
     let result = old.selectors(&file);
     assert_eq!(result.selectors.len(), 4, "{result:?}");
-    assert_eq!(
-        result.selectors[2].specificity,
-        Some(Specificity {
-            ids: 1,
-            classes: 3,
-            types: 2
-        })
-    );
-    assert_eq!(
-        result.selectors[3].specificity,
-        Some(Specificity {
-            ids: 1,
-            classes: 1,
-            types: 0
-        })
-    );
+    for selector in &result.selectors[2..] {
+        assert_eq!(selector.specificity, None);
+        assert!(selector.reason.as_ref().unwrap().contains("varies"));
+    }
     let source = SourceFile::new(file.clone(), 1, text);
     for part in result.selectors.iter().flat_map(|s| &s.parts) {
         assert!(source.utf16_to_byte(part.range.start).is_some());

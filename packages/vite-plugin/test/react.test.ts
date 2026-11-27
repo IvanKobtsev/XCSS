@@ -26,15 +26,14 @@ function checkFixture(app: Fixture) {
   expect(Object.keys(app.cssVars)).toEqual(['angle', 'providedWidth'])
   expect(app.emptyVars).toEqual({})
   expect(app.html).toContain(`height:200px;${width}:24px`)
-  expect(app.html).toContain(`style="${width}:24px" class="${app.styles.box} box_001"`)
+  expect(app.html).toContain(`style="${width}:24px" class="${app.styles.box}"`)
   expect(app.html).toContain('<b>A</b><i>B</i>')
   expect(app.html).toContain('<span>24px</span>')
   expect(app.html).not.toContain('xVars')
   expect(app.html.toLowerCase()).not.toContain('xclass')
-  expect(app.html).toContain('class="global ' + app.styles.box + ' box_')
-  expect(app.html).toContain('box_002"')
-  expect(app.html).toMatch(/id="first" class="[^"]*secondary_001 [^"]*override_002"/)
-  expect(app.html).toMatch(/id="second" class="[^"]*override_001 [^"]*secondary_002"/)
+  expect(app.html).toContain('class="global ' + app.styles.box + ' ' + app.styles.box + '"')
+  expect(app.html).toMatch(/id="first" class="firstButton_000 secondary_000 override_000"/)
+  expect(app.html).toMatch(/id="second" class="secondButton_000 override_000 secondary_000"/)
   expect(app.empty.props).not.toHaveProperty('className')
   expect(app.unchanged.props.className).toBe(' kept ')
   expect(app.element.key).toBe('box')
@@ -73,11 +72,11 @@ it('merges xVars and xClass in a production bundle', async () => {
   const app = await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(entry.code).toString('base64')}`) as Fixture
   checkFixture(app)
   expect(css).toContain(`var(${app.cssVars.providedWidth})`)
-  expect(css).toContain('primary_001')
-  expect(css).toContain('primary_002')
+  expect(css).toContain('primary_000')
+  expect(css).not.toContain('#__')
 })
 
-it('refreshes the slot plan and CSS when JSX changes in development', async () => {
+it('refreshes JSX composition without changing CSS or names when tuple positions change', async () => {
   const temporary = await mkdtemp(join(dirname(root.replace(/[\\/]$/, '')), 'react-update-'))
   await cp(root, temporary, { recursive: true })
   await rename(join(temporary, 'tsconfig.json'), join(temporary, 'tsconfig.app.json'))
@@ -90,19 +89,20 @@ it('refreshes the slot plan and CSS when JSX changes in development', async () =
     const appPath = join(temporary, 'app.tsx')
     const cssId = createCssId(join(temporary, 'box.xcss').replaceAll('\\', '/'))
     const first = await server.ssrLoadModule('/app.tsx') as Fixture
-    expect(first.html).toContain('box_002')
+    expect(first.html).toContain('global box_000 box_000')
     const css = await server.transformRequest(cssId)
-    expect(css?.code).toContain('box_002')
+    expect(css?.code).toContain('box_000')
     const source = await readFile(appPath, 'utf8')
-    await writeFile(appPath, source.replace('[styles.box, false, styles.box]', '[styles.box, false, false, styles.box]'))
+    await writeFile(appPath, source.replace('[styles.box, false, styles.box]', '[styles.box, false, false, styles.box]').replace('<b>A</b>', '<b>Updated</b>'))
     await expect.poll(async () => {
       const app = await server.ssrLoadModule('/app.tsx') as Fixture
-      expect(app.html).toContain('box_002')
+      expect(app.html).toContain('global box_000 box_000')
+      expect(app.html).toContain('<b>Updated</b>')
       return (await server.transformRequest(cssId))?.code
-    }).toContain('#__000#__000#__000')
+    }).toBe(css?.code)
     const refreshed = await server.transformRequest(cssId)
-    expect(refreshed?.code).toContain('#__000#__000#__000')
-    expect(refreshed?.code).toContain('box_002')
+    expect(refreshed?.code).toBe(css?.code)
+    expect(refreshed?.code).not.toContain('#__')
   } finally {
     await server.close()
     await rm(temporary, { recursive: true, force: true })
@@ -111,8 +111,8 @@ it('refreshes the slot plan and CSS when JSX changes in development', async () =
 
 it('preserves skipped slots and custom component props', () => {
   const props = { className: 'global', xClass: ['local', false, 'local'],
-    __xcssClassSlots: [[['local', 'local local_0']], [], [['local', 'local local_2']]] }
-  expect(normalizeProps('div', props)).toEqual({ className: 'global local local_0 local local_2' })
+    __xcssClassSlots: [[['local', 'local']], [], [['local', 'local']]] }
+  expect(normalizeProps('div', props)).toEqual({ className: 'global local local' })
   expect(normalizeProps(() => null, props)).toBe(props)
 })
 

@@ -4,6 +4,127 @@ use xcss_source::FileId;
 fn id(name: &str) -> FileId {
     FileId(name.into())
 }
+
+#[test]
+fn flattened_lists_keep_branch_specificity_and_declaration_order() {
+    let result = compile(&[("a.xcss", ".primary, .override:is(*, #boost) { color: red; &.secondary { color: blue; } color: green; & + & { margin: 1px; } }")], "a.xcss", &[]).unwrap();
+    let css = &result.modules[0].css;
+    assert!(css.contains(".primary_000.secondary_000,"), "{css}");
+    assert!(
+        css.contains(".override_000:is(*, #boost_000).secondary_000"),
+        "{css}"
+    );
+    assert!(!css.contains('&'), "{css}");
+    assert!(!css.contains(":is(.primary"), "{css}");
+    assert!(css.find("color: red").unwrap() < css.find("color: #00f").unwrap());
+    assert!(css.find("color: #00f").unwrap() < css.find("color: green").unwrap());
+    for selector in [
+        ".primary_000 + .primary_000",
+        ".primary_000 + .override_000",
+        ".override_000:is(*, #boost_000) + .primary_000",
+    ] {
+        assert!(css.contains(selector), "{selector}: {css}");
+    }
+}
+
+#[test]
+fn flattening_preserves_conditions_layers_scope_and_keyframes() {
+    let result = compile(&[("a.xcss", ".a { @media (width > 1px) { color: red; @supports (display: grid) { > .b { display: grid; } } } @layer components { &:hover { opacity: .5; } } @scope (&) { .c { color: blue; } } } @keyframes spin { from { opacity: 0; } to { opacity: 1; } } @font-face { font-family: test; src: url('./font.woff'); }")], "a.xcss", &[]).unwrap();
+    let css = &result.modules[0].css;
+    for text in [
+        "@media",
+        "@supports",
+        "@layer components",
+        "@scope (.a_000)",
+        ".a_000 > .b_000",
+        ".a_000:hover",
+        ".a_000 .c_000",
+        "@keyframes spin_000",
+        "from {",
+        "@font-face",
+    ] {
+        assert!(css.contains(text), "{text}: {css}");
+    }
+    assert!(!css.contains('&'), "{css}");
+}
+
+#[test]
+fn grouping_at_rules_without_whitespace_still_flatten() {
+    let result = compile(
+        &[(
+            "a.xcss",
+            ".a { @media(width > 1px) { @supports(display: grid) { &.b { color: red; } } } }",
+        )],
+        "a.xcss",
+        &[],
+    )
+    .unwrap();
+    assert!(result.modules[0].css.contains(".a_000.b_000"));
+    assert!(!result.modules[0].css.contains('&'));
+}
+
+#[test]
+fn flattening_handles_injections_functions_scoping_and_shared_utilities() {
+    let result = compile(&[("a.xcss", "@injection nested { &.active { color: red; } } @util paint { color: blue; &:hover { opacity: .5; } } .a, :global(.external) { @:nested; :not(&) { color: green; } } .composed { @:paint; } .host { > .target { @:paint as injection; } }")], "a.xcss", &[]).unwrap();
+    let css = &result.modules[0].css;
+    assert!(
+        css.contains(".a_000.active_000, .external.active_000"),
+        "{css}"
+    );
+    assert!(css.contains(":not(.a_000, .external)"), "{css}");
+    assert!(css.contains(".host_000 > .target_000:hover"), "{css}");
+    assert!(!css.contains('&'), "{css}");
+    let shared = result.utilities.unwrap();
+    assert!(shared.css.contains(":hover"));
+    assert!(!shared.css.contains('&'));
+}
+
+#[test]
+fn content_is_inserted_once_before_splitting_declaration_runs() {
+    let result = compile(&[("a.xcss", ".a::before { content: 'hello'; &:hover { color: red; } color: blue; } .b::before { width: 1px; &:hover { color: red; } height: 2px; } .c::before { content: preserve; &:hover { color: red; } width: 1px; }")], "a.xcss", &[]).unwrap();
+    let css = &result.modules[0].css;
+    assert_eq!(css.matches("content:").count(), 2, "{css}");
+    assert!(!css.contains("preserve"));
+}
+
+#[test]
+fn selector_combinations_fail_with_a_bounded_diagnostic() {
+    let source = format!(
+        ".a, .b {{ {} {{ color: red; }} }}",
+        vec!["&"; 18].join(" + ")
+    );
+    let errors = compile(&[("a.xcss", &source)], "a.xcss", &[]).unwrap_err();
+    assert!(errors.iter().any(|d| d.code == "generate.expansion-limit"));
+}
+
+#[test]
+fn flattened_selector_fragments_and_repeated_declarations_keep_source_maps() {
+    let library = "@injection nested { &.active { width: 9px; } }";
+    let caller = ".parent { @:nested; color: red; &.child { height: 7px; } color: blue; }";
+    let result = compile(&[("lib.xcss", library), ("a.xcss", caller)], "a.xcss", &[]).unwrap();
+    let module = &result.modules[0];
+    let mut map = parcel_sourcemap::SourceMap::from_json("/", &module.source_map).unwrap();
+    let generated = xcss_source::SourceFile::new(id("css"), 0, module.css.clone());
+    for (text, file, original) in [
+        ("parent_000", "a.xcss", caller.find("parent").unwrap()),
+        ("active_000", "lib.xcss", library.find("active").unwrap()),
+        ("child_000", "a.xcss", caller.find("child").unwrap()),
+        ("width", "lib.xcss", library.find("width").unwrap()),
+        ("height", "a.xcss", caller.find("height").unwrap()),
+        ("color: #00f", "a.xcss", caller.rfind("color").unwrap()),
+    ] {
+        let position = generated
+            .byte_to_utf16(module.css.find(text).unwrap())
+            .unwrap();
+        let mapping = map
+            .find_closest_mapping(position.line as u32, position.character as u32)
+            .unwrap()
+            .original
+            .unwrap();
+        assert_eq!(map.get_source(mapping.source).unwrap(), file, "{text}");
+        assert_eq!(mapping.original_column as usize, original, "{text}");
+    }
+}
 #[test]
 fn parameter_unions_substitute_arguments_defaults_and_forwarded_values() {
     let result = compile(&[("a.xcss", "@injection fade($p: percentage | number) { opacity: $p; --supplied: $p; } @util faded($p: number | percentage = 50%) { @:fade($p); } .number { @:faded(0.5); } .percent { @:faded(75%); } .default { @:faded; } .forced { @:faded(25%) as injection; }")], "a.xcss", &[]).unwrap();
@@ -337,7 +458,7 @@ fn utility_selectors_and_nested_calls_choose_the_right_emission_mode() {
     for name in ["a", "b", "c", "parent", "descendant", "mixed"] {
         assert!(!m.classes[name].contains("_util_"));
     }
-    assert_eq!(m.css.matches("_util_inj_").count(), 3);
+    assert_eq!(m.css.matches("_util_inj_").count(), 6);
 }
 
 #[test]
@@ -518,7 +639,7 @@ fn scoped_css_and_existing_value_extensions() {
         "calc(var(--spacing) * 2)",
         "12px 20px",
         "allow-discrete",
-        "&:hover",
+        ".button_000:hover",
     ] {
         assert!(css.contains(text), "Missing {text}: {css}");
     }

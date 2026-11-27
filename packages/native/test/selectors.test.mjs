@@ -11,7 +11,8 @@ test('selector API classifies original UTF-16 source and calculates effective sp
   assert.equal(languageServiceCapabilities().apiVersion, 7)
   assert.equal(result.selectors.length, 4)
   const rule = result.selectors[2]
-  assert.deepEqual(rule.specificity, { ids: 2, classes: 2, types: 2 })
+  assert.equal(rule.specificity, undefined)
+  assert.match(rule.reason, /varies/)
   const parts = rule.parts.map(p => [p.kind, text.slice(p.range.start.character, p.range.end.character)])
   assert(parts.some(([kind, value]) => kind === 'class' && value === 'café'))
   assert(parts.some(([kind, value]) => kind === 'selectorAttribute' && value === 'data-x'))

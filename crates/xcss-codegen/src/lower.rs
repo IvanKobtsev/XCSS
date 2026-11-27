@@ -110,12 +110,10 @@ impl<'a> Lowerer<'a> {
             .unwrap_or_else(|| file.clone());
         Ok(values::rebase(&source, self.output_identity, url))
     }
-    pub fn module(
-        &mut self,
-        positions: Option<&BTreeMap<String, BTreeSet<usize>>>,
-    ) -> Result<Mapped, Vec<Diagnostic>> {
+    pub fn module(&mut self) -> Result<Mapped, Vec<Diagnostic>> {
         let parse = self.snapshot.syntax(self.entry).unwrap();
         let statements = self.nodes(self.entry, &parse.tree.children, &Frame::default(), 0)?;
+        let statements = self.flatten(statements, None, 0)?;
         let mut out = Mapped::default();
         // Registrations are gathered while lowering, including references captured by injections.
         let registrations = self.registrations.clone();
@@ -157,75 +155,164 @@ impl<'a> Lowerer<'a> {
             s.kind != NodeKind::Import && !s.header.text.trim_start().starts_with("@charset ")
         }) {
             self.print(statement, &mut out);
-            if let Some(positions) = positions
-                && statement.kind == NodeKind::Rule
-                && statement.origin.file == *self.entry
-                && let Some(node) = parse.tree.children.iter().find(|node| {
-                    node.kind == NodeKind::Rule && node.header == statement.origin.range
-                })
-            {
-                self.print_positional(parse, node, statement, positions, &mut out);
-            }
         }
         out.append(&self.injected_utils);
         Ok(out)
     }
 
-    fn print_positional(
-        &self,
-        parse: &ParseResult,
-        node: &Node,
-        statement: &Statement,
-        positions: &BTreeMap<String, BTreeSet<usize>>,
-        out: &mut Mapped,
-    ) {
-        let children: Vec<_> = statement
-            .children
-            .iter()
-            .flatten()
-            .filter(|child| child.kind == NodeKind::Declaration)
-            .cloned()
-            .collect();
-        if children.is_empty() {
-            return;
-        }
-        let mut selectors = BTreeSet::new();
-        for (selector, class, name) in xcss_syntax::subject_class_selectors(parse, node) {
-            let Some(indices) = positions.get(&name) else {
-                continue;
-            };
-            for &index in indices {
-                let alias = positional_class(self.entry, &name, index);
-                let left =
-                    without_line_comments(parse.slice(TextRange::new(selector.start, class.end)));
-                let right =
-                    without_line_comments(parse.slice(TextRange::new(class.end, selector.end)));
-                let boost = if index == 0 {
-                    String::new()
+    fn expanded_selector(
+        &mut self,
+        parent: Option<&Mapped>,
+        child: &Mapped,
+        origin: &Location,
+    ) -> Result<Mapped, Vec<Diagnostic>> {
+        let mut budget = 100_000usize.saturating_sub(self.count);
+        let expanded = xcss_syntax::expand_selectors(
+            parent.map(|p| p.text.as_str()),
+            &child.text,
+            &mut budget,
+        )
+        .map_err(|message| {
+            vec![Diagnostic::error(
+                if message.starts_with("Selector expansion exceeds") {
+                    "generate.expansion-limit"
                 } else {
-                    format!(":is(*, {})", "#_".repeat(index))
-                };
-                selectors.insert(normalize_selector(&format!(
-                    "{left}:where(:global(.{alias})){boost}{right}"
-                )));
+                    "generate.selector"
+                },
+                &origin.file,
+                origin.range,
+                message,
+            )]
+        })?;
+        self.count = 100_000 - budget;
+        let mut out = Mapped::default();
+        let mut cursor = 0;
+        for span in expanded.spans {
+            out.push(&expanded.text[cursor..span.generated.start], origin);
+            let source = if span.parent { parent.unwrap() } else { child };
+            out.append(&source.slice(span.source));
+            cursor = span.generated.end;
+        }
+        out.push(&expanded.text[cursor..], origin);
+        Ok(out)
+    }
+
+    fn flatten(
+        &mut self,
+        statements: Vec<Statement>,
+        parent: Option<&Mapped>,
+        depth: usize,
+    ) -> Result<Vec<Statement>, Vec<Diagnostic>> {
+        let mut out = Vec::new();
+        let mut declarations = Vec::new();
+        for mut statement in statements {
+            if depth >= 128 {
+                return Err(vec![Diagnostic::error(
+                    "generate.expansion-limit",
+                    &statement.origin.file,
+                    statement.origin.range,
+                    "Rule flattening exceeds the depth limit",
+                )]);
+            }
+            if parent.is_some() && matches!(statement.kind, NodeKind::Declaration | NodeKind::Raw) {
+                declarations.push(statement);
+                continue;
+            }
+            Self::flush_declarations(parent, &mut declarations, &mut out);
+            if statement.kind == NodeKind::Rule {
+                let header =
+                    self.expanded_selector(parent, &statement.header, &statement.origin)?;
+                let mut children = statement.children.take().unwrap_or_default();
+                if xcss_syntax::selector_needs_content(&header.text)
+                    && !children.iter().any(|s| {
+                        s.kind == NodeKind::Declaration
+                            && s.header
+                                .text
+                                .split_once(':')
+                                .is_some_and(|(p, _)| p.trim().eq_ignore_ascii_case("content"))
+                    })
+                {
+                    let mut declaration = Mapped::default();
+                    declaration.push("content: ''", &statement.origin);
+                    children.insert(
+                        0,
+                        Statement {
+                            kind: NodeKind::Declaration,
+                            header: declaration,
+                            children: None,
+                            origin: statement.origin.clone(),
+                            preserve_content: false,
+                        },
+                    );
+                }
+                let flattened = self.flatten(children, Some(&header), depth + 1)?;
+                if flattened.is_empty() {
+                    // CSS Modules must still discover classes on empty rules.
+                    statement.header = header;
+                    statement.children = Some(Vec::new());
+                    out.push(statement);
+                } else {
+                    out.extend(flattened);
+                }
+            } else if statement.kind == NodeKind::AtRule && statement.children.is_some() {
+                let keyword = statement
+                    .header
+                    .text
+                    .split(|c: char| c.is_whitespace() || matches!(c, '(' | '/'))
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if matches!(
+                    keyword.as_str(),
+                    "@media"
+                        | "@supports"
+                        | "@container"
+                        | "@layer"
+                        | "@scope"
+                        | "@starting-style"
+                        | "@document"
+                        | "@-moz-document"
+                ) {
+                    if keyword == "@scope"
+                        && parent.is_some()
+                        && statement.header.text.contains('&')
+                    {
+                        statement.header =
+                            self.expanded_selector(parent, &statement.header, &statement.origin)?;
+                    }
+                    statement.children = Some(self.flatten(
+                        statement.children.take().unwrap(),
+                        parent,
+                        depth + 1,
+                    )?);
+                }
+                // Keyframes and declaration-only/unknown at-rules are opaque.
+                out.push(statement);
+            } else {
+                out.push(statement);
             }
         }
-        if !selectors.is_empty() {
-            let mut header = Mapped::default();
-            header.push(
-                &selectors.into_iter().collect::<Vec<_>>().join(", "),
-                &statement.origin,
-            );
-            self.print(
-                &Statement {
-                    header,
-                    children: Some(children),
-                    ..statement.clone()
-                },
-                out,
-            );
-        }
+        Self::flush_declarations(parent, &mut declarations, &mut out);
+        Ok(out)
     }
+
+    fn flush_declarations(
+        parent: Option<&Mapped>,
+        declarations: &mut Vec<Statement>,
+        out: &mut Vec<Statement>,
+    ) {
+        if declarations.is_empty() {
+            return;
+        }
+        out.push(Statement {
+            kind: NodeKind::Rule,
+            header: parent.unwrap().clone(),
+            origin: declarations[0].origin.clone(),
+            children: Some(std::mem::take(declarations)),
+            preserve_content: false,
+        });
+    }
+
     fn nodes(
         &mut self,
         file: &FileId,
@@ -443,12 +530,18 @@ impl<'a> Lowerer<'a> {
                         } else {
                             format!(":global(.{class})")
                         };
-                        css.push(&header, &origin);
-                        css.push(" {\n", &origin);
-                        for statement in &expanded {
-                            self.print(statement, &mut css);
+                        let mut mapped_header = Mapped::default();
+                        mapped_header.push(&header, &origin);
+                        let rule = Statement {
+                            kind: NodeKind::Rule,
+                            header: mapped_header,
+                            children: Some(expanded),
+                            origin: origin.clone(),
+                            preserve_content: false,
+                        };
+                        for statement in self.flatten(vec![rule], None, 0)? {
+                            self.print(&statement, &mut css);
                         }
-                        css.push("}\n", &origin);
                         for (_, location) in self.conditions.iter().rev() {
                             css.push("}\n", location);
                         }
@@ -555,7 +648,14 @@ impl<'a> Lowerer<'a> {
                     let cleaned_header = without_line_comments(parse.slice(node.header));
                     let raw = cleaned_header.trim();
                     if node.kind == NodeKind::Rule {
-                        header.push(&normalize_selector(raw), &origin);
+                        let normalized = normalize_selector(raw);
+                        let start = node.header.start + cleaned_header.len()
+                            - cleaned_header.trim_start().len();
+                        let selector_origin = Location {
+                            file: file.clone(),
+                            range: TextRange::new(start, start + raw.len()),
+                        };
+                        header.push(&normalized, &selector_origin);
                     } else if let Some(keyframes) = parse.keyframes(node).filter(|k| k.scope_switch)
                     {
                         if keyframes.global {
@@ -610,8 +710,18 @@ impl<'a> Lowerer<'a> {
                     let old_conditions = self.conditions.len();
                     if self.util_depth == 0 {
                         if node.kind == NodeKind::Rule {
-                            self.selector =
-                                Some(resolve_selector(old_selector.as_deref(), &header.text));
+                            let mut parent = Mapped::default();
+                            if let Some(text) = &old_selector {
+                                parent.push(text, &origin);
+                            }
+                            self.selector = Some(
+                                self.expanded_selector(
+                                    old_selector.as_ref().map(|_| &parent),
+                                    &header,
+                                    &origin,
+                                )?
+                                .text,
+                            );
                         } else if node.kind == NodeKind::AtRule
                             && node.block.is_some()
                             && !header.text.trim_start().starts_with("@layer")
@@ -678,18 +788,6 @@ impl<'a> Lowerer<'a> {
         out.append(&statement.header);
         if let Some(children) = &statement.children {
             out.push(" {\n", &statement.origin);
-            let eligible = statement.kind == NodeKind::Rule
-                && xcss_syntax::selector_needs_content(&statement.header.text);
-            let has_content = children.iter().any(|s| {
-                s.kind == NodeKind::Declaration
-                    && s.header
-                        .text
-                        .split_once(':')
-                        .is_some_and(|(p, _)| p.trim().eq_ignore_ascii_case("content"))
-            });
-            if eligible && !has_content {
-                out.push("content: '';\n", &statement.origin);
-            }
             for child in children {
                 if child.preserve_content {
                     continue;
@@ -789,36 +887,6 @@ fn composition_classes(selector: &str) -> Vec<String> {
         ));
     }
     classes
-}
-fn resolve_selector(parent: Option<&str>, child: &str) -> String {
-    let Some(parent) = parent else {
-        return child.to_owned();
-    };
-    let parent = format!(":is({parent})");
-    xcss_syntax::analyze_selectors(child, 0, Some(None))
-        .iter()
-        .map(|member| {
-            let text = &child[member.range.start..member.range.end];
-            let parse = parsed_text(text);
-            let nesting: Vec<_> = parse
-                .tokens
-                .iter()
-                .filter(|t| {
-                    t.kind == xcss_syntax::TokenKind::Punctuation && parse.token_text(t) == "&"
-                })
-                .collect();
-            if nesting.is_empty() {
-                format!("{parent} {}", text.trim())
-            } else {
-                let mut resolved = text.to_owned();
-                for token in nesting.into_iter().rev() {
-                    resolved.replace_range(token.range.start..token.range.end, &parent);
-                }
-                resolved
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 fn normalize_selector(raw: &str) -> String {
     // Scope switches only occur outside strings and attribute selectors; parse token ranges.

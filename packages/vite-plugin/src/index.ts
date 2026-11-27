@@ -151,7 +151,7 @@ export default function xcss(framework: 'react' | 'solid' = 'react'): Plugin {
           imports.add(specifier)
           const baseClass = module.classes[origin.className]
           if (baseClass === undefined) this.error('Missing XCSS class ' + origin.className)
-          return [origin.variantLabel ?? baseClass, baseClass + ' ' + origin.alias]
+          return [origin.variantLabel ?? baseClass, baseClass]
         }))
         output = output.slice(0, site.offset) + ' __xcssClassSlots={' + JSON.stringify(slots) + '} ' + output.slice(site.offset)
       }

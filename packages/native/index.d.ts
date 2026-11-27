@@ -232,7 +232,6 @@ export interface NativeClassOrigin {
 moduleId: string
 className: string
 variantLabel?: string
-alias: string
 }
 
 export interface NativeClassSite {

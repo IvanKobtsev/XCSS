@@ -18,6 +18,10 @@ test('Solid compiler accepts XCSS in development and production', async () => {
   const result = await build({ ...config, build: { write: false, lib: { entry: 'app.tsx', formats: ['es'] as ['es'] } } })
   const outputs = Array.isArray(result) ? result : [result]
   expect(outputs.some(output => 'output' in output && output.output.some(file => file.type === 'asset' && file.fileName.endsWith('.css')))).toBe(true)
+  const css = outputs.flatMap(output => 'output' in output ? output.output.flatMap(file => file.type === 'asset' && file.fileName.endsWith('.css') ? [file.source] : []) : []).join('\n')
+  expect(css).toContain('box_000')
+  expect(css).not.toContain('box_001')
+  expect(css).not.toContain('#__')
 })
 
 test('Solid bindings stay reactive and hide XCSS metadata', () => {
@@ -27,12 +31,12 @@ test('Solid bindings stay reactive and hide XCSS metadata', () => {
     class: { existing: true },
     get xClass() { return active },
     get xVars() { return { '--width': width } },
-    __xcssClassSlots: [[['a', 'a alias-a'], ['b', 'b alias-b']]],
+    __xcssClassSlots: [[['a', 'a'], ['b', 'b']]],
   }])
-  expect(props.class).toEqual([{ existing: true }, 'a alias-a'])
+  expect(props.class).toEqual([{ existing: true }, 'a'])
   active = 'b'
   width = '2px'
-  expect(props.class).toEqual([{ existing: true }, 'b alias-b'])
+  expect(props.class).toEqual([{ existing: true }, 'b'])
   expect(props.style).toEqual({ '--width': '2px' })
   expect(Object.keys(props)).toEqual(['class', 'style'])
 })

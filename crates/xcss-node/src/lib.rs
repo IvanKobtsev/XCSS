@@ -94,7 +94,6 @@ pub struct NativeClassOrigin {
     pub module_id: String,
     pub class_name: String,
     pub variant_label: Option<String>,
-    pub alias: String,
 }
 
 #[napi(object, object_from_js = false)]
@@ -122,7 +121,6 @@ pub struct Compiler {
     root: std::path::PathBuf,
     assets: GenerateOptions,
     host: AnalysisHost,
-    positions: BTreeMap<FileId, BTreeMap<String, std::collections::BTreeSet<usize>>>,
 }
 #[napi]
 impl Compiler {
@@ -133,7 +131,6 @@ impl Compiler {
             root: std::path::PathBuf::new(),
             assets: GenerateOptions::default(),
             host: AnalysisHost::new(),
-            positions: BTreeMap::new(),
         }
     }
 
@@ -182,7 +179,6 @@ impl Compiler {
     #[napi]
     pub fn clear_class_slots(&mut self) {
         self.assets.planned_names = None;
-        self.positions.clear();
     }
 
     #[napi]
@@ -192,7 +188,6 @@ impl Compiler {
         sources: Vec<NativeProjectSource>,
     ) -> napi::Result<NativeClassPlan> {
         self.assets.planned_names = None;
-        self.positions.clear();
         let snapshot = self.host.snapshot();
         let project = xcss_language_service::TypeScriptProject {
             config,
@@ -235,28 +230,13 @@ impl Compiler {
                 let slots = entry
                     .slots
                     .into_iter()
-                    .enumerate()
-                    .map(|(index, origins)| {
+                    .map(|origins| {
                         origins
                             .into_iter()
-                            .map(|origin| {
-                                let alias = xcss_core::positional_class(
-                                    &origin.module,
-                                    &origin.class,
-                                    index,
-                                );
-                                self.positions
-                                    .entry(origin.module.clone())
-                                    .or_default()
-                                    .entry(origin.class.clone())
-                                    .or_default()
-                                    .insert(index);
-                                NativeClassOrigin {
-                                    module_id: origin.module.0,
-                                    class_name: origin.class,
-                                    variant_label: origin.variant_label,
-                                    alias,
-                                }
+                            .map(|origin| NativeClassOrigin {
+                                module_id: origin.module.0,
+                                class_name: origin.class,
+                                variant_label: origin.variant_label,
                             })
                             .collect()
                     })
@@ -272,8 +252,7 @@ impl Compiler {
                 });
             }
         }
-        let mut options = self.assets.clone();
-        options.class_positions = self.positions.clone();
+        let options = self.assets.clone();
         let names = xcss_core::project_names(&snapshot, &options).map_err(|errors| {
             napi::Error::from_reason(
                 errors
@@ -283,15 +262,6 @@ impl Compiler {
                     .join("\n"),
             )
         })?;
-        for site in &mut sites {
-            for slot in &mut site.slots {
-                for origin in slot {
-                    if let Some(name) = names.global.get(&origin.alias) {
-                        origin.alias = name.clone();
-                    }
-                }
-            }
-        }
         self.assets.planned_names = Some(std::sync::Arc::new(names));
         Ok(NativeClassPlan { sites, diagnostics })
     }
@@ -337,8 +307,7 @@ impl Compiler {
     #[napi]
     pub fn compile_utilities(&mut self, entries: Vec<String>) -> NativeCompilation {
         let snapshot = self.host.snapshot();
-        let mut planning = self.assets.clone();
-        planning.class_positions = self.positions.clone();
+        let planning = self.assets.clone();
         if let Ok(names) = xcss_core::project_names(&snapshot, &planning) {
             self.assets.planned_names = Some(std::sync::Arc::new(names));
         }
@@ -350,7 +319,6 @@ impl Compiler {
                 &FileId(entry),
                 &GenerateOptions {
                     planned_names: self.assets.planned_names.clone(),
-                    class_positions: self.positions.clone(),
                     asset_resolutions: self.assets.asset_resolutions.clone(),
                     ..GenerateOptions::default()
                 },
@@ -395,8 +363,7 @@ impl Compiler {
         bundle: Option<bool>,
     ) -> NativeCompilation {
         let snapshot = self.host.snapshot();
-        let mut planning = self.assets.clone();
-        planning.class_positions = self.positions.clone();
+        let planning = self.assets.clone();
         if let Ok(names) = xcss_core::project_names(&snapshot, &planning) {
             self.assets.planned_names = Some(std::sync::Arc::new(names));
         }
@@ -408,7 +375,6 @@ impl Compiler {
                 planned_names: self.assets.planned_names.clone(),
                 minify: minify.unwrap_or(false),
                 bundle: bundle.unwrap_or(false),
-                class_positions: self.positions.clone(),
                 ..GenerateOptions::default()
             },
         );

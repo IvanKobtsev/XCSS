@@ -40,7 +40,7 @@ pub fn project_names(
         let mut lower =
             lower::Lowerer::new(snapshot, file, &file.0, options.source_root.as_deref());
         lower.asset_resolutions = Some(&options.asset_resolutions);
-        let input = lower.module(options.class_positions.get(file))?;
+        let input = lower.module()?;
         let text = without_line_comments(&input.text);
         let sheet = StyleSheet::parse(
             &text,
@@ -81,17 +81,6 @@ pub fn project_names(
             );
             identities.insert(key.clone());
             global.push((class.clone(), key));
-        }
-        for (name, indices) in options.class_positions.get(file).into_iter().flatten() {
-            for index in indices {
-                let key = (
-                    "class".to_string(),
-                    name.clone(),
-                    format!("{}\0position:{index:020}", file.0),
-                );
-                identities.insert(key.clone());
-                global.push((positional_class(file, name, *index), key));
-            }
         }
     }
     let names = xcss_source::Names::allocate(snapshot.suffix_length(), identities, &reserved)

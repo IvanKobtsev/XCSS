@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Breaking: flatten nested XCSS rules with independent parent-list specificity and preserve declaration order. Existing selector syntax is unchanged; Sass suffix syntax is not added.
+- Breaking: remove positional specificity and generated aliases from `xClass`. Tuple order no longer changes CSS precedence or scoped-name allocation. Rebuild CSS and JavaScript together. The future `override()` helper is not part of this change.
+- Remove `GenerateOptions.class_positions`, `positional_class`, and native class-origin `alias`. Editor specificity is unavailable with an explanatory reason when flattened branches have different scores.
+
 - Breaking: language-service API v7 replaces hover `text` with structured symbol, type, signature, variable, constant-value, and declaration data. Consumers must format their own hover hints; diagnostic messages are unchanged.
 
 ## 0.12.0

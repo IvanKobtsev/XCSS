@@ -70,7 +70,20 @@ limits of 128 nested calls and 100,000 visited expansion statements per entry.
 Eligible pseudo-element rules receive empty content after expansion. Existing
 content wins; content: preserve suppresses insertion and is removed.
 
-Native CSS nesting is preserved. License comments survive; exact formatting and
+Nested rules are flattened after injection expansion and before CSS scoping.
+Parent/child selector lists expand independently, including repeated `&` references;
+explicit selector functions retain their own specificity semantics. Declarations
+before and after nested rules keep their source order in separate rule blocks.
+Grouping at-rules retain their conditions, layers, and scope. Raw contents and
+keyframe steps are excluded. Selector expansion shares the 100,000-item generation
+budget and rejects excessive depth or output size with a diagnostic. Sass suffix
+syntax such as `&--modifier` is not supported.
+
+`xClass` composes ordinary class exports without positional aliases or specificity
+boosts. Moving a class within a tuple does not change CSS or name allocation.
+`GenerateOptions.class_positions` and `positional_class` have been removed.
+
+License comments survive; exact formatting and
 ordinary comments are not guaranteed. Browser targets/prefixing are downstream
 responsibilities. Unknown declarations/at-rules are retained when supported by
 the backend; backend failures produce diagnostics rather than silent omission.

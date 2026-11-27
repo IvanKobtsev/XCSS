@@ -107,7 +107,10 @@ Specificity follows [MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/Guide
 and the linked CSS specifications: zero-weight `:where()`, maximum arguments
 for `:is()`, `:not()`, and `:has()`, nth-child selector filters,
 shadow DOM selectors, legacy pseudo-elements, and implicit/explicit nesting.
-Parent lists contribute their maximum tuple; repeated `&` contributes repeatedly.
+Nested selectors use the same branch expansion as compiled CSS. An exact score
+is returned only when every expansion of that source selector has the same tuple;
+otherwise the score is unavailable with a reason explaining the varying branches.
+Explicit `:is()`, `:not()`, and similar functions still use CSS specificity rules.
 XCSS `:local` and `:global` wrappers are transparent. Scoped renaming does
 not change specificity. At-rule boundaries add no specificity; an explicit
 `:scope` counts as a pseudo-class. Keyframe steps are excluded.

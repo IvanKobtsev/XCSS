@@ -18,7 +18,7 @@ pub type AssetResolutions = BTreeMap<FileId, BTreeMap<String, Result<String, Str
 
 #[derive(Clone, Debug, Default)]
 pub struct GenerateOptions {
-    /// Host-owned plan, valid only for the current snapshot and class positions.
+    /// Host-owned plan, valid only for the current snapshot.
     pub planned_names: Option<std::sync::Arc<ProjectNames>>,
     /// Host-resolved URLs, keyed by definition file and decoded URL. Targets use source-root coordinates.
     pub asset_resolutions: AssetResolutions,
@@ -29,18 +29,8 @@ pub struct GenerateOptions {
     pub source_root: Option<String>,
     /// Destination used to rebase assets in the shared utility stylesheet.
     pub utilities_output_path: Option<String>,
-    pub class_positions: BTreeMap<FileId, BTreeMap<String, BTreeSet<usize>>>,
 }
 
-pub fn positional_class(file: &FileId, name: &str, index: usize) -> String {
-    let hex = |value: &str| {
-        value
-            .bytes()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    };
-    format!("_xcss_position_{}_{}_{}", hex(&file.0), hex(name), index)
-}
 #[derive(Clone, Debug)]
 pub struct GeneratedModule {
     pub module_id: FileId,
@@ -226,7 +216,7 @@ pub fn generate(
         );
         lower.asset_resolutions = Some(&options.asset_resolutions);
         lower.utility_output_identity = &utility_identity;
-        let mapped = lower.module(options.class_positions.get(file))?;
+        let mapped = lower.module()?;
         utility_globals.extend(lower.globals.clone());
         let parse = snapshot.syntax(file).unwrap();
         for node in &parse.tree.children {

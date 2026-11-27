@@ -136,7 +136,7 @@ know, such as a constructed `calc()` expression.
 ## Composing classes in React
 
 With the XCSS JSX runtime configured, use `xClass` on intrinsic elements to
-compose scoped class names. A single class uses slot zero. For multiple slots,
+compose scoped class names. Pass one class directly or, for multiple entries,
 pass an array literal or a fixed readonly tuple of
 named `styles` exports, values typed as `Variants<'Group'>`, and conditional
 slots. Booleans, `null`, and `undefined` leave the slot empty. Use `className`
@@ -151,9 +151,10 @@ export function Box({ active, className }: { active: boolean; className?: ClassN
 }
 ```
 
-The runtime appends the contributed classes and positional aliases to
-`className`. Later slots add more specificity to eligible stylesheet-root
-rules. Variant slots resolve labels to the classes declared in their group.
+The runtime appends the contributed classes to `className`. Tuple positions do
+not affect specificity or CSS precedence; normal CSS cascade rules apply. Variant
+entries resolve labels to the classes declared in their group. Nested XCSS rules
+compile to flat CSS, with independent specificity for each parent-list branch.
 Vite uses the root `tsconfig.json` to find usages. Set
 `"tsconfig": "./tsconfig.app.json"` in `xcss.config.json` for a split config, and use the same
 config with `xcss check --project`.

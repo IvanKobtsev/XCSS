@@ -6,6 +6,29 @@ pub(super) struct Mapped {
     pub raw: BTreeMap<String, (String, Location)>,
 }
 impl Mapped {
+    pub fn slice(&self, range: TextRange) -> Self {
+        let mut out = Self::default();
+        out.text = self.text[range.start..range.end].to_owned();
+        for (span, origin) in &self.spans {
+            let start = span.start.max(range.start);
+            let end = span.end.min(range.end);
+            if start >= end {
+                continue;
+            }
+            let mut origin = origin.clone();
+            if span.end - span.start == origin.range.end - origin.range.start {
+                origin.range = TextRange::new(
+                    origin.range.start + start - span.start,
+                    origin.range.start + end - span.start,
+                );
+            }
+            out.spans.push((
+                TextRange::new(start - range.start, end - range.start),
+                origin,
+            ));
+        }
+        out
+    }
     pub fn origin_at(&self, offset: usize) -> Option<Location> {
         let (range, origin) = self.spans.iter().find(|(r, _)| r.contains(offset))?;
         let mut origin = origin.clone();
@@ -68,6 +91,38 @@ impl Mapped {
                 }),
             );
         };
+        // Printing preserves rule order. Pair selector parts within each rule,
+        // ignoring CSS Modules wrappers which disappear during printing.
+        let rules = |parse: &ParseResult| -> Vec<Node> {
+            parse
+                .tree
+                .descendants()
+                .filter(|n| n.kind == NodeKind::Rule)
+                .cloned()
+                .collect()
+        };
+        for (before, after) in rules(&input).iter().zip(rules(&output).iter()) {
+            let parts = |parse: &ParseResult, node: &Node| {
+                xcss_syntax::analyze_selectors(parse.slice(node.header), node.header.start, None)
+                    .into_iter()
+                    .flat_map(|s| s.parts)
+                    .filter(|p| !matches!(parse.slice(p.range), ":local" | ":global"))
+                    .collect::<Vec<_>>()
+            };
+            let original = parts(&input, before);
+            let mut cursor = 0;
+            for part in parts(&output, after) {
+                if let Some((index, source)) = original
+                    .iter()
+                    .enumerate()
+                    .skip(cursor)
+                    .find(|(_, p)| p.kind == part.kind)
+                {
+                    add(part.range.start, source.range.start);
+                    cursor = index + 1;
+                }
+            }
+        }
         for node in output.tree.descendants() {
             let Some(declaration) = output.declaration(node) else {
                 continue;

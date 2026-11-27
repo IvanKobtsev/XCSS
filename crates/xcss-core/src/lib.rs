@@ -5,7 +5,7 @@ pub use xcss_analysis::{
 };
 pub use xcss_codegen::{
     GenerateOptions, GeneratedModule, GeneratedProject, GeneratedUtilities, GeneratedUtilityRule,
-    generate, merge_utilities, positional_class, project_names,
+    generate, merge_utilities, project_names,
 };
 pub use xcss_source::{Diagnostic, FileId, Location, Severity, SourceFile, TextRange};
 
