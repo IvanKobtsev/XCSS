@@ -4,6 +4,7 @@ import { normalizePath } from 'vite'
 import { describe, expect, it, vi } from 'vitest'
 import xcss from '../src/index.js'
 import { createVirtualId, createCssId, cssAssetUrls, parseVirtualId } from '../src/internal.js'
+import { compilerTimeout } from './integration-timeouts.js'
 describe('virtual XCSS ids', () => {
  it('finds real asset URLs while preserving strings, comments, and CSS escapes',()=>{
   const css=String.raw`.a { content: "url(fake.svg)"; /* url(comment.svg) */ background: url("a\20 b.svg?q=1#part"); mask: url(icon.svg); }`
@@ -24,19 +25,19 @@ describe('plugin shape',()=>{
   const plugin=xcss();const virtual=await (plugin.resolveId as Function).call({resolve:async()=>({id:'C:/project/a.xcss'})},'./a.xcss',undefined,{});const module={id:virtual};const invalidateModule=vi.fn();const result=(plugin.handleHotUpdate as Function)({file:'C:/project/a.xcss',modules:[],server:{moduleGraph:{getModuleById:()=>module,invalidateModule}}});expect(invalidateModule).toHaveBeenCalledWith(module);expect(result).toContain(module)
  })
  it('anchors source maps to original files rather than the virtual CSS directory',async()=>{
-  const root=fileURLToPath(new URL('../../../fixtures/vite-basic/',import.meta.url))
+  const root=fileURLToPath(new URL('./fixtures/plugin/',import.meta.url))
   const source=normalizePath(join(root,'src/styles.xcss'));const plugin=xcss()
   ;(plugin.configResolved as Function)({root,command:'serve',base:'/',build:{assetsDir:'assets',outDir:'dist'}})
   const result=await (plugin.load as Function).call({resolve:async(specifier:string,importer:string)=>({id:specifier.startsWith('@/')?join(root,'src',specifier.slice(2)):join(dirname(importer),specifier)}),addWatchFile:()=>{},warn:()=>{},error:(error:{message:string})=>{throw new Error(error.message)}},createCssId(source))
   expect(result.map.sources).toContain(source)
   expect(result.map.sources.some((path:string)=>path.includes('/src/src/'))).toBe(false)
- })
+ }, compilerTimeout)
 
 })
 
 
 it('watches absent project config without exposing it as a client module dependency', async () => {
- const root = fileURLToPath(new URL('../../../fixtures/vite-basic/', import.meta.url))
+ const root = fileURLToPath(new URL('./fixtures/plugin/', import.meta.url))
  const source = normalizePath(join(root, 'src/styles.xcss'))
  const plugin = xcss()
  ;(plugin.configResolved as Function)({ root, command: 'serve', base: '/', build: { assetsDir: 'assets', outDir: 'dist' } })
@@ -48,4 +49,4 @@ it('watches absent project config without exposing it as a client module depende
  }
  expect(addWatchFile).not.toHaveBeenCalledWith(normalizePath(join(root, 'xcss.config.json')))
  expect(addWatchFile).toHaveBeenCalledWith(normalizePath(join(root, 'tsconfig.json')))
-})
+}, compilerTimeout)

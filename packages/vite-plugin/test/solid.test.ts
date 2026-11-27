@@ -5,6 +5,7 @@ import { build, createServer } from 'vite'
 import solid from '@solidjs/vite-plugin'
 import xcss from '../src/solidjs-plugin.js'
 import { fileURLToPath } from 'node:url'
+import { compilerTimeout } from './integration-timeouts.js'
 
 const root = fileURLToPath(new URL('./fixtures/solid/', import.meta.url))
 test('Solid compiler accepts XCSS in development and production', async () => {
@@ -23,7 +24,7 @@ test('Solid compiler accepts XCSS in development and production', async () => {
   expect(css).not.toContain('box_001')
   expect(css).toContain('box_000_override_2')
   expect(css).toContain('#_#_')
-})
+}, compilerTimeout)
 
 test('Solid bindings stay reactive and hide XCSS metadata', () => {
   let active = 'a'

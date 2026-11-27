@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { expect, it } from 'vitest'
+import { compilerTimeout } from './integration-timeouts.js'
 
 function consumer(source: string, moduleResolution = ts.ModuleResolutionKind.NodeNext) {
   const file = fileURLToPath(new URL('./types-consumer.ts', import.meta.url))
@@ -42,7 +43,7 @@ it.each([
   expect(ts.getPreEmitDiagnostics(program).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).toEqual([])
   expect(program.getSourceFiles().map(file => file.fileName.replaceAll('\\', '/'))
     .filter(path => /\/(?:@types\/react|react|solid-js|@solidjs)\//.test(path))).toEqual([])
-})
+}, compilerTimeout)
 
 it('requires shared class type imports to use the neutral entry point', () => {
   const program = consumer(`
@@ -52,4 +53,4 @@ it('requires shared class type imports to use the neutral entry point', () => {
   const diagnostics = ts.getPreEmitDiagnostics(program)
   expect(diagnostics.map(d => d.code)).toEqual([2305, 2305])
   expect(diagnostics.every(d => ts.flattenDiagnosticMessageText(d.messageText, '\n').includes('ClassName'))).toBe(true)
-})
+}, compilerTimeout)

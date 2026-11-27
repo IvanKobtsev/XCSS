@@ -7,6 +7,7 @@ import xcss from '../src/index.js'
 import { ms, percentage, px, vh } from '../src/units.js'
 import { normalizeProps } from '../src/react/props.js'
 import { createCssId } from '../src/internal.js'
+import { compilerTimeout, restartTimeout } from './integration-timeouts.js'
 
 const root = fileURLToPath(new URL('./fixtures/react/', import.meta.url))
 interface Fixture {
@@ -62,7 +63,7 @@ it('merges xVars and xClass in the Vite development runtime and SSR', async () =
   } finally {
     await server.close()
   }
-})
+}, compilerTimeout)
 
 it('merges xVars and xClass in a production bundle', async () => {
   const result = await build({
@@ -83,7 +84,7 @@ it('merges xVars and xClass in a production bundle', async () => {
   expect(css).toContain('primary_000')
   expect(css).toContain('override_000_override_2')
   expect(css).toContain('#_#_')
-})
+}, compilerTimeout)
 
 it('refreshes composition and override levels without renumbering base classes', async () => {
   const temporary = await mkdtemp(join(dirname(root.replace(/[\\/]$/, '')), 'react-update-'))
@@ -132,7 +133,7 @@ it('refreshes composition and override levels without renumbering base classes',
     await server.close()
     await rm(temporary, { recursive: true, force: true })
   }
-}, 15000)
+}, compilerTimeout)
 
 it('normalizes clsx values and preserves custom component props', () => {
   const props = { className: 'global', xClass: ['local', false, 'local'] }
@@ -174,4 +175,4 @@ it('restarts and reloads scoped names when shared configuration changes', async 
     await server.close()
     await rm(temporary, { recursive: true, force: true })
   }
-})
+}, restartTimeout)

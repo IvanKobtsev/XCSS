@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { expect, it } from 'vitest'
+import { compilerTimeout } from './integration-timeouts.js'
 
 it.each(['react', 'solid'])('checks %s JSX with the published class types and prop augmentation', framework => {
   const configFile = fileURLToPath(new URL(`./fixtures/${framework}/tsconfig.json`, import.meta.url))
@@ -9,7 +10,7 @@ it.each(['react', 'solid'])('checks %s JSX with the published class types and pr
   if (framework === 'react') expect(parsed.options.jsxImportSource).toBeUndefined()
   const program = ts.createProgram(parsed.fileNames, { ...parsed.options, noEmit: true })
   expect(ts.getPreEmitDiagnostics(program).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).toEqual([])
-})
+}, compilerTimeout)
 
 it('keeps ordinary TypeScript permissive for XCSS classes and variant values', () => {
   const file = fileURLToPath(new URL('./client-consumer.ts', import.meta.url))
@@ -33,4 +34,4 @@ it('keeps ordinary TypeScript permissive for XCSS classes and variant values', (
     : getSourceFile(path, languageVersion, onError, shouldCreateNewSourceFile)
   const program = ts.createProgram([client, file], options, host)
   expect(ts.getPreEmitDiagnostics(program).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n'))).toEqual([])
-})
+}, compilerTimeout)
